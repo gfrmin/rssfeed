@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS article_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_entry ON article_snapshots(entry_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_feed ON article_snapshots(feed_id);
+
+ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS priority INT DEFAULT 2;
 """
 
 

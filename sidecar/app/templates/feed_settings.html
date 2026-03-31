@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ feed.title }} — Settings{% endblock %}
+{% block content %}
+<h1>{{ feed.title }}</h1>
+<p class="feed-url">{{ feed.site_url or feed.feed_url }}</p>
+
+<div class="settings-section">
+  <label>Priority</label>
+  <select name="priority" hx-post="/feeds/{{ feed.id }}/set-priority" hx-swap="outerHTML">
+    <option value="1" {{ 'selected' if priority == 1 else '' }}>Must Read</option>
+    <option value="2" {{ 'selected' if priority == 2 else '' }}>Normal</option>
+    <option value="3" {{ 'selected' if priority == 3 else '' }}>Low</option>
+  </select>
+</div>
+
+<div class="settings-section">
+  <label>Fetch full article content</label>
+  <button
+    hx-post="/feeds/{{ feed.id }}/toggle-full-content"
+    hx-swap="outerHTML"
+    class="toggle {{ 'on' if fetch_full_content else 'off' }}"
+  >
+    {{ 'ON' if fetch_full_content else 'OFF' }}
+  </button>
+</div>
+
+<p><a href="/">&larr; Back to feeds</a></p>
+{% endblock %}

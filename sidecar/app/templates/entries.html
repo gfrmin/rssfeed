@@ -11,7 +11,7 @@
       <span class="entry-meta">
         {{ entry.feed.title if entry.feed else '' }}
         &middot;
-        {{ entry.published_at[:10] if entry.published_at else '' }}
+        {{ entry.published_at | timeago }}
       </span>
     </a>
   </article>

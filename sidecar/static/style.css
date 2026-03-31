@@ -52,6 +52,19 @@ th:last-child, td:last-child { white-space: nowrap; }
 th { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; }
 td a { color: var(--link); text-decoration: none; }
 td a:hover { text-decoration: underline; }
+.feed-settings-link { font-size: 0.75rem; color: var(--text-muted) !important; margin-left: 0.5rem; }
+.feed-settings-link:hover { color: var(--accent) !important; }
+
+.settings-section { margin: 1.5rem 0; display: flex; align-items: center; gap: 1rem; }
+.settings-section label { color: var(--text-muted); }
+.settings-section select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
 .feed-url { display: block; font-size: 0.8rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .toggle {

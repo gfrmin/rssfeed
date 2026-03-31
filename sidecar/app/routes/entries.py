@@ -17,6 +17,11 @@ async def _get_snapshot(conn, entry_id: int) -> dict | None:
     return await cur.fetchone()
 
 
+async def _feed_priorities(conn) -> dict[int, int]:
+    cur = await conn.execute("SELECT feed_id, priority FROM feed_config")
+    return {row["feed_id"]: row["priority"] for row in await cur.fetchall()}
+
+
 @router.get("/entries", response_class=HTMLResponse)
 async def entry_list(
     request: Request,
@@ -25,11 +30,43 @@ async def entry_list(
     offset: int = 0,
 ):
     limit = 50
-    data = await miniflux_client.get_entries(
-        feed_id=feed_id, status=status, limit=limit, offset=offset
-    )
-    entries = data.get("entries", [])
-    total = data.get("total", 0)
+
+    # If viewing a specific feed, no priority sorting needed
+    if feed_id:
+        data = await miniflux_client.get_entries(
+            feed_id=feed_id, status=status, limit=limit, offset=offset
+        )
+        entries = data.get("entries", [])
+        total = data.get("total", 0)
+    else:
+        # Fetch a larger batch and sort by priority then date
+        data = await miniflux_client.get_entries(
+            status=status, limit=200, offset=offset
+        )
+        all_entries = data.get("entries", [])
+        total = data.get("total", 0)
+
+        async with get_conn() as conn:
+            priorities = await _feed_priorities(conn)
+
+        for entry in all_entries:
+            entry["_priority"] = priorities.get(entry.get("feed_id"), 2)
+
+        # Sort: priority ascending, then newest first within tier
+        all_entries.sort(key=lambda e: (
+            e["_priority"],
+            "".join(c for c in (e.get("published_at") or "") if c not in ":-TZ"),
+        ))
+        # Reverse date within each priority group
+        from itertools import groupby
+        entries = []
+        for _, group in groupby(all_entries, key=lambda e: e["_priority"]):
+            tier = list(group)
+            tier.sort(key=lambda e: e.get("published_at", ""), reverse=True)
+            entries.extend(tier)
+
+        entries = entries[:limit]
+
     return templates.TemplateResponse(
         request,
         "entries.html",
@@ -65,11 +102,11 @@ async def fetch_full_content(entry_id: int):
     entry = await miniflux_client.get_entry(entry_id)
     url = entry.get("url", "")
     if not url:
-        return {"error": "No URL for entry"}
+        return HTMLResponse('<span class="error">No URL for entry</span>')
 
     extracted = await fetch_and_extract(url)
     if not extracted:
-        return {"error": "Extraction failed"}
+        return HTMLResponse('<span class="error">Extraction failed</span>')
 
     async with get_conn() as conn:
         import psycopg.types.json
@@ -92,16 +129,20 @@ async def fetch_full_content(entry_id: int):
             ),
         )
         await conn.commit()
-    return {"ok": True}
+    return HTMLResponse('<span class="success">Full article fetched — reload to view</span>')
 
 
 @router.post("/entries/{entry_id}/mark-read")
 async def mark_read(entry_id: int):
     await miniflux_client.update_entry_status([entry_id], "read")
-    return {"ok": True}
+    return HTMLResponse(
+        f'<button hx-post="/entries/{entry_id}/mark-unread" hx-swap="outerHTML">Mark unread</button>'
+    )
 
 
 @router.post("/entries/{entry_id}/mark-unread")
 async def mark_unread(entry_id: int):
     await miniflux_client.update_entry_status([entry_id], "unread")
-    return {"ok": True}
+    return HTMLResponse(
+        f'<button hx-post="/entries/{entry_id}/mark-read" hx-swap="outerHTML">Mark read</button>'
+    )

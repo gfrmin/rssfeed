@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: miniflux
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-miniflux}
+      POSTGRES_DB: miniflux
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "miniflux"]
+      interval: 10s
+      start_period: 30s
+    restart: unless-stopped
+
+  miniflux:
+    image: miniflux/miniflux:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://miniflux:${POSTGRES_PASSWORD:-miniflux}@db/miniflux?sslmode=disable
+      RUN_MIGRATIONS: "1"
+      CREATE_ADMIN: "1"
+      ADMIN_USERNAME: ${MINIFLUX_ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${MINIFLUX_ADMIN_PASSWORD:-changeme}
+      CLEANUP_ARCHIVE_READ_DAYS: "-1"
+      CLEANUP_ARCHIVE_UNREAD_DAYS: "-1"
+      POLLING_FREQUENCY: "15"
+    ports:
+      - "9144:8080"
+    restart: unless-stopped
+
+  sidecar:
+    build: ./sidecar
+    depends_on:
+      db:
+        condition: service_healthy
+      miniflux:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://miniflux:${POSTGRES_PASSWORD:-miniflux}@db/miniflux?sslmode=disable
+      MINIFLUX_URL: http://miniflux:8080
+      MINIFLUX_API_KEY: ${MINIFLUX_API_KEY}
+      BRIGHTDATA_PROXY: ${BRIGHTDATA_PROXY:-}
+    ports:
+      - "9145:8000"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Feeds{% endblock %}
+{% block content %}
+<h1>Feeds</h1>
+<table>
+  <thead>
+    <tr>
+      <th>Feed</th>
+      <th class="col-category">Category</th>
+      <th>Full Content</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for feed in feeds %}
+    <tr>
+      <td>
+        <a href="/entries?feed_id={{ feed.id }}">{{ feed.title }}</a>
+        <span class="feed-url">{{ feed.site_url or feed.feed_url }}</span>
+      </td>
+      <td class="col-category">{{ feed.category.title if feed.category else '-' }}</td>
+      <td>
+        <button
+          hx-post="/feeds/{{ feed.id }}/toggle-full-content"
+          hx-swap="outerHTML"
+          class="toggle {{ 'on' if feed.fetch_full_content else 'off' }}"
+        >
+          {{ 'ON' if feed.fetch_full_content else 'OFF' }}
+        </button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

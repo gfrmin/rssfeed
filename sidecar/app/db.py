@@ -31,6 +31,11 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_entry ON article_snapshots(entry_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_feed ON article_snapshots(feed_id);
 
 ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS priority INT DEFAULT 2;
+
+ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS extract_rules JSONB DEFAULT '{}'::jsonb;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_entry_hash
+  ON article_snapshots(entry_id, content_hash);
 """
 
 

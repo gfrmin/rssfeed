@@ -11,11 +11,12 @@ from app.extractor import fetch_and_extract
 logger = logging.getLogger(__name__)
 
 
-async def _get_enabled_feed_ids(conn: psycopg.AsyncConnection) -> set[int]:
+async def _get_enabled_feeds(conn: psycopg.AsyncConnection) -> dict[int, dict]:
+    """Return {feed_id: {extract_rules: ...}} for feeds with full content enabled."""
     cur = await conn.execute(
-        "SELECT feed_id FROM feed_config WHERE fetch_full_content = TRUE"
+        "SELECT feed_id, extract_rules FROM feed_config WHERE fetch_full_content = TRUE"
     )
-    return {row["feed_id"] for row in await cur.fetchall()}
+    return {row["feed_id"]: row["extract_rules"] or {} for row in await cur.fetchall()}
 
 
 async def _has_snapshot(conn: psycopg.AsyncConnection, entry_id: int) -> bool:
@@ -56,11 +57,11 @@ async def process_new_entries() -> int:
     """Check for new entries in full-content feeds and extract them. Returns count processed."""
     processed = 0
     async with get_conn() as conn:
-        enabled = await _get_enabled_feed_ids(conn)
+        enabled = await _get_enabled_feeds(conn)
         if not enabled:
             return 0
 
-        for feed_id in enabled:
+        for feed_id, extract_rules in enabled.items():
             try:
                 data = await miniflux_client.get_entries(feed_id=feed_id, limit=50)
             except Exception:
@@ -77,7 +78,7 @@ async def process_new_entries() -> int:
                     continue
 
                 logger.info("Extracting entry %d: %s", entry_id, url)
-                extracted = await fetch_and_extract(url)
+                extracted = await fetch_and_extract(url, extract_rules)
                 if extracted:
                     await _store_snapshot(conn, entry_id, feed_id, url, extracted)
                     processed += 1

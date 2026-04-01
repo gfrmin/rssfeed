@@ -6,34 +6,40 @@
     <h1>{{ entry.title }}</h1>
     <div class="entry-meta">
       {{ entry.feed.title if entry.feed else '' }}
+      {% if entry.author %}
+        &middot; {{ entry.author }}
+      {% endif %}
       &middot;
       {{ entry.published_at[:10] if entry.published_at else '' }}
       &middot;
       <a href="{{ entry.url }}" target="_blank" rel="noopener">Original</a>
-      {% if snapshot and snapshot.metadata %}
-        {% if snapshot.metadata.author %}
-          &middot; {{ snapshot.metadata.author }}
-        {% endif %}
-      {% endif %}
     </div>
+    {% if entry.tags %}
+    <div class="entry-tags">
+      {% for tag in entry.tags %}<span class="tag">{{ tag }}</span>{% endfor %}
+    </div>
+    {% endif %}
     <div class="entry-actions">
       {% if entry.status == 'unread' %}
       <button hx-post="/entries/{{ entry.id }}/mark-read" hx-swap="outerHTML">Mark read</button>
       {% else %}
       <button hx-post="/entries/{{ entry.id }}/mark-unread" hx-swap="outerHTML">Mark unread</button>
       {% endif %}
-      {% if not snapshot %}
       <button hx-post="/entries/{{ entry.id }}/fetch-full" hx-swap="outerHTML" hx-indicator="#loading">
-        Fetch full article
+        {% if snapshot %}Refetch{% else %}Fetch full article{% endif %}
       </button>
       <span id="loading" class="htmx-indicator">Fetching...</span>
-      {% endif %}
     </div>
   </header>
 
   <div class="entry-content">
     {% if snapshot %}
-      <div class="snapshot-badge">Full article (fetched {{ snapshot.fetched_at.strftime('%Y-%m-%d %H:%M') if snapshot.fetched_at else 'unknown' }})</div>
+      <div class="snapshot-badge">
+        Full article v{{ snapshot.version }} (fetched {{ snapshot.fetched_at.strftime('%Y-%m-%d %H:%M') if snapshot.fetched_at else 'unknown' }})
+        {% if version_count > 1 %}
+          &middot; <a href="/entries/{{ entry.id }}/diff">{{ version_count }} versions — view changes</a>
+        {% endif %}
+      </div>
       {{ snapshot.content_html | safe }}
     {% else %}
       <div class="snapshot-badge rss-only">RSS content only</div>

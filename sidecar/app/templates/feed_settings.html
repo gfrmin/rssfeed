@@ -24,5 +24,22 @@
   </button>
 </div>
 
+<div class="settings-section">
+  <label>Extract rules (JSON)</label>
+  <form hx-post="/feeds/{{ feed.id }}/set-extract-rules" hx-swap="afterend">
+    <textarea name="extract_rules" rows="6" cols="50" style="font-family: monospace; font-size: 0.9em;">{{ extract_rules_json }}</textarea>
+    <br>
+    <button type="submit">Save rules</button>
+  </form>
+  <details style="margin-top: 0.5em;">
+    <summary>Available rules</summary>
+    <ul>
+      <li><code>"unwrap_tags": ["template"]</code> — promote children of matched elements (e.g. Vue.js slots)</li>
+      <li><code>"remove_tags": ["widget-*"]</code> — remove elements by tag name glob pattern</li>
+      <li><code>"content_xpath": "//article"</code> — XPath selector for main content (bypasses readability auto-detection)</li>
+    </ul>
+  </details>
+</div>
+
 <p><a href="/">&larr; Back to feeds</a></p>
 {% endblock %}

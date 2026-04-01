@@ -113,6 +113,17 @@ td a:hover { text-decoration: underline; }
 .entry-detail .entry-meta { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.5rem; }
 .entry-detail .entry-meta a { color: var(--link); text-decoration: none; }
 
+.entry-tags { margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.tag {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  border-radius: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
 .entry-actions { margin-top: 1rem; display: flex; gap: 0.5rem; }
 .entry-actions button {
   background: var(--surface);

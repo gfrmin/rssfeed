@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir \
     'jinja2>=3.1' \
     'psycopg[binary]>=3.2' \
     'trafilatura>=2.0' \
+    'readability-lxml>=0.8' \
     'python-multipart>=0.0.18' \
     'humanize>=4.0'
 

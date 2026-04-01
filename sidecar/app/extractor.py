@@ -149,8 +149,8 @@ def _extract(html: str, url: str, rules: dict[str, Any]) -> dict[str, Any] | Non
 _ALLOWED_TAGS = frozenset({
     'html', 'body', 'div', 'p', 'a', 'em', 'i', 'b', 'strong',
     'span', 'br', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-    'blockquote', 'figure', 'figcaption', 'img', 'table', 'thead',
-    'tbody', 'tr', 'td', 'th', 'pre', 'code', 'sup', 'sub',
+    'blockquote', 'figure', 'figcaption', 'img', 'iframe', 'video',
+    'table', 'thead', 'tbody', 'tr', 'td', 'th', 'pre', 'code', 'sup', 'sub',
 })
 
 

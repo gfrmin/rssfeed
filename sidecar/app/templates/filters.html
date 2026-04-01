@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Saved Filters{% endblock %}
+{% block content %}
+<h1>Saved Filters</h1>
+
+<div class="filters-list">
+  {% for f in filters %}
+  <div class="filter-card">
+    <div class="filter-header">
+      <strong>{{ f.name }}</strong>
+      {% if f.auto_action %}
+      <span class="tag">{{ f.auto_action }}</span>
+      {% endif %}
+      <button hx-post="/filters/{{ f.id }}/delete" hx-confirm="Delete this filter?" class="btn-sm danger">Delete</button>
+    </div>
+    <pre class="filter-rules">{{ f.rules | tojson(indent=2) }}</pre>
+  </div>
+  {% else %}
+  <p>No filters yet.</p>
+  {% endfor %}
+</div>
+
+<h2>Create Filter</h2>
+<form hx-post="/filters" class="filter-form">
+  <div class="form-group">
+    <label>Name</label>
+    <input type="text" name="name" required placeholder="e.g. Mute crypto spam">
+  </div>
+
+  <div class="form-group">
+    <label>Rules (JSON array)</label>
+    <textarea name="rules_json" rows="5" placeholder='[{"field": "title", "op": "contains", "value": "crypto"}]'></textarea>
+    <details>
+      <summary>Rule format</summary>
+      <p>Each rule: <code>{"field": "...", "op": "...", "value": "..."}</code></p>
+      <p>Fields: <code>title</code>, <code>content</code>, <code>author</code>, <code>url</code>, <code>feed_title</code></p>
+      <p>Operators: <code>contains</code>, <code>not_contains</code>, <code>equals</code>, <code>starts_with</code></p>
+    </details>
+  </div>
+
+  <div class="form-group">
+    <label>Auto-action</label>
+    <select name="auto_action">
+      <option value="">None (filter view only)</option>
+      <option value="mark_read">Mark as read</option>
+      <option value="star">Star</option>
+    </select>
+  </div>
+
+  <button type="submit">Create Filter</button>
+</form>
+{% endblock %}

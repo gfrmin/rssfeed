@@ -5,6 +5,7 @@
   <header>
     <h1>{{ entry.title }}</h1>
     <div class="entry-meta">
+      <img src="/feeds/{{ entry.feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
       {{ entry.feed.title if entry.feed else '' }}
       {% if entry.author %}
         &middot; {{ entry.author }}
@@ -12,11 +13,14 @@
       &middot;
       {{ entry.published_at[:10] if entry.published_at else '' }}
       &middot;
+      {{ entry.content | reading_time }}
+      &middot;
       <a href="{{ entry.url }}" target="_blank" rel="noopener">Original</a>
     </div>
-    {% if entry.tags %}
+    {% if entry.tags or llm_tags %}
     <div class="entry-tags">
-      {% for tag in entry.tags %}<span class="tag">{{ tag }}</span>{% endfor %}
+      {% for tag in entry.tags or [] %}<span class="tag">{{ tag }}</span>{% endfor %}
+      {% for tag in llm_tags %}<a href="/entries?tag={{ tag }}" class="tag llm-tag">{{ tag }}</a>{% endfor %}
     </div>
     {% endif %}
     <div class="entry-actions">
@@ -25,12 +29,36 @@
       {% else %}
       <button hx-post="/entries/{{ entry.id }}/mark-unread" hx-swap="outerHTML">Mark unread</button>
       {% endif %}
+
+      <button hx-post="/entries/{{ entry.id }}/toggle-star" hx-swap="outerHTML" class="star-btn {% if entry.starred %}starred{% endif %}">
+        {% if entry.starred %}Unstar{% else %}Star{% endif %}
+      </button>
+
       <button hx-post="/entries/{{ entry.id }}/fetch-full" hx-swap="outerHTML" hx-indicator="#loading">
         {% if snapshot %}Refetch{% else %}Fetch full article{% endif %}
       </button>
       <span id="loading" class="htmx-indicator">Fetching...</span>
+
+      <a href="/entries/{{ entry.id }}/export-md" class="btn" download>Export MD</a>
+
+      <button hx-post="/entries/{{ entry.id }}/share" hx-swap="afterend">Share</button>
     </div>
   </header>
+
+  {% if summary %}
+  <details class="summary-section" open>
+    <summary>AI Summary</summary>
+    <p class="article-summary">{{ summary }}</p>
+  </details>
+  {% endif %}
+
+  {% if audio_enclosure %}
+  <div class="audio-player">
+    <audio controls preload="none">
+      <source src="{{ audio_enclosure.url }}" type="{{ audio_enclosure.mime_type }}">
+    </audio>
+  </div>
+  {% endif %}
 
   <div class="entry-content">
     {% if snapshot %}
@@ -46,5 +74,14 @@
       {{ entry.content | safe }}
     {% endif %}
   </div>
+
+  {% if similar %}
+  <div class="similar-articles">
+    <h3>Similar Articles</h3>
+    {% for s in similar %}
+    <a href="/entries/{{ s.entry_id }}" class="similar-link">Entry #{{ s.entry_id }} ({{ "%.0f"|format(s.similarity * 100) }}% similar)</a>
+    {% endfor %}
+  </div>
+  {% endif %}
 </article>
 {% endblock %}

@@ -43,8 +43,13 @@ services:
       MINIFLUX_URL: http://miniflux:8080
       MINIFLUX_API_KEY: ${MINIFLUX_API_KEY}
       BRIGHTDATA_PROXY: ${BRIGHTDATA_PROXY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
     ports:
       - "9145:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 volumes:

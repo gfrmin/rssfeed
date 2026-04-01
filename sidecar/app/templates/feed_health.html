@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Feed Health{% endblock %}
+{% block content %}
+<h1>Feed Health</h1>
+
+<table>
+  <thead>
+    <tr>
+      <th>Status</th>
+      <th>Feed</th>
+      <th>Last Checked</th>
+      <th>Errors</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for feed in feeds %}
+    <tr class="{% if feed._has_error %}health-error{% elif feed._is_stale %}health-stale{% else %}health-ok{% endif %}">
+      <td>
+        {% if feed._has_error %}
+        <span class="status-dot error" title="Parsing error"></span>
+        {% elif feed._is_stale %}
+        <span class="status-dot stale" title="Stale (30+ days)"></span>
+        {% else %}
+        <span class="status-dot ok" title="OK"></span>
+        {% endif %}
+      </td>
+      <td>
+        <img src="/feeds/{{ feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
+        <a href="/feeds/{{ feed.id }}">{{ feed.title }}</a>
+      </td>
+      <td>{{ feed.checked_at | timeago }}</td>
+      <td>
+        {% if feed._has_error %}
+        <span class="error-msg">{{ feed.parsing_error_message }}</span>
+        <br><small>{{ feed._error_count }} error(s)</small>
+        {% else %}
+        —
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

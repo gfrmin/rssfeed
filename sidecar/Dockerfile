@@ -12,7 +12,8 @@ RUN pip install --no-cache-dir \
     'trafilatura>=2.0' \
     'readability-lxml>=0.8' \
     'python-multipart>=0.0.18' \
-    'humanize>=4.0'
+    'humanize>=4.0' \
+    'markdownify>=0.14'
 
 COPY . .
 

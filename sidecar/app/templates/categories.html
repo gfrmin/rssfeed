@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Categories{% endblock %}
+{% block content %}
+<h1>Categories</h1>
+
+<div class="category-list">
+  {% for cat in categories %}
+  <div class="category-card">
+    <h2>
+      <a href="/entries?category_id={{ cat.id }}">{{ cat.title }}</a>
+      {% if cat.unread_count > 0 %}
+      <span class="unread-badge">{{ cat.unread_count }}</span>
+      {% endif %}
+    </h2>
+    <div class="category-feeds">
+      {% for feed in cat.feeds %}
+      <a href="/entries?feed_id={{ feed.id }}" class="category-feed-link">
+        <img src="/feeds/{{ feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
+        {{ feed.title }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <p>No categories found.</p>
+  {% endfor %}
+</div>
+{% endblock %}

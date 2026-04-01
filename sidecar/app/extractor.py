@@ -2,6 +2,7 @@ import fnmatch
 import hashlib
 import logging
 from typing import Any
+from urllib.parse import quote, urljoin
 
 import httpx
 from lxml import html as lxml_html
@@ -13,13 +14,13 @@ logger = logging.getLogger(__name__)
 
 
 async def fetch_and_extract(
-    url: str, extract_rules: dict[str, Any] | None = None
+    url: str, extract_rules: dict[str, Any] | None = None, proxy_images: bool = True
 ) -> dict[str, Any] | None:
-    """Fetch a URL (direct, then proxy fallback) and extract article content."""
+    """Fetch a URL (direct, then proxy fallback, then Wayback) and extract article content."""
     html = await _fetch_html(url)
     if not html:
         return None
-    return _extract(html, url, extract_rules or {})
+    return _extract(html, url, extract_rules or {}, proxy_images=proxy_images)
 
 
 _HTTP_KWARGS = dict(
@@ -42,17 +43,49 @@ async def _fetch_html(url: str) -> str | None:
         logger.info("Direct fetch failed for %s, trying proxy", url)
 
     # Fall back to Brightdata proxy
-    if not BRIGHTDATA_PROXY:
-        logger.warning("No proxy configured, cannot retry %s", url)
-        return None
+    if BRIGHTDATA_PROXY:
+        try:
+            async with httpx.AsyncClient(proxy=BRIGHTDATA_PROXY, **_HTTP_KWARGS) as client:
+                r = await client.get(url)
+                r.raise_for_status()
+                return r.text
+        except Exception:
+            logger.info("Proxy fetch also failed for %s, trying Wayback Machine", url)
+    else:
+        logger.info("No proxy configured, trying Wayback Machine for %s", url)
+
+    # Fall back to Wayback Machine
     try:
-        async with httpx.AsyncClient(proxy=BRIGHTDATA_PROXY, **_HTTP_KWARGS) as client:
-            r = await client.get(url)
+        wayback_url = f"https://web.archive.org/web/{quote(url, safe='')}"
+        async with httpx.AsyncClient(**_HTTP_KWARGS) as client:
+            r = await client.get(wayback_url)
             r.raise_for_status()
             return r.text
     except Exception:
-        logger.exception("Proxy fetch also failed for %s", url)
+        logger.warning("All fetch methods failed for %s", url)
         return None
+
+
+async def fetch_proxied_image(url: str) -> tuple[bytes, str] | None:
+    """Fetch an image, returning (bytes, content_type) or None."""
+    try:
+        async with httpx.AsyncClient(**_HTTP_KWARGS) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            ct = r.headers.get("content-type", "image/jpeg")
+            return r.content, ct
+    except Exception:
+        pass
+    if BRIGHTDATA_PROXY:
+        try:
+            async with httpx.AsyncClient(proxy=BRIGHTDATA_PROXY, **_HTTP_KWARGS) as client:
+                r = await client.get(url)
+                r.raise_for_status()
+                ct = r.headers.get("content-type", "image/jpeg")
+                return r.content, ct
+        except Exception:
+            pass
+    return None
 
 
 def _unwrap_elements(tree: lxml_html.HtmlElement, tag_name: str) -> None:
@@ -62,10 +95,8 @@ def _unwrap_elements(tree: lxml_html.HtmlElement, tag_name: str) -> None:
         if parent is None:
             continue
         idx = list(parent).index(el)
-        # Promote children into the parent
         for i, child in enumerate(list(el)):
             parent.insert(idx + i, child)
-        # Preserve text content
         if el.text:
             prev = parent[idx - 1] if idx > 0 else None
             if prev is not None:
@@ -80,6 +111,16 @@ def _remove_elements(tree: lxml_html.HtmlElement, pattern: str) -> None:
     for tag in list(tree.iter()):
         if isinstance(tag.tag, str) and fnmatch.fnmatch(tag.tag, pattern) and tag.getparent() is not None:
             tag.getparent().remove(tag)
+
+
+def _rewrite_image_srcs(tree: lxml_html.HtmlElement, base_url: str) -> None:
+    """Rewrite img src attributes to go through the image proxy."""
+    for img in tree.xpath("//img[@src]"):
+        src = img.get("src", "")
+        if not src or src.startswith("data:") or src.startswith("/proxy/image"):
+            continue
+        absolute = urljoin(base_url, src)
+        img.set("src", f"/proxy/image?url={quote(absolute, safe='')}")
 
 
 def _clean_html(raw_html: str, rules: dict[str, Any]) -> str:
@@ -115,7 +156,6 @@ def _extract_by_xpath(html: str, xpath: str) -> str | None:
     if not matches:
         return None
     el = matches[0]
-    # Sanitize descendant tags but skip the matched root element itself
     for child in list(el.iterdescendants()):
         if isinstance(child.tag, str) and child.tag not in _ALLOWED_TAGS:
             child.drop_tag()
@@ -125,11 +165,10 @@ def _extract_by_xpath(html: str, xpath: str) -> str | None:
     return ''.join(parts).strip() or None
 
 
-def _extract(html: str, url: str, rules: dict[str, Any]) -> dict[str, Any] | None:
+def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = True) -> dict[str, Any] | None:
     cleaned = _clean_html(html, rules)
     text = extract(cleaned, url=url, include_comments=False, favor_precision=True, output_format="txt")
 
-    # Try feed-specific content_xpath first, then readability
     content_xpath = rules.get("content_xpath")
     html_content = (
         _extract_by_xpath(cleaned, content_xpath) if content_xpath else None
@@ -137,6 +176,18 @@ def _extract(html: str, url: str, rules: dict[str, Any]) -> dict[str, Any] | Non
 
     if not text and not html_content:
         return None
+
+    # Proxy images through our endpoint
+    if proxy_images and html_content:
+        try:
+            tree = lxml_html.fromstring(f"<div>{html_content}</div>")
+            _rewrite_image_srcs(tree, url)
+            html_content = lxml_html.tostring(tree, encoding="unicode")
+            # Strip the wrapper div
+            html_content = html_content.removeprefix("<div>").removesuffix("</div>")
+        except Exception:
+            pass
+
     content_text = text or ""
     return {
         "content_text": content_text,
@@ -151,6 +202,7 @@ _ALLOWED_TAGS = frozenset({
     'span', 'br', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'blockquote', 'figure', 'figcaption', 'img', 'iframe', 'video',
     'table', 'thead', 'tbody', 'tr', 'td', 'th', 'pre', 'code', 'sup', 'sub',
+    'audio', 'source',
 })
 
 
@@ -167,7 +219,6 @@ def _extract_html_readability(html: str) -> str | None:
             el.drop_tag()
     body = tree.xpath('//body')
     target = body[0] if body else tree
-    # Return inner HTML (children only) to avoid stray <body> wrapper
     parts = [target.text or '']
     for child in target:
         parts.append(lxml_html.tostring(child, encoding='unicode'))

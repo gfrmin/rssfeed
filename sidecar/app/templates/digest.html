@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Daily Digest{% endblock %}
+{% block content %}
+<h1>Daily Digest</h1>
+<p class="digest-date">{{ date }} &middot; {{ total_unread }} unread</p>
+
+{% if priority_entries %}
+<h2>Must Read</h2>
+<div class="digest-section">
+  {% for entry in priority_entries %}
+  <div class="digest-entry">
+    <a href="/entries/{{ entry.id }}" class="digest-title">{{ entry.title }}</a>
+    <span class="entry-meta">
+      {{ entry.feed.title if entry.feed else '' }} &middot; {{ entry.published_at | timeago }}
+    </span>
+    {% if entry._summary %}
+    <p class="digest-summary">{{ entry._summary }}</p>
+    {% else %}
+    <p class="digest-summary">{{ entry.content | excerpt }}</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if other_entries %}
+<h2>Other Unread</h2>
+<div class="digest-section">
+  {% for entry in other_entries %}
+  <div class="digest-entry compact">
+    <a href="/entries/{{ entry.id }}" class="digest-title">{{ entry.title }}</a>
+    <span class="entry-meta">
+      {{ entry.feed.title if entry.feed else '' }} &middot; {{ entry.published_at | timeago }}
+    </span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if not priority_entries and not other_entries %}
+<p>No unread articles today. You're all caught up!</p>
+{% endif %}
+{% endblock %}

@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ feed.title }} — Settings{% endblock %}
 {% block content %}
-<h1>{{ feed.title }}</h1>
+<h1>
+  <img src="/feeds/{{ feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
+  {{ feed.title }}
+</h1>
 <p class="feed-url">{{ feed.site_url or feed.feed_url }}</p>
 
 <div class="settings-section">
@@ -21,6 +24,17 @@
     class="toggle {{ 'on' if fetch_full_content else 'off' }}"
   >
     {{ 'ON' if fetch_full_content else 'OFF' }}
+  </button>
+</div>
+
+<div class="settings-section">
+  <label>LLM Summarization</label>
+  <button
+    hx-post="/feeds/{{ feed.id }}/toggle-summarize"
+    hx-swap="outerHTML"
+    class="toggle {{ 'on' if summarize else 'off' }}"
+  >
+    {{ 'ON' if summarize else 'OFF' }}
   </button>
 </div>
 

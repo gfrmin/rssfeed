@@ -21,4 +21,25 @@ def _timeago(iso_str: str) -> str:
         return iso_str[:16].replace("T", " ")
 
 
+def _reading_time(content: str) -> str:
+    if not content:
+        return "< 1 min"
+    words = len(content.split())
+    minutes = max(1, words // 230)
+    return f"{minutes} min read"
+
+
+def _excerpt(content: str, length: int = 200) -> str:
+    if not content:
+        return ""
+    import re
+    text = re.sub(r"<[^>]+>", "", content)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= length:
+        return text
+    return text[:length].rsplit(" ", 1)[0] + "..."
+
+
 templates.env.filters["timeago"] = _timeago
+templates.env.filters["reading_time"] = _reading_time
+templates.env.filters["excerpt"] = _excerpt

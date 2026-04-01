@@ -2,22 +2,70 @@
 {% block title %}Articles{% endblock %}
 {% block content %}
 {% if feed %}
-<h1>{{ feed.title }}</h1>
+<h1>
+  <img src="/feeds/{{ feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
+  {{ feed.title }}
+</h1>
 <p class="feed-url"><a href="{{ feed.site_url or feed.feed_url }}" target="_blank" rel="noopener">{{ feed.site_url or feed.feed_url }}</a></p>
 {% else %}
-<h1>Articles{% if status %} — {{ status }}{% endif %}</h1>
+<h1>Articles{% if status %} — {{ status }}{% endif %}{% if starred %} — Starred{% endif %}{% if changed %} — Changed{% endif %}</h1>
 {% endif %}
 
-<div class="entry-list">
+<!-- Search and filters bar -->
+<div class="filter-bar">
+  <form class="search-form" action="/entries" method="get">
+    <input type="search" name="search" value="{{ search }}" placeholder="Search articles..." class="search-input" id="search-input">
+    {% if feed_id %}<input type="hidden" name="feed_id" value="{{ feed_id }}">{% endif %}
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    {% if starred %}<input type="hidden" name="starred" value="true">{% endif %}
+    <button type="submit" class="btn-sm">Search</button>
+  </form>
+
+  <div class="time-filters">
+    <a href="/entries?time_filter=today{% if feed_id %}&feed_id={{ feed_id }}{% endif %}" class="btn-sm {% if time_filter == 'today' %}active{% endif %}">Today</a>
+    <a href="/entries?time_filter=24h{% if feed_id %}&feed_id={{ feed_id }}{% endif %}" class="btn-sm {% if time_filter == '24h' %}active{% endif %}">24h</a>
+    <a href="/entries?time_filter=week{% if feed_id %}&feed_id={{ feed_id }}{% endif %}" class="btn-sm {% if time_filter == 'week' %}active{% endif %}">Week</a>
+    <a href="/entries?changed=true" class="btn-sm {% if changed %}active{% endif %}" title="Show entries with content changes">Changed</a>
+  </div>
+
+  <div class="view-controls">
+    <button class="btn-sm view-btn" data-view="compact" title="Compact view">Compact</button>
+    <button class="btn-sm view-btn" data-view="normal" title="Normal view">Normal</button>
+    <button class="btn-sm view-btn" data-view="expanded" title="Expanded view">Expanded</button>
+    <button class="btn-sm" id="mark-all-read-btn" title="Mark all visible as read">Mark all read</button>
+  </div>
+</div>
+
+{% if all_tags %}
+<div class="tag-cloud">
+  {% for t in all_tags %}
+  <a href="/entries?tag={{ t }}" class="tag {% if tag == t %}active{% endif %}">{{ t }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="entry-list" id="entry-list">
   {% for entry in entries %}
-  <article class="entry-row {{ entry.status }}">
+  <article class="entry-row {{ entry.status }}" data-entry-id="{{ entry.id }}" data-url="{{ entry.url }}">
     <a href="/entries/{{ entry.id }}">
-      <span class="entry-title">{{ entry.title }}</span>
+      <span class="entry-title">
+        {% if entry._has_changes %}<span class="change-indicator" title="Content has changed">*</span>{% endif %}
+        {% if entry.starred %}<span class="star-indicator">*</span>{% endif %}
+        {{ entry.title }}
+      </span>
       <span class="entry-meta">
         {{ entry.feed.title if entry.feed else '' }}
         &middot;
         {{ entry.published_at | timeago }}
+        &middot;
+        {{ entry.content | reading_time }}
       </span>
+      {% if entry._tags %}
+      <span class="entry-tags-inline">
+        {% for t in entry._tags %}<span class="tag-sm">{{ t }}</span>{% endfor %}
+      </span>
+      {% endif %}
+      <span class="entry-excerpt">{{ entry.content | excerpt }}</span>
     </a>
   </article>
   {% else %}
@@ -28,9 +76,9 @@
 {% if entries|length == limit %}
 <div class="pagination">
   {% if offset > 0 %}
-  <a href="?offset={{ offset - limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}">Previous</a>
+  <a href="?offset={{ offset - limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if search %}&search={{ search }}{% endif %}{% if starred %}&starred=true{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}">Previous</a>
   {% endif %}
-  <a href="?offset={{ offset + limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}">Next</a>
+  <a href="?offset={{ offset + limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if search %}&search={{ search }}{% endif %}{% if starred %}&starred=true{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}">Next</a>
 </div>
 {% endif %}
 {% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Reading Stats{% endblock %}
+{% block content %}
+<h1>Reading Statistics</h1>
+
+<div class="stats-overview">
+  <div class="stat-card">
+    <div class="stat-number">{{ today_count }}</div>
+    <div class="stat-label">Read today</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-number">{{ total }}</div>
+    <div class="stat-label">Total read</div>
+  </div>
+</div>
+
+<h2>Last 7 days</h2>
+<div class="bar-chart">
+  {% for d in daily %}
+  <div class="bar-row">
+    <span class="bar-label">{{ d.day.strftime('%a %m/%d') if d.day else '' }}</span>
+    <div class="bar" style="width: {{ (d.cnt / max_daily * 100) | int }}%">
+      <span class="bar-value">{{ d.cnt }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if weekly %}
+<h2>Weekly</h2>
+<div class="bar-chart">
+  {% for w in weekly %}
+  <div class="bar-row">
+    <span class="bar-label">{{ w.week.strftime('%m/%d') if w.week else '' }}</span>
+    <div class="bar" style="width: {{ (w.cnt / (weekly | map(attribute='cnt') | max) * 100) | int }}%">
+      <span class="bar-value">{{ w.cnt }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if top_feeds %}
+<h2>Most Read Feeds (30 days)</h2>
+<div class="bar-chart">
+  {% for f in top_feeds %}
+  <div class="bar-row">
+    <span class="bar-label">{{ f.name }}</span>
+    <div class="bar" style="width: {{ (f.count / max_feed * 100) | int }}%">
+      <span class="bar-value">{{ f.count }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

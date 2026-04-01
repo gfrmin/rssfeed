@@ -2,21 +2,40 @@
 {% block title %}Feeds{% endblock %}
 {% block content %}
 <h1>Feeds</h1>
+
+<div class="feed-actions">
+  <a href="/opml/export" class="btn-sm" download>Export OPML</a>
+  <form hx-post="/opml/import" hx-encoding="multipart/form-data" hx-swap="afterend" style="display:inline">
+    <label class="btn-sm file-upload">
+      Import OPML
+      <input type="file" name="file" accept=".opml,.xml" hidden
+             onchange="this.closest('form').requestSubmit()">
+    </label>
+  </form>
+</div>
+
 <table>
   <thead>
     <tr>
       <th>Feed</th>
       <th class="col-category">Category</th>
+      <th>Unread</th>
     </tr>
   </thead>
   <tbody>
     {% for feed in feeds %}
     <tr>
       <td>
+        <img src="/feeds/{{ feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
         <a href="/entries?feed_id={{ feed.id }}">{{ feed.title }}</a>
         <a href="/feeds/{{ feed.id }}" class="feed-settings-link">settings</a>
       </td>
       <td class="col-category">{{ feed.category.title if feed.category else '-' }}</td>
+      <td>
+        {% if feed.unread_count > 0 %}
+        <span class="unread-badge">{{ feed.unread_count }}</span>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>

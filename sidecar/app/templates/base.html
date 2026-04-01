@@ -1,21 +1,55 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}RSS Reader{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <link rel="manifest" href="/static/manifest.json">
+  <script src="/static/htmx.min.js"></script>
 </head>
 <body>
   <nav>
-    <a href="/">Feeds</a>
-    <a href="/entries">All</a>
-    <a href="/entries?status=unread">Unread</a>
-    <a href="/entries?status=read">Read</a>
+    <div class="nav-left">
+      <a href="/">Feeds</a>
+      <a href="/entries">All</a>
+      <a href="/entries?status=unread">Unread</a>
+      <a href="/entries?starred=true">Starred</a>
+      <a href="/categories">Categories</a>
+      <a href="/digest">Digest</a>
+    </div>
+    <div class="nav-right">
+      <a href="/stats">Stats</a>
+      <a href="/filters">Filters</a>
+      <a href="/feeds/health">Health</a>
+      <button id="theme-toggle" class="nav-btn" title="Toggle theme">Theme</button>
+      <button id="help-toggle" class="nav-btn" title="Keyboard shortcuts (?)">?</button>
+    </div>
   </nav>
   <main>
     {% block content %}{% endblock %}
   </main>
+
+  <!-- Keyboard shortcuts help modal -->
+  <div id="help-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>Keyboard Shortcuts</h2>
+      <table class="shortcuts-table">
+        <tr><td><kbd>j</kbd></td><td>Next entry</td></tr>
+        <tr><td><kbd>k</kbd></td><td>Previous entry</td></tr>
+        <tr><td><kbd>o</kbd> / <kbd>Enter</kbd></td><td>Open entry</td></tr>
+        <tr><td><kbd>v</kbd></td><td>Open original in new tab</td></tr>
+        <tr><td><kbd>m</kbd></td><td>Toggle read/unread</td></tr>
+        <tr><td><kbd>s</kbd></td><td>Toggle star</td></tr>
+        <tr><td><kbd>r</kbd></td><td>Mark all read</td></tr>
+        <tr><td><kbd>/</kbd></td><td>Focus search</td></tr>
+        <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Close modal / clear focus</td></tr>
+      </table>
+      <button onclick="document.getElementById('help-modal').classList.add('hidden')">Close</button>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
 </body>
 </html>

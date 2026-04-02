@@ -122,7 +122,7 @@ nav a:hover { color: var(--text); }
   color: var(--text-muted);
   font-size: 0.85rem;
 }
-.nav-dropdown-menu a:hover { background: var(--bg); color: var(--text); }
+.nav-dropdown-menu a:hover, .nav-dropdown-menu a:focus { background: var(--bg); color: var(--text); outline: none; }
 
 /* === Main === */
 main { max-width: 900px; margin: 2rem auto; padding: 0 1rem; overflow-x: hidden; }
@@ -265,7 +265,7 @@ td a:hover { text-decoration: underline; }
   border-bottom: 1px solid var(--border);
   transition: background 0.15s;
 }
-.entry-row a:hover { background: var(--surface); border-radius: 8px; padding-left: 1rem; padding-right: 1rem; }
+.entry-row a:hover { background: var(--surface); border-radius: 8px; margin-left: -1rem; margin-right: -1rem; padding-left: 1rem; padding-right: 1rem; }
 .entry-row.selected > a { background: var(--surface); outline: 1px solid var(--accent); border-radius: 8px; }
 
 .entry-row.read > a { opacity: 0.55; }

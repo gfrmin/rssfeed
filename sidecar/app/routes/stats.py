@@ -61,7 +61,7 @@ async def reading_stats(request: Request):
     feed_names = {f["id"]: f.get("title", f"Feed {f['id']}") for f in feeds}
 
     top_feeds = [
-        {"name": feed_names.get(r["feed_id"], f"Feed {r['feed_id']}"), "count": r["cnt"]}
+        {"name": feed_names.get(r["feed_id"], f"Feed {r['feed_id']}"), "count": r["cnt"], "feed_id": r["feed_id"]}
         for r in top_feeds_raw
     ]
 

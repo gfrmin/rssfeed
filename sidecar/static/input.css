@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+@source "../app/templates/**/*.html";
+@source "./app.js";
+
+@theme {
+  /* Colors — mapped from CSS custom properties in style.css */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-body: var(--text);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-link: var(--link);
+  --color-text-muted: var(--text-muted);
+  --color-unread: var(--unread);
+  --color-read: var(--read);
+  --color-border: var(--border);
+  --color-danger: var(--danger);
+  --color-star: var(--star);
+  --color-success-bg: var(--success-bg);
+  --color-error-bg: var(--error-bg);
+
+  /* Font families */
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: Georgia, 'Times New Roman', serif;
+
+  /* Custom font sizes — replaces arbitrary rem values */
+  --text-2xs: 0.7rem;
+  --text-caption: 0.8rem;
+  --text-detail: 0.85rem;
+  --text-body-sm: 0.9rem;
+  --text-prose: 0.95rem;
+  --text-article: 1.05rem;
+}
+
+@layer components {
+  /* Buttons */
+  .btn {
+    @apply inline-block bg-surface border border-border text-body px-3 py-1 rounded-lg
+           cursor-pointer text-caption no-underline leading-snug
+           transition-colors hover:border-accent hover:text-accent;
+  }
+  .btn-danger {
+    @apply inline-block bg-surface border border-danger text-danger px-3 py-1 rounded-lg
+           cursor-pointer text-caption leading-snug
+           transition-colors hover:bg-danger hover:text-white;
+  }
+
+  /* Ghost buttons — entry detail action bar */
+  .action-link {
+    @apply text-text-muted bg-transparent border-none cursor-pointer text-detail
+           font-[inherit] p-0 transition-colors hover:text-body;
+  }
+  a.action-link { @apply no-underline; }
+
+  /* Nav links */
+  .nav-link {
+    @apply text-text-muted no-underline font-medium text-body-sm transition-colors hover:text-body;
+  }
+  .nav-dropdown-item {
+    @apply block px-4 py-1.5 text-text-muted text-detail no-underline
+           transition-colors hover:bg-bg hover:text-body
+           focus:bg-bg focus:text-body focus:outline-none;
+  }
+
+  /* Cards */
+  .card {
+    @apply bg-surface border border-border rounded-lg px-5 py-4;
+  }
+
+  /* Table elements */
+  .th {
+    @apply py-3 px-4 text-left border-b border-border text-text-muted text-caption uppercase tracking-wide;
+  }
+  .td {
+    @apply py-3 px-4 border-b border-border;
+  }
+
+  /* Tags */
+  .tag {
+    @apply inline-block px-2.5 py-0.5 text-xs rounded-lg bg-surface border border-border text-text-muted;
+  }
+  .tag-interactive {
+    @apply inline-block px-2.5 py-0.5 text-xs rounded-lg bg-surface border border-border text-text-muted
+           no-underline transition-colors hover:border-accent hover:text-accent;
+  }
+
+  /* Badge — unread counts */
+  .badge {
+    @apply inline-block bg-accent text-white text-xs px-2 py-0.5 rounded-lg font-semibold;
+  }
+
+  /* Form inputs */
+  .input {
+    @apply w-full bg-surface border border-border text-body p-2 rounded-lg text-body-sm
+           font-[inherit] focus:outline-none focus:border-accent;
+  }
+
+  /* Keyboard shortcut display */
+  .kbd {
+    @apply inline-block bg-bg border border-border rounded-md px-2 py-0.5 text-detail font-mono;
+  }
+
+  /* Page headings */
+  .heading-page {
+    @apply mb-5 font-serif text-2xl flex items-center gap-2;
+  }
+  .heading-section {
+    @apply mt-8 mb-4 font-serif text-xl text-body;
+  }
+}

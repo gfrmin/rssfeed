@@ -1,23 +1,24 @@
 {% extends "base.html" %}
 {% block title %}Categories{% endblock %}
 {% block content %}
-<h1>Categories</h1>
+<h1 class="heading-page">Categories</h1>
 
-<div class="category-list">
+<div class="flex flex-col gap-4">
   {% for cat in categories %}
-  <div class="category-card">
-    <h2>
-      <a href="/entries?category_id={{ cat.id }}">{{ cat.title }}</a>
+  <div class="card p-5">
+    <h2 class="m-0 mb-2 flex items-center gap-2 font-serif text-xl">
+      <a href="/entries?category_id={{ cat.id }}" class="text-body no-underline hover:text-accent">{{ cat.title }}</a>
       {% if cat.unread_count > 0 %}
-      <span class="unread-badge">{{ cat.unread_count }}</span>
+      <span class="badge">{{ cat.unread_count }}</span>
       {% endif %}
     </h2>
-    <div class="category-feeds">
+    <div class="flex flex-wrap gap-2">
       {% for feed in cat.feeds %}
-      <a href="/entries?feed_id={{ feed.id }}" class="category-feed-link">
-        <img src="/feeds/{{ feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
+      <a href="/entries?feed_id={{ feed.id }}" class="inline-flex items-center gap-1 text-detail text-link no-underline px-2.5 py-0.5 rounded-lg bg-bg hover:bg-border transition-colors">
+        <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
         {{ feed.title }}
       </a>
+      <a href="/feeds/{{ feed.id }}" class="text-caption text-text-muted hover:text-accent" title="Feed settings">&#9881;</a>
       {% endfor %}
     </div>
   </div>

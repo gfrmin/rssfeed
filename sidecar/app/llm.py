@@ -3,49 +3,47 @@
 import logging
 from typing import Any
 
-import httpx
+import ollama
 
 from app.config import OLLAMA_EMBED_MODEL, OLLAMA_MODEL, OLLAMA_URL
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT = 120.0
+_client = ollama.AsyncClient(host=OLLAMA_URL, timeout=120.0)
 
 
 async def _ollama_generate(prompt: str, system: str = "") -> str | None:
     """Call Ollama generate endpoint."""
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-            r = await c.post(
-                f"{OLLAMA_URL}/api/generate",
-                json={
-                    "model": OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "system": system,
-                    "stream": False,
-                },
-            )
-            r.raise_for_status()
-            return r.json().get("response", "").strip()
+        r = await _client.generate(model=OLLAMA_MODEL, prompt=prompt, system=system)
+        return r.response.strip()
     except Exception:
         logger.exception("Ollama generate failed")
         return None
+
+
+async def _ollama_generate_stream(prompt: str, system: str = ""):
+    """Yield tokens from Ollama generate endpoint."""
+    stream = await _client.generate(model=OLLAMA_MODEL, prompt=prompt, system=system, stream=True)
+    async for chunk in stream:
+        token = chunk.response
+        if token:
+            yield token
+
+
+SUMMARIZE_SYSTEM = (
+    "You are a concise article summarizer. Write a 2-3 sentence summary "
+    "of the article below. Focus on the key points and takeaways. "
+    "Do not start with 'This article' or 'The article'. Just state the facts."
+)
 
 
 async def summarize(text: str) -> str | None:
     """Generate a 2-3 sentence summary of article text."""
     if not text or len(text) < 100:
         return None
-    # Truncate to ~4000 words to stay within context
     truncated = " ".join(text.split()[:4000])
-    return await _ollama_generate(
-        prompt=truncated,
-        system=(
-            "You are a concise article summarizer. Write a 2-3 sentence summary "
-            "of the article below. Focus on the key points and takeaways. "
-            "Do not start with 'This article' or 'The article'. Just state the facts."
-        ),
-    )
+    return await _ollama_generate(prompt=truncated, system=SUMMARIZE_SYSTEM)
 
 
 async def classify(text: str) -> list[str]:
@@ -71,18 +69,11 @@ async def embed(text: str) -> list[float] | None:
     """Generate an embedding vector for text using Ollama."""
     if not text:
         return None
-    # Truncate for embedding model context
     truncated = " ".join(text.split()[:2000])
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-            r = await c.post(
-                f"{OLLAMA_URL}/api/embed",
-                json={"model": OLLAMA_EMBED_MODEL, "input": truncated},
-            )
-            r.raise_for_status()
-            data = r.json()
-            embeddings = data.get("embeddings", [])
-            return embeddings[0] if embeddings else None
+        r = await _client.embed(model=OLLAMA_EMBED_MODEL, input=truncated)
+        embeddings = r.embeddings
+        return embeddings[0] if embeddings else None
     except Exception:
         logger.exception("Ollama embed failed")
         return None
@@ -91,11 +82,7 @@ async def embed(text: str) -> list[float] | None:
 async def find_similar(
     conn: Any, entry_id: int, embedding: list[float], threshold: float = 0.85, limit: int = 5
 ) -> list[dict]:
-    """Find entries with similar embeddings using cosine similarity.
-
-    Uses SQL dot product / magnitude for cosine similarity since we're storing
-    embeddings as float arrays in PostgreSQL.
-    """
+    """Find entries with similar embeddings using cosine similarity."""
     cur = await conn.execute(
         """
         WITH target AS (

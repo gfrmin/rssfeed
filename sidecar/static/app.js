@@ -3,6 +3,13 @@
 (function () {
   'use strict';
 
+  /* --- Mobile nav toggle --- */
+  const navToggle = document.getElementById('nav-toggle');
+  const navLinks = document.getElementById('nav-links');
+  if (navToggle && navLinks) {
+    navToggle.addEventListener('click', () => navLinks.classList.toggle('hidden'));
+  }
+
   /* --- Theme toggle --- */
   const theme = localStorage.getItem('theme') || 'dark';
   document.documentElement.setAttribute('data-theme', theme);

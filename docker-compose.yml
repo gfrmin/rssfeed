@@ -44,8 +44,11 @@ services:
       MINIFLUX_API_KEY: ${MINIFLUX_API_KEY}
       BRIGHTDATA_PROXY: ${BRIGHTDATA_PROXY:-}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+    volumes:
+      - ./sidecar:/sidecar
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     ports:
       - "9145:8000"
     extra_hosts:

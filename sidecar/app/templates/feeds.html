@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Feeds{% endblock %}
 {% block content %}
-<h1>Feeds</h1>
+<h1 class="heading-page">Feeds</h1>
 
-<div class="feed-actions">
-  <a href="/opml/export" class="btn-sm" download>Export OPML</a>
-  <form hx-post="/opml/import" hx-encoding="multipart/form-data" hx-swap="afterend" style="display:inline">
-    <label class="btn-sm file-upload">
+<div class="mb-5 flex gap-2 items-center">
+  <a href="/opml/export" class="btn" download>Export OPML</a>
+  <form hx-post="/opml/import" hx-encoding="multipart/form-data" hx-swap="afterend" class="inline">
+    <label class="btn cursor-pointer">
       Import OPML
       <input type="file" name="file" accept=".opml,.xml" hidden
              onchange="this.closest('form').requestSubmit()">
@@ -14,30 +14,32 @@
   </form>
 </div>
 
-<table>
+<div class="overflow-x-auto">
+<table class="w-full border-collapse">
   <thead>
     <tr>
-      <th>Feed</th>
-      <th class="col-category">Category</th>
-      <th>Unread</th>
+      <th class="th">Feed</th>
+      <th class="th hidden sm:table-cell">Category</th>
+      <th class="th whitespace-nowrap">Unread</th>
     </tr>
   </thead>
   <tbody>
     {% for feed in feeds %}
     <tr>
-      <td>
-        <img src="/feeds/{{ feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
-        <a href="/entries?feed_id={{ feed.id }}">{{ feed.title }}</a>
-        <a href="/feeds/{{ feed.id }}" class="feed-settings-link" title="Feed settings">&#9881;</a>
+      <td class="td break-words">
+        <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
+        <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">{{ feed.title }}</a>
+        <a href="/feeds/{{ feed.id }}" class="text-caption text-text-muted ml-2 hover:text-accent" title="Feed settings">&#9881;</a>
       </td>
-      <td class="col-category">{{ feed.category.title if feed.category else '-' }}</td>
-      <td>
+      <td class="td break-words hidden sm:table-cell">{{ feed.category.title if feed.category else '-' }}</td>
+      <td class="td whitespace-nowrap">
         {% if feed.unread_count > 0 %}
-        <span class="unread-badge">{{ feed.unread_count }}</span>
+        <span class="badge">{{ feed.unread_count }}</span>
         {% endif %}
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endblock %}

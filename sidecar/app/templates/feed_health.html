@@ -1,38 +1,40 @@
 {% extends "base.html" %}
 {% block title %}Feed Health{% endblock %}
 {% block content %}
-<h1>Feed Health</h1>
+<h1 class="heading-page">Feed Health</h1>
 
-<table>
+<div class="overflow-x-auto">
+<table class="w-full border-collapse">
   <thead>
     <tr>
-      <th>Status</th>
-      <th>Feed</th>
-      <th>Last Checked</th>
-      <th>Errors</th>
+      <th class="th">Status</th>
+      <th class="th">Feed</th>
+      <th class="th whitespace-nowrap">Last Checked</th>
+      <th class="th whitespace-nowrap">Errors</th>
     </tr>
   </thead>
   <tbody>
     {% for feed in feeds %}
-    <tr class="{% if feed._has_error %}health-error{% elif feed._is_stale %}health-stale{% else %}health-ok{% endif %}">
-      <td>
+    <tr class="{% if feed._has_error %}bg-error-bg{% elif feed._is_stale %}bg-[#fbbf2410]{% endif %}">
+      <td class="td">
         {% if feed._has_error %}
-        <span class="status-dot error" title="Parsing error"></span>
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#f87171]" title="Parsing error"></span>
         {% elif feed._is_stale %}
-        <span class="status-dot stale" title="Stale (30+ days)"></span>
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#fbbf24]" title="Stale (30+ days)"></span>
         {% else %}
-        <span class="status-dot ok" title="OK"></span>
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#4ade80]" title="OK"></span>
         {% endif %}
       </td>
-      <td>
-        <img src="/feeds/{{ feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
-        <a href="/feeds/{{ feed.id }}">{{ feed.title }}</a>
+      <td class="td break-words">
+        <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
+        <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">{{ feed.title }}</a>
+        <a href="/feeds/{{ feed.id }}" class="text-caption text-text-muted ml-2 hover:text-accent" title="Feed settings">&#9881;</a>
       </td>
-      <td>{{ feed.checked_at | timeago }}</td>
-      <td>
+      <td class="td whitespace-nowrap">{{ feed.checked_at | timeago }}</td>
+      <td class="td">
         {% if feed._has_error %}
-        <span class="error-msg">{{ feed.parsing_error_message }}</span>
-        <br><small>{{ feed._error_count }} error(s)</small>
+        <span class="text-caption text-danger">{{ feed.parsing_error_message }}</span>
+        <br><small class="text-text-muted">{{ feed._error_count }} error(s)</small>
         {% else %}
         —
         {% endif %}
@@ -41,4 +43,5 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endblock %}

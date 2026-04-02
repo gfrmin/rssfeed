@@ -145,7 +145,7 @@ def _clean_html(raw_html: str, rules: dict[str, Any]) -> str:
     for xpath in [
         '//aside', '//nav',
         '//*[contains(@class, "sidebar-widget")]',
-        '//*[contains(@class, "sidebar")]',
+        '//*[contains(concat(" ", normalize-space(@class), " "), " sidebar ")]',
         '//*[@role="complementary"]',
     ]:
         for el in tree.xpath(xpath):

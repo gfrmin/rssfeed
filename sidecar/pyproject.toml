@@ -13,6 +13,7 @@ dependencies = [
     "python-multipart>=0.0.18",
     "humanize>=4.0",
     "markdownify>=0.14",
+    "ollama>=0.4",
 ]
 
 [build-system]

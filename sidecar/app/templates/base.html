@@ -4,55 +4,60 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}RSS Reader{% endblock %}</title>
+  <link rel="stylesheet" href="/static/tailwind.css">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="manifest" href="/static/manifest.json">
   <script src="/static/htmx.min.js"></script>
+  <script src="/static/sse.js"></script>
 </head>
-<body>
-  <nav>
-    <div class="nav-left">
-      <a href="/" class="nav-brand">Reader</a>
-      <a href="/">Feeds</a>
-      <a href="/entries">All</a>
-      <a href="/entries?status=unread">Unread</a>
-      <a href="/entries?starred=true">Starred</a>
-      <a href="/digest">Digest</a>
+<body class="bg-bg text-body leading-relaxed overflow-x-hidden">
+  <nav class="flex justify-between items-center px-6 py-3 bg-surface border-b border-border flex-wrap gap-2">
+    <div class="flex gap-5 items-center">
+      <a href="/" class="font-bold text-base text-accent no-underline tracking-tight">Reader</a>
+      <button id="nav-toggle" class="sm:hidden text-text-muted text-xl bg-transparent border-none cursor-pointer" aria-label="Toggle menu">&#9776;</button>
+      <div id="nav-links" class="hidden sm:flex gap-5 items-center flex-wrap">
+        <a href="/" class="nav-link">Feeds</a>
+        <a href="/entries" class="nav-link">All</a>
+        <a href="/entries?status=unread" class="nav-link">Unread</a>
+        <a href="/entries?starred=true" class="nav-link">Starred</a>
+        <a href="/digest" class="nav-link">Digest</a>
+      </div>
     </div>
-    <div class="nav-right">
-      <div class="nav-dropdown">
-        <button class="nav-dropdown-btn" title="Settings &amp; tools" aria-haspopup="true">&#9881;</button>
-        <div class="nav-dropdown-menu" role="menu">
-          <a href="/stats" role="menuitem">Stats</a>
-          <a href="/filters" role="menuitem">Filters</a>
-          <a href="/feeds/health" role="menuitem">Health</a>
-          <a href="/categories" role="menuitem">Categories</a>
+    <div class="flex gap-3 items-center flex-wrap">
+      <div class="nav-dropdown relative">
+        <button class="btn py-1 px-2" title="Settings &amp; tools" aria-haspopup="true">&#9881;</button>
+        <div class="nav-dropdown-menu hidden absolute right-0 top-[calc(100%+4px)] bg-surface border border-border rounded-lg py-1.5 min-w-[140px] z-50 shadow-[0_4px_12px_rgba(0,0,0,0.3)]" role="menu">
+          <a href="/stats" role="menuitem" class="nav-dropdown-item">Stats</a>
+          <a href="/filters" role="menuitem" class="nav-dropdown-item">Filters</a>
+          <a href="/feeds/health" role="menuitem" class="nav-dropdown-item">Health</a>
+          <a href="/categories" role="menuitem" class="nav-dropdown-item">Categories</a>
         </div>
       </div>
-      <button id="theme-toggle" class="nav-btn" title="Toggle theme">Theme</button>
-      <button id="help-toggle" class="nav-btn" title="Keyboard shortcuts (?)">?</button>
+      <button id="theme-toggle" class="btn py-1 px-2 text-caption" title="Toggle theme">Theme</button>
+      <button id="help-toggle" class="btn py-1 px-2 text-caption" title="Keyboard shortcuts (?)">?</button>
     </div>
   </nav>
-  <main>
+  <main class="max-w-[900px] mx-auto my-8 px-4 overflow-x-hidden">
     {% block content %}{% endblock %}
   </main>
 
   <!-- Keyboard shortcuts help modal -->
   <div id="help-modal" class="modal hidden">
-    <div class="modal-content">
-      <h2>Keyboard Shortcuts</h2>
-      <table class="shortcuts-table">
-        <tr><td><kbd>j</kbd></td><td>Next entry</td></tr>
-        <tr><td><kbd>k</kbd></td><td>Previous entry</td></tr>
-        <tr><td><kbd>o</kbd> / <kbd>Enter</kbd></td><td>Open entry</td></tr>
-        <tr><td><kbd>v</kbd></td><td>Open original in new tab</td></tr>
-        <tr><td><kbd>m</kbd></td><td>Toggle read/unread</td></tr>
-        <tr><td><kbd>s</kbd></td><td>Toggle star</td></tr>
-        <tr><td><kbd>r</kbd></td><td>Mark all read</td></tr>
-        <tr><td><kbd>/</kbd></td><td>Focus search</td></tr>
-        <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
-        <tr><td><kbd>Esc</kbd></td><td>Close modal / clear focus</td></tr>
+    <div class="bg-surface border border-border rounded-xl p-6 max-w-[400px] w-[90%]">
+      <h2 class="font-serif text-xl mb-4">Keyboard Shortcuts</h2>
+      <table class="w-full mb-4">
+        <tr><td class="py-1 px-2 border-none"><kbd class="kbd">j</kbd></td><td class="py-1 px-2 border-none">Next entry</td></tr>
+        <tr><td class="py-1 px-2 border-none"><kbd class="kbd">k</kbd></td><td class="py-1 px-2 border-none">Previous entry</td></tr>
+        <tr><td class="py-1 px-2 border-none"><kbd class="kbd">o</kbd> / <kbd class="kbd">Enter</kbd></td><td class="py-1 px-2 border-none">Open entry</td></tr>
+        <tr><td class="py-1 px-2 border-none"><kbd class="kbd">v</kbd></td><td class="py-1 px-2 border-none">Open original in new tab</td></tr>
+        <tr><td class="py-1 px-2 border-none"><kbd class="kbd">m</kbd></td><td class="py-1 px-2 border-none">Toggle read/unread</td></tr>
+        <tr><td class="py-1 px-2 border-none"><kbd class="kbd">s</kbd></td><td class="py-1 px-2 border-none">Toggle star</td></tr>
+        <tr><td class="py-1 px-2 border-none"><kbd class="kbd">r</kbd></td><td class="py-1 px-2 border-none">Mark all read</td></tr>
+        <tr><td class="py-1 px-2 border-none"><kbd class="kbd">/</kbd></td><td class="py-1 px-2 border-none">Focus search</td></tr>
+        <tr><td class="py-1 px-2 border-none"><kbd class="kbd">?</kbd></td><td class="py-1 px-2 border-none">Show this help</td></tr>
+        <tr><td class="py-1 px-2 border-none"><kbd class="kbd">Esc</kbd></td><td class="py-1 px-2 border-none">Close modal / clear focus</td></tr>
       </table>
-      <button onclick="document.getElementById('help-modal').classList.add('hidden')">Close</button>
+      <button class="btn" onclick="document.getElementById('help-modal').classList.add('hidden')">Close</button>
     </div>
   </div>
 

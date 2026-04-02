@@ -1,52 +1,54 @@
 {% extends "base.html" %}
 {% block title %}Saved Filters{% endblock %}
 {% block content %}
-<h1>Saved Filters</h1>
+<h1 class="heading-page">Saved Filters</h1>
 
-<div class="filters-list">
+<div class="flex flex-col gap-3 mb-8">
   {% for f in filters %}
-  <div class="filter-card">
-    <div class="filter-header">
+  <div class="card">
+    <div class="flex items-center gap-3">
       <strong>{{ f.name }}</strong>
       {% if f.auto_action %}
       <span class="tag">{{ f.auto_action }}</span>
       {% endif %}
-      <button hx-post="/filters/{{ f.id }}/delete" hx-confirm="Delete this filter?" class="btn-sm danger">Delete</button>
+      <button hx-post="/filters/{{ f.id }}/delete" hx-confirm="Delete this filter?" class="btn-danger">Delete</button>
     </div>
-    <pre class="filter-rules">{{ f.rules | tojson(indent=2) }}</pre>
+    <pre class="text-detail text-text-muted mt-2 overflow-x-auto">{{ f.rules | tojson(indent=2) }}</pre>
   </div>
   {% else %}
   <p>No filters yet.</p>
   {% endfor %}
 </div>
 
-<h2>Create Filter</h2>
-<form hx-post="/filters" class="filter-form">
-  <div class="form-group">
-    <label>Name</label>
-    <input type="text" name="name" required placeholder="e.g. Mute crypto spam">
+<h2 class="heading-section">Create Filter</h2>
+<form hx-post="/filters" class="max-w-[600px]">
+  <div class="mb-4">
+    <label class="block mb-1 text-body-sm text-text-muted">Name</label>
+    <input type="text" name="name" required placeholder="e.g. Mute crypto spam" class="input">
   </div>
 
-  <div class="form-group">
-    <label>Rules (JSON array)</label>
-    <textarea name="rules_json" rows="5" placeholder='[{"field": "title", "op": "contains", "value": "crypto"}]'></textarea>
-    <details>
-      <summary>Rule format</summary>
-      <p>Each rule: <code>{"field": "...", "op": "...", "value": "..."}</code></p>
-      <p>Fields: <code>title</code>, <code>content</code>, <code>author</code>, <code>url</code>, <code>feed_title</code></p>
-      <p>Operators: <code>contains</code>, <code>not_contains</code>, <code>equals</code>, <code>starts_with</code></p>
+  <div class="mb-4">
+    <label class="block mb-1 text-body-sm text-text-muted">Rules (JSON array)</label>
+    <textarea name="rules_json" rows="5" placeholder='[{"field": "title", "op": "contains", "value": "crypto"}]' class="input font-mono"></textarea>
+    <details class="mt-1">
+      <summary class="cursor-pointer text-text-muted text-detail">Rule format</summary>
+      <div class="mt-1 text-detail text-text-muted space-y-1">
+        <p>Each rule: <code class="bg-surface px-1 rounded text-detail">{"field": "...", "op": "...", "value": "..."}</code></p>
+        <p>Fields: <code class="bg-surface px-1 rounded text-detail">title</code>, <code class="bg-surface px-1 rounded text-detail">content</code>, <code class="bg-surface px-1 rounded text-detail">author</code>, <code class="bg-surface px-1 rounded text-detail">url</code>, <code class="bg-surface px-1 rounded text-detail">feed_title</code></p>
+        <p>Operators: <code class="bg-surface px-1 rounded text-detail">contains</code>, <code class="bg-surface px-1 rounded text-detail">not_contains</code>, <code class="bg-surface px-1 rounded text-detail">equals</code>, <code class="bg-surface px-1 rounded text-detail">starts_with</code></p>
+      </div>
     </details>
   </div>
 
-  <div class="form-group">
-    <label>Auto-action</label>
-    <select name="auto_action">
+  <div class="mb-4">
+    <label class="block mb-1 text-body-sm text-text-muted">Auto-action</label>
+    <select name="auto_action" class="input">
       <option value="">None (filter view only)</option>
       <option value="mark_read">Mark as read</option>
       <option value="star">Star</option>
     </select>
   </div>
 
-  <button type="submit">Create Filter</button>
+  <button type="submit" class="btn">Create Filter</button>
 </form>
 {% endblock %}

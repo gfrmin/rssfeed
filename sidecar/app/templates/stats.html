@@ -1,39 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Reading Stats{% endblock %}
 {% block content %}
-<h1>Reading Statistics</h1>
+<h1 class="heading-page">Reading Statistics</h1>
 
-<div class="stats-overview">
-  <div class="stat-card">
-    <div class="stat-number">{{ today_count }}</div>
-    <div class="stat-label">Read today</div>
+<div class="flex gap-4 mb-8 max-md:grid max-md:grid-cols-2 max-sm:grid-cols-1">
+  <div class="card text-center flex-1 p-6">
+    <div class="text-4xl font-bold text-accent">{{ today_count }}</div>
+    <div class="text-detail text-text-muted mt-1">Read today</div>
   </div>
-  <div class="stat-card">
-    <div class="stat-number">{{ total }}</div>
-    <div class="stat-label">Total read</div>
+  <div class="card text-center flex-1 p-6">
+    <div class="text-4xl font-bold text-accent">{{ total }}</div>
+    <div class="text-detail text-text-muted mt-1">Total read</div>
   </div>
 </div>
 
-<h2>Last 7 days</h2>
-<div class="bar-chart">
+<h2 class="heading-section">Last 7 days</h2>
+<div class="mb-6">
   {% for d in daily %}
-  <div class="bar-row">
-    <span class="bar-label">{{ d.day.strftime('%a %m/%d') if d.day else '' }}</span>
-    <div class="bar" style="width: {{ (d.cnt / max_daily * 100) | int }}%">
-      <span class="bar-value">{{ d.cnt }}</span>
+  <div class="flex items-center gap-2 mb-1.5">
+    <span class="text-caption text-text-muted min-w-[80px] text-right">{{ d.day.strftime('%a %m/%d') if d.day else '' }}</span>
+    <div class="bg-accent h-6 rounded-md flex items-center px-2 transition-[width] duration-300" style="width: {{ (d.cnt / max_daily * 100) | int }}%; min-width: 2px;">
+      <span class="text-xs text-white font-semibold">{{ d.cnt }}</span>
     </div>
   </div>
   {% endfor %}
 </div>
 
 {% if weekly %}
-<h2>Weekly</h2>
-<div class="bar-chart">
+<h2 class="heading-section">Weekly</h2>
+<div class="mb-6">
   {% for w in weekly %}
-  <div class="bar-row">
-    <span class="bar-label">{{ w.week.strftime('%m/%d') if w.week else '' }}</span>
-    <div class="bar" style="width: {{ (w.cnt / (weekly | map(attribute='cnt') | max) * 100) | int }}%">
-      <span class="bar-value">{{ w.cnt }}</span>
+  <div class="flex items-center gap-2 mb-1.5">
+    <span class="text-caption text-text-muted min-w-[80px] text-right">{{ w.week.strftime('%m/%d') if w.week else '' }}</span>
+    <div class="bg-accent h-6 rounded-md flex items-center px-2 transition-[width] duration-300" style="width: {{ (w.cnt / (weekly | map(attribute='cnt') | max) * 100) | int }}%; min-width: 2px;">
+      <span class="text-xs text-white font-semibold">{{ w.cnt }}</span>
     </div>
   </div>
   {% endfor %}
@@ -41,13 +41,13 @@
 {% endif %}
 
 {% if top_feeds %}
-<h2>Most Read Feeds (30 days)</h2>
-<div class="bar-chart">
+<h2 class="heading-section">Most Read Feeds (30 days)</h2>
+<div class="mb-6">
   {% for f in top_feeds %}
-  <div class="bar-row">
-    <span class="bar-label">{{ f.name }}</span>
-    <div class="bar" style="width: {{ (f.count / max_feed * 100) | int }}%">
-      <span class="bar-value">{{ f.count }}</span>
+  <div class="flex items-center gap-2 mb-1.5">
+    <span class="text-caption text-text-muted min-w-[80px] text-right"><a href="/entries?feed_id={{ f.feed_id }}" class="text-text-muted no-underline hover:text-link hover:underline">{{ f.name }}</a></span>
+    <div class="bg-accent h-6 rounded-md flex items-center px-2 transition-[width] duration-300" style="width: {{ (f.count / max_feed * 100) | int }}%; min-width: 2px;">
+      <span class="text-xs text-white font-semibold">{{ f.count }}</span>
     </div>
   </div>
   {% endfor %}

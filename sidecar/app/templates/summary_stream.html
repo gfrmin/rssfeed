@@ -1,0 +1,6 @@
+<div hx-ext="sse" sse-connect="/entries/{{ entry_id }}/summary-stream" sse-swap="done" hx-swap="outerHTML">
+  <details class="card mb-6" open>
+    <summary class="cursor-pointer font-semibold text-accent text-caption uppercase tracking-wide">AI Summary</summary>
+    <p class="mt-2 text-prose leading-relaxed" sse-swap="token" hx-swap="beforeend"></p>
+  </details>
+</div>

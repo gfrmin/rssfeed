@@ -226,6 +226,74 @@ async def entry_detail(request: Request, entry_id: int):
     )
 
 
+@router.post("/entries/{entry_id}/generate-summary")
+async def generate_summary(request: Request, entry_id: int):
+    """Return SSE-connected fragment to kick off streaming summarization."""
+    async with get_conn() as conn:
+        snapshot = await _get_snapshot(conn, entry_id)
+        if not snapshot:
+            return HTMLResponse('<span class="text-danger">No full-text content available</span>')
+        text = snapshot.get("content_text") or ""
+        if not text:
+            return HTMLResponse('<span class="text-danger">No text content to summarize</span>')
+
+    return templates.TemplateResponse(request, "summary_stream.html", {"entry_id": entry_id})
+
+
+@router.get("/entries/{entry_id}/summary-stream")
+async def summary_stream(entry_id: int):
+    """SSE endpoint that generates and streams summary tokens."""
+    from html import escape
+    from fastapi.responses import StreamingResponse
+    from app.llm import _ollama_generate_stream, SUMMARIZE_SYSTEM
+
+    async with get_conn() as conn:
+        snapshot = await _get_snapshot(conn, entry_id)
+        if not snapshot:
+            return HTMLResponse("")
+        text = snapshot.get("content_text") or ""
+        if not text:
+            return HTMLResponse("")
+        version = snapshot["version"]
+
+    truncated = " ".join(text.split()[:4000])
+
+    async def sse():
+        full = []
+        try:
+            async for token in _ollama_generate_stream(truncated, SUMMARIZE_SYSTEM):
+                full.append(token)
+                yield f"event: token\ndata: <span>{escape(token)}</span>\n\n"
+        except Exception:
+            yield 'event: done\ndata: <span class="text-danger">Summarization failed</span>\n\n'
+            return
+
+        summary_text = "".join(full).strip()
+        if summary_text:
+            import psycopg.types.json
+            async with get_conn() as conn:
+                await conn.execute(
+                    "UPDATE article_snapshots SET metadata = COALESCE(metadata, '{}'::jsonb) || %s::jsonb "
+                    "WHERE entry_id = %s AND version = %s",
+                    (psycopg.types.json.Json({"summary": summary_text}), entry_id, version),
+                )
+                await conn.commit()
+
+        done_html = (
+            '<details class="bg-surface border border-border rounded-lg px-5 py-4 mb-6" open>'
+            '<summary class="cursor-pointer font-semibold text-accent text-[0.8rem] uppercase tracking-wide">AI Summary</summary>'
+            f'<p class="mt-2 text-[0.95rem] leading-relaxed">{escape(summary_text)}</p>'
+            '</details>'
+        )
+        yield f"event: done\ndata: {done_html}\n\n"
+
+    return StreamingResponse(
+        sse(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/entries/{entry_id}/fetch-full")
 async def fetch_full_content(entry_id: int):
     """On-demand fetch of full article content, creating a new version if content changed."""

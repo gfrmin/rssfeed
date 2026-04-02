@@ -1,22 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Daily Digest{% endblock %}
 {% block content %}
-<h1>Daily Digest</h1>
-<p class="digest-date">{{ date }} &middot; {{ total_unread }} unread</p>
+<h1 class="heading-page">Daily Digest</h1>
+<p class="text-text-muted mb-6">{{ date }} &middot; {{ total_unread }} unread</p>
 
 {% if priority_entries %}
-<h2>Must Read</h2>
-<div class="digest-section">
+<h2 class="heading-section">Must Read</h2>
+<div class="flex flex-col gap-3 mb-8">
   {% for entry in priority_entries %}
-  <div class="digest-entry">
-    <a href="/entries/{{ entry.id }}" class="digest-title">{{ entry.title }}</a>
-    <span class="entry-meta">
-      {{ entry.feed.title if entry.feed else '' }} &middot; {{ entry.published_at | timeago }}
+  <div class="card">
+    <a href="/entries/{{ entry.id }}" class="font-serif text-link no-underline font-medium text-base hover:underline">{{ entry.title }}</a>
+    <span class="text-caption text-text-muted mt-1 block">
+      {% if entry.feed %}<a href="/entries?feed_id={{ entry.feed.id }}" class="text-text-muted no-underline hover:text-link hover:underline">{{ entry.feed.title }}</a>{% endif %} &middot; {{ entry.published_at | timeago }}
     </span>
     {% if entry._summary %}
-    <p class="digest-summary">{{ entry._summary }}</p>
+    <p class="text-body-sm text-text-muted mt-1 leading-normal">{{ entry._summary }}</p>
     {% else %}
-    <p class="digest-summary">{{ entry.content | excerpt }}</p>
+    <p class="text-body-sm text-text-muted mt-1 leading-normal">{{ entry.content | excerpt }}</p>
     {% endif %}
   </div>
   {% endfor %}
@@ -24,13 +24,13 @@
 {% endif %}
 
 {% if other_entries %}
-<h2>Other Unread</h2>
-<div class="digest-section">
+<h2 class="heading-section">Other Unread</h2>
+<div class="flex flex-col gap-3 mb-8">
   {% for entry in other_entries %}
-  <div class="digest-entry compact">
-    <a href="/entries/{{ entry.id }}" class="digest-title">{{ entry.title }}</a>
-    <span class="entry-meta">
-      {{ entry.feed.title if entry.feed else '' }} &middot; {{ entry.published_at | timeago }}
+  <div class="card px-3 py-3">
+    <a href="/entries/{{ entry.id }}" class="font-serif text-link no-underline font-medium text-base hover:underline">{{ entry.title }}</a>
+    <span class="text-caption text-text-muted mt-1 block">
+      {% if entry.feed %}<a href="/entries?feed_id={{ entry.feed.id }}" class="text-text-muted no-underline hover:text-link hover:underline">{{ entry.feed.title }}</a>{% endif %} &middot; {{ entry.published_at | timeago }}
     </span>
   </div>
   {% endfor %}

@@ -29,7 +29,7 @@ def _reading_time(content: str) -> str:
     return f"{minutes} min read"
 
 
-def _excerpt(content: str, length: int = 200) -> str:
+def _excerpt(content: str, length: int = 400) -> str:
     if not content:
         return ""
     import re

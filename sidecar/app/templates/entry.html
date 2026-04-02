@@ -1,38 +1,39 @@
 {% extends "base.html" %}
 {% block title %}{{ entry.title }}{% endblock %}
 {% block content %}
-<article class="entry-detail">
-  <div class="action-bar">
-    <a href="javascript:history.back()">&larr; Back</a>
-    <div class="action-right">
+<article class="max-w-[700px] mx-auto">
+  <div class="flex justify-between items-center mb-8 text-detail">
+    <a href="/entries?feed_id={{ entry.feed.id }}" class="action-link no-underline">&larr; {{ entry.feed.title }}</a>
+    <div class="action-right flex gap-4 items-center flex-wrap">
       {% if entry.status == 'unread' %}
-      <button hx-post="/entries/{{ entry.id }}/mark-read" hx-swap="outerHTML">Mark read</button>
+      <button hx-post="/entries/{{ entry.id }}/mark-read" hx-swap="outerHTML" class="action-link">Mark read</button>
       {% else %}
-      <button hx-post="/entries/{{ entry.id }}/mark-unread" hx-swap="outerHTML">Mark unread</button>
+      <button hx-post="/entries/{{ entry.id }}/mark-unread" hx-swap="outerHTML" class="action-link">Mark unread</button>
       {% endif %}
 
-      <button hx-post="/entries/{{ entry.id }}/toggle-star" hx-swap="outerHTML" class="star-btn {% if entry.starred %}starred{% endif %}">
+      <button hx-post="/entries/{{ entry.id }}/toggle-star" hx-swap="outerHTML" class="action-link star-btn {% if entry.starred %}starred{% endif %}">
         {% if entry.starred %}&#9733; Starred{% else %}&#9734; Star{% endif %}
       </button>
 
-      <button hx-post="/entries/{{ entry.id }}/fetch-full" hx-swap="outerHTML" hx-indicator="#loading">
+      <button hx-post="/entries/{{ entry.id }}/fetch-full" hx-swap="outerHTML" hx-indicator="#loading" class="action-link">
         {% if snapshot %}Refetch{% else %}Fetch full{% endif %}
       </button>
       <span id="loading" class="htmx-indicator">Fetching...</span>
 
-      <a href="/entries/{{ entry.id }}/export-md" download>Export MD</a>
+      <a href="/entries/{{ entry.id }}/export-md" download class="action-link no-underline">Export MD</a>
 
-      <button hx-post="/entries/{{ entry.id }}/share" hx-swap="afterend">Share</button>
+      <button hx-post="/entries/{{ entry.id }}/share" hx-swap="afterend" class="action-link">Share</button>
 
-      <a href="{{ entry.url }}" target="_blank" rel="noopener">Original &nearr;</a>
+      <a href="{{ entry.url }}" target="_blank" rel="noopener" class="action-link no-underline">Original &nearr;</a>
     </div>
   </div>
 
-  <header>
-    <h1>{{ entry.title }}</h1>
-    <div class="entry-meta">
-      <img src="/feeds/{{ entry.feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
-      <span class="feed-name">{{ entry.feed.title if entry.feed else '' }}</span>
+  <header class="mb-8">
+    <h1 class="font-serif text-[1.75rem] leading-tight font-bold block">{{ entry.title }}</h1>
+    <div class="text-text-muted text-detail mt-2 flex items-center gap-1.5 flex-wrap">
+      <img src="/feeds/{{ entry.feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
+      <a href="/entries?feed_id={{ entry.feed.id }}" class="text-link no-underline font-medium hover:underline">{{ entry.feed.title if entry.feed else '' }}</a>
+      <a href="/feeds/{{ entry.feed.id }}" class="text-caption text-text-muted hover:text-accent" title="Feed settings">&#9881;</a>
       {% if entry.author %}
         &middot; {{ entry.author }}
       {% endif %}
@@ -42,23 +43,33 @@
       {{ entry.content | reading_time }}
     </div>
     {% if entry.tags or llm_tags %}
-    <div class="entry-tags">
+    <div class="mt-3 flex flex-wrap gap-1.5">
       {% for tag in entry.tags or [] %}<span class="tag">{{ tag }}</span>{% endfor %}
-      {% for tag in llm_tags %}<a href="/entries?tag={{ tag }}" class="tag llm-tag">{{ tag }}</a>{% endfor %}
+      {% for tag in llm_tags %}<a href="/entries?tag={{ tag }}" class="tag-interactive border-dashed">{{ tag }}</a>{% endfor %}
     </div>
     {% endif %}
   </header>
 
+  <div id="summary-section">
   {% if summary %}
-  <details class="summary-section" open>
-    <summary>AI Summary</summary>
-    <p class="article-summary">{{ summary }}</p>
+  <details class="card mb-6" open>
+    <summary class="cursor-pointer font-semibold text-accent text-caption uppercase tracking-wide">AI Summary</summary>
+    <p class="mt-2 text-prose leading-relaxed">{{ summary }}</p>
   </details>
+  {% elif snapshot %}
+  <button
+    class="border border-border bg-bg text-text-muted px-3 py-1 rounded-md cursor-pointer text-detail hover:text-body hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-wait"
+    hx-post="/entries/{{ entry.id }}/generate-summary"
+    hx-target="#summary-section"
+    hx-swap="innerHTML"
+    hx-disabled-elt="this"
+  >Generate summary</button>
   {% endif %}
+  </div>
 
   {% if audio_enclosure %}
-  <div class="audio-player">
-    <audio controls preload="none">
+  <div class="mb-6 p-3 bg-surface rounded-lg">
+    <audio controls preload="none" class="w-full">
       <source src="{{ audio_enclosure.url }}" type="{{ audio_enclosure.mime_type }}">
     </audio>
   </div>
@@ -66,24 +77,24 @@
 
   <div class="entry-content">
     {% if snapshot %}
-      <div class="snapshot-badge">
+      <div class="block w-fit px-3 py-0.5 text-xs rounded-lg mb-5 bg-accent text-white">
         Full article v{{ snapshot.version }} (fetched {{ snapshot.fetched_at.strftime('%Y-%m-%d %H:%M') if snapshot.fetched_at else 'unknown' }})
         {% if version_count > 1 %}
-          &middot; <a href="/entries/{{ entry.id }}/diff">{{ version_count }} versions — view changes</a>
+          &middot; <a href="/entries/{{ entry.id }}/diff" class="text-white underline">{{ version_count }} versions — view changes</a>
         {% endif %}
       </div>
       {{ snapshot.content_html | safe }}
     {% else %}
-      <div class="snapshot-badge rss-only">RSS content only</div>
+      <div class="block w-fit px-3 py-0.5 text-xs rounded-lg mb-5 bg-border text-text-muted">RSS content only</div>
       {{ entry.content | safe }}
     {% endif %}
   </div>
 
   {% if similar %}
-  <div class="similar-articles">
-    <h3>Similar Articles</h3>
+  <div class="mt-8 pt-4 border-t border-border">
+    <h3 class="font-serif text-base mb-2">Similar Articles</h3>
     {% for s in similar %}
-    <a href="/entries/{{ s.entry_id }}" class="similar-link">Entry #{{ s.entry_id }} ({{ "%.0f"|format(s.similarity * 100) }}% similar)</a>
+    <a href="/entries/{{ s.entry_id }}" class="block font-serif text-link no-underline py-1 text-body-sm hover:underline">Entry #{{ s.entry_id }} ({{ "%.0f"|format(s.similarity * 100) }}% similar)</a>
     {% endfor %}
   </div>
   {% endif %}

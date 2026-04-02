@@ -1,59 +1,68 @@
 {% extends "base.html" %}
 {% block title %}{{ feed.title }} — Settings{% endblock %}
 {% block content %}
-<h1>
-  <img src="/feeds/{{ feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
+<h1 class="heading-page">
+  <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
   {{ feed.title }}
 </h1>
-<p class="feed-url">{{ feed.site_url or feed.feed_url }}</p>
+<p class="block text-caption text-text-muted overflow-hidden text-ellipsis whitespace-nowrap"><a href="{{ feed.site_url or feed.feed_url }}" target="_blank" rel="noopener" class="text-text-muted no-underline hover:text-link hover:underline">{{ feed.site_url or feed.feed_url }}</a></p>
 
-<div class="settings-section">
-  <label>Priority</label>
-  <select name="priority" hx-post="/feeds/{{ feed.id }}/set-priority" hx-swap="outerHTML">
+<div class="my-6 flex items-center gap-4 flex-wrap">
+  <label class="text-text-muted min-w-[180px]">Priority</label>
+  <select name="priority" hx-post="/feeds/{{ feed.id }}/set-priority" hx-swap="outerHTML" class="input w-auto px-2.5 py-1.5">
     <option value="1" {{ 'selected' if priority == 1 else '' }}>Must Read</option>
     <option value="2" {{ 'selected' if priority == 2 else '' }}>Normal</option>
     <option value="3" {{ 'selected' if priority == 3 else '' }}>Low</option>
   </select>
 </div>
 
-<div class="settings-section">
-  <label>Fetch full article content</label>
+<div class="my-6 flex items-center gap-4 flex-wrap">
+  <label class="text-text-muted min-w-[180px]">Fetch full article content</label>
   <button
     hx-post="/feeds/{{ feed.id }}/toggle-full-content"
     hx-swap="outerHTML"
-    class="toggle {{ 'on' if fetch_full_content else 'off' }}"
+    class="toggle border-none px-3 py-1.5 rounded-lg cursor-pointer font-semibold text-caption hover:opacity-85 {{ 'on' if fetch_full_content else 'off' }}"
   >
     {{ 'ON' if fetch_full_content else 'OFF' }}
   </button>
 </div>
 
-<div class="settings-section">
-  <label>LLM Summarization</label>
+<div class="my-6 flex items-center gap-4 flex-wrap" id="summarize-section">
+  <label class="text-text-muted min-w-[180px]">LLM Summarization</label>
+  {% if fetch_full_content %}
   <button
     hx-post="/feeds/{{ feed.id }}/toggle-summarize"
     hx-swap="outerHTML"
-    class="toggle {{ 'on' if summarize else 'off' }}"
+    class="toggle border-none px-3 py-1.5 rounded-lg cursor-pointer font-semibold text-caption hover:opacity-85 {{ 'on' if summarize else 'off' }}"
   >
     {{ 'ON' if summarize else 'OFF' }}
   </button>
+  {% else %}
+  <button class="toggle off border-none px-3 py-1.5 rounded-lg font-semibold text-caption opacity-40 cursor-not-allowed" disabled>OFF</button>
+  <span class="text-text-muted text-detail ml-2">Requires full content fetching</span>
+  {% endif %}
 </div>
 
-<div class="settings-section">
-  <label>Extract rules (JSON)</label>
+<div class="my-6 flex items-center gap-4 flex-wrap">
+  <label class="text-text-muted min-w-[180px]">Extract rules (JSON)</label>
   <form hx-post="/feeds/{{ feed.id }}/set-extract-rules" hx-swap="afterend">
-    <textarea name="extract_rules" rows="6" cols="50" style="font-family: monospace; font-size: 0.9em;">{{ extract_rules_json }}</textarea>
+    <textarea name="extract_rules" rows="6" cols="50" class="input font-mono text-body-sm">{{ extract_rules_json }}</textarea>
     <br>
-    <button type="submit">Save rules</button>
+    <button type="submit" class="btn mt-2">Save rules</button>
   </form>
-  <details style="margin-top: 0.5em;">
-    <summary>Available rules</summary>
-    <ul>
-      <li><code>"unwrap_tags": ["template"]</code> — promote children of matched elements (e.g. Vue.js slots)</li>
-      <li><code>"remove_tags": ["widget-*"]</code> — remove elements by tag name glob pattern</li>
-      <li><code>"content_xpath": "//article"</code> — XPath selector for main content (bypasses readability auto-detection)</li>
+  <details class="mt-2">
+    <summary class="cursor-pointer text-text-muted text-detail">Available rules</summary>
+    <ul class="mt-2 text-detail text-text-muted list-disc pl-5 space-y-1">
+      <li><code class="bg-surface px-1 rounded text-detail">&#34;unwrap_tags&#34;: [&#34;template&#34;]</code> — promote children of matched elements (e.g. Vue.js slots)</li>
+      <li><code class="bg-surface px-1 rounded text-detail">&#34;remove_tags&#34;: [&#34;widget-*&#34;]</code> — remove elements by tag name glob pattern</li>
+      <li><code class="bg-surface px-1 rounded text-detail">&#34;content_xpath&#34;: &#34;//article&#34;</code> — XPath selector for main content (bypasses readability auto-detection)</li>
     </ul>
   </details>
 </div>
 
-<p><a href="/">&larr; Back to feeds</a></p>
+<p class="mt-4 text-body-sm">
+  <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">&larr; Entries</a>
+  &middot;
+  <a href="/" class="text-link no-underline hover:underline">All feeds</a>
+</p>
 {% endblock %}

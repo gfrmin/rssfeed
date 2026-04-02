@@ -332,7 +332,7 @@ async def toggle_star(entry_id: int):
     entry = await miniflux_client.get_entry(entry_id)
     starred = entry.get("starred", False)
     cls = "starred" if starred else ""
-    label = "Unstar" if starred else "Star"
+    label = "&#9733; Starred" if starred else "&#9734; Star"
     return HTMLResponse(
         f'<button hx-post="/entries/{entry_id}/toggle-star" hx-swap="outerHTML" class="star-btn {cls}">{label}</button>'
     )

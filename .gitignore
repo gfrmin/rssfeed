@@ -13,3 +13,6 @@ node_modules/
 *.swp
 *.swo
 *~
+.superpowers/
+docs/superpowers/
+docs/superpowers/

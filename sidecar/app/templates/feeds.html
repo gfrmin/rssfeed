@@ -28,7 +28,7 @@
       <td>
         <img src="/feeds/{{ feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
         <a href="/entries?feed_id={{ feed.id }}">{{ feed.title }}</a>
-        <a href="/feeds/{{ feed.id }}" class="feed-settings-link">settings</a>
+        <a href="/feeds/{{ feed.id }}" class="feed-settings-link" title="Feed settings">&#9881;</a>
       </td>
       <td class="col-category">{{ feed.category.title if feed.category else '-' }}</td>
       <td>

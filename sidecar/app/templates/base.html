@@ -11,17 +11,23 @@
 <body>
   <nav>
     <div class="nav-left">
+      <a href="/" class="nav-brand">Reader</a>
       <a href="/">Feeds</a>
       <a href="/entries">All</a>
       <a href="/entries?status=unread">Unread</a>
       <a href="/entries?starred=true">Starred</a>
-      <a href="/categories">Categories</a>
       <a href="/digest">Digest</a>
     </div>
     <div class="nav-right">
-      <a href="/stats">Stats</a>
-      <a href="/filters">Filters</a>
-      <a href="/feeds/health">Health</a>
+      <div class="nav-dropdown">
+        <button class="nav-dropdown-btn" title="Settings &amp; tools">&#9881;</button>
+        <div class="nav-dropdown-menu">
+          <a href="/stats">Stats</a>
+          <a href="/filters">Filters</a>
+          <a href="/feeds/health">Health</a>
+          <a href="/categories">Categories</a>
+        </div>
+      </div>
       <button id="theme-toggle" class="nav-btn" title="Toggle theme">Theme</button>
       <button id="help-toggle" class="nav-btn" title="Keyboard shortcuts (?)">?</button>
     </div>

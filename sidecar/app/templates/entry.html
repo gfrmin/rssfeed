@@ -2,28 +2,9 @@
 {% block title %}{{ entry.title }}{% endblock %}
 {% block content %}
 <article class="entry-detail">
-  <header>
-    <h1>{{ entry.title }}</h1>
-    <div class="entry-meta">
-      <img src="/feeds/{{ entry.feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
-      {{ entry.feed.title if entry.feed else '' }}
-      {% if entry.author %}
-        &middot; {{ entry.author }}
-      {% endif %}
-      &middot;
-      {{ entry.published_at[:10] if entry.published_at else '' }}
-      &middot;
-      {{ entry.content | reading_time }}
-      &middot;
-      <a href="{{ entry.url }}" target="_blank" rel="noopener">Original</a>
-    </div>
-    {% if entry.tags or llm_tags %}
-    <div class="entry-tags">
-      {% for tag in entry.tags or [] %}<span class="tag">{{ tag }}</span>{% endfor %}
-      {% for tag in llm_tags %}<a href="/entries?tag={{ tag }}" class="tag llm-tag">{{ tag }}</a>{% endfor %}
-    </div>
-    {% endif %}
-    <div class="entry-actions">
+  <div class="action-bar">
+    <a href="javascript:history.back()">&larr; Back</a>
+    <div class="action-right">
       {% if entry.status == 'unread' %}
       <button hx-post="/entries/{{ entry.id }}/mark-read" hx-swap="outerHTML">Mark read</button>
       {% else %}
@@ -31,18 +12,41 @@
       {% endif %}
 
       <button hx-post="/entries/{{ entry.id }}/toggle-star" hx-swap="outerHTML" class="star-btn {% if entry.starred %}starred{% endif %}">
-        {% if entry.starred %}Unstar{% else %}Star{% endif %}
+        {% if entry.starred %}&#9733; Starred{% else %}&#9734; Star{% endif %}
       </button>
 
       <button hx-post="/entries/{{ entry.id }}/fetch-full" hx-swap="outerHTML" hx-indicator="#loading">
-        {% if snapshot %}Refetch{% else %}Fetch full article{% endif %}
+        {% if snapshot %}Refetch{% else %}Fetch full{% endif %}
       </button>
       <span id="loading" class="htmx-indicator">Fetching...</span>
 
-      <a href="/entries/{{ entry.id }}/export-md" class="btn" download>Export MD</a>
+      <a href="/entries/{{ entry.id }}/export-md" download>Export MD</a>
 
       <button hx-post="/entries/{{ entry.id }}/share" hx-swap="afterend">Share</button>
+
+      <a href="{{ entry.url }}" target="_blank" rel="noopener">Original &nearr;</a>
     </div>
+  </div>
+
+  <header>
+    <h1>{{ entry.title }}</h1>
+    <div class="entry-meta">
+      <img src="/feeds/{{ entry.feed.id }}/icon" class="feed-icon" alt="" onerror="this.style.display='none'">
+      <span class="feed-name">{{ entry.feed.title if entry.feed else '' }}</span>
+      {% if entry.author %}
+        &middot; {{ entry.author }}
+      {% endif %}
+      &middot;
+      {{ entry.published_at[:10] if entry.published_at else '' }}
+      &middot;
+      {{ entry.content | reading_time }}
+    </div>
+    {% if entry.tags or llm_tags %}
+    <div class="entry-tags">
+      {% for tag in entry.tags or [] %}<span class="tag">{{ tag }}</span>{% endfor %}
+      {% for tag in llm_tags %}<a href="/entries?tag={{ tag }}" class="tag llm-tag">{{ tag }}</a>{% endfor %}
+    </div>
+    {% endif %}
   </header>
 
   {% if summary %}

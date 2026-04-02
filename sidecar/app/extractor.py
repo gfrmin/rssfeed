@@ -135,6 +135,12 @@ def _clean_html(raw_html: str, rules: dict[str, Any]) -> str:
     for pattern in rules.get("remove_tags", []):
         _remove_elements(tree, pattern)
 
+    # Feed-specific: remove elements by XPath (e.g. '//img[@class="loadingImg"]')
+    for xpath in rules.get("remove_xpath", []):
+        for el in tree.xpath(xpath):
+            if el.getparent() is not None:
+                el.getparent().remove(el)
+
     # Universal: remove sidebar widgets, aside, nav
     for xpath in [
         '//aside', '//nav',
@@ -192,7 +198,7 @@ def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = Tr
     return {
         "content_text": content_text,
         "content_html": html_content or content_text,
-        "content_hash": hashlib.sha256((content_text or html_content).encode()).hexdigest(),
+        "content_hash": hashlib.sha256(f"{content_text}\n{html_content}".encode()).hexdigest(),
         "metadata": {},
     }
 

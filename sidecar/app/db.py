@@ -94,6 +94,9 @@ CREATE TABLE IF NOT EXISTS article_embeddings (
 
 -- LLM summarize flag on feed_config
 ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS summarize BOOLEAN DEFAULT FALSE;
+
+-- Track RSS source content hash for change detection
+ALTER TABLE article_snapshots ADD COLUMN IF NOT EXISTS source_hash TEXT;
 """
 
 

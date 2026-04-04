@@ -40,7 +40,11 @@
 {% if all_tags %}
 <div class="flex flex-wrap gap-1.5 mb-5">
   {% for t in all_tags %}
-  <a href="/entries?tag={{ t }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}" class="tag-interactive {% if tag == t %}active{% endif %}">{{ t }}</a>
+  {% if t in tag %}
+  <a href="/entries?{% for ot in tag if ot != t %}tag={{ ot }}&{% endfor %}{% if feed_id %}feed_id={{ feed_id }}&{% endif %}{% if status %}status={{ status }}&{% endif %}{% if starred %}starred=true&{% endif %}{% if time_filter %}time_filter={{ time_filter }}&{% endif %}" class="tag-interactive active">{{ t }}</a>
+  {% else %}
+  <a href="/entries?{% for ot in tag %}tag={{ ot }}&{% endfor %}tag={{ t }}&{% if feed_id %}feed_id={{ feed_id }}&{% endif %}{% if status %}status={{ status }}&{% endif %}{% if starred %}starred=true&{% endif %}{% if time_filter %}time_filter={{ time_filter }}&{% endif %}" class="tag-interactive">{{ t }}</a>
+  {% endif %}
   {% endfor %}
 </div>
 {% endif %}
@@ -77,9 +81,9 @@
 {% if entries|length == limit %}
 <div class="mt-8 flex gap-4">
   {% if offset > 0 %}
-  <a href="?offset={{ offset - limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if search %}&search={{ search }}{% endif %}{% if starred %}&starred=true{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}" class="text-accent no-underline px-4 py-1.5 border border-accent rounded-lg hover:bg-accent hover:text-white transition-colors">Previous</a>
+  <a href="?offset={{ offset - limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if search %}&search={{ search }}{% endif %}{% if starred %}&starred=true{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% for t in tag %}&tag={{ t }}{% endfor %}" class="text-accent no-underline px-4 py-1.5 border border-accent rounded-lg hover:bg-accent hover:text-white transition-colors">Previous</a>
   {% endif %}
-  <a href="?offset={{ offset + limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if search %}&search={{ search }}{% endif %}{% if starred %}&starred=true{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}" class="text-accent no-underline px-4 py-1.5 border border-accent rounded-lg hover:bg-accent hover:text-white transition-colors">Next</a>
+  <a href="?offset={{ offset + limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if search %}&search={{ search }}{% endif %}{% if starred %}&starred=true{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% for t in tag %}&tag={{ t }}{% endfor %}" class="text-accent no-underline px-4 py-1.5 border border-accent rounded-lg hover:bg-accent hover:text-white transition-colors">Next</a>
 </div>
 {% endif %}
 {% endblock %}

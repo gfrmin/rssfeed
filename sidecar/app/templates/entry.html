@@ -15,7 +15,7 @@
         {% if entry.starred %}&#9733; Starred{% else %}&#9734; Star{% endif %}
       </button>
 
-      <button hx-post="/entries/{{ entry.id }}/fetch-full" hx-swap="outerHTML" hx-indicator="#loading" class="action-link">
+      <button hx-post="/entries/{{ entry.id }}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML" hx-indicator="#loading" class="action-link">
         {% if snapshot %}Refetch{% else %}Fetch full{% endif %}
       </button>
       <span id="loading" class="htmx-indicator">Fetching...</span>
@@ -75,9 +75,11 @@
   </div>
   {% endif %}
 
-  <div class="entry-content">
+  <div class="entry-content" id="entry-content">
     {% if snapshot %}
-      <div class="block w-fit px-3 py-0.5 text-xs rounded-lg mb-5 bg-accent text-white">
+      <div class="block w-fit px-3 py-0.5 text-xs rounded-lg mb-5 bg-accent text-white cursor-pointer"
+           hx-post="/entries/{{ entry.id }}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML"
+           hx-indicator="#loading" title="Click to refetch">
         Full article v{{ snapshot.version }} (fetched {{ snapshot.fetched_at.strftime('%Y-%m-%d %H:%M') if snapshot.fetched_at else 'unknown' }})
         {% if version_count > 1 %}
           &middot; <a href="/entries/{{ entry.id }}/diff" class="text-white underline">{{ version_count }} versions — view changes</a>
@@ -85,7 +87,11 @@
       </div>
       {{ snapshot.content_html | safe }}
     {% else %}
-      <div class="block w-fit px-3 py-0.5 text-xs rounded-lg mb-5 bg-border text-text-muted">RSS content only</div>
+      <div class="block w-fit px-3 py-0.5 text-xs rounded-lg mb-5 bg-border text-text-muted cursor-pointer"
+           hx-post="/entries/{{ entry.id }}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML"
+           hx-indicator="#loading" title="Click to fetch full article">
+        RSS content only
+      </div>
       {{ entry.content | safe }}
     {% endif %}
   </div>

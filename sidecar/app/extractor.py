@@ -163,7 +163,9 @@ def _extract_by_xpath(html: str, xpath: str) -> str | None:
         return None
     el = matches[0]
     for child in list(el.iterdescendants()):
-        if isinstance(child.tag, str) and child.tag not in _ALLOWED_TAGS:
+        if isinstance(child.tag, str) and child.tag in _DROP_TREE_TAGS:
+            child.drop_tree()
+        elif isinstance(child.tag, str) and child.tag not in _ALLOWED_TAGS:
             child.drop_tag()
     parts = [el.text or '']
     for child in el:
@@ -212,6 +214,9 @@ _ALLOWED_TAGS = frozenset({
 })
 
 
+_DROP_TREE_TAGS = frozenset({'style', 'script', 'noscript'})
+
+
 def _extract_html_readability(html: str) -> str | None:
     """Use readability-lxml for HTML — avoids trafilatura's HTML serialization bugs."""
     from readability import Document
@@ -221,7 +226,9 @@ def _extract_html_readability(html: str) -> str | None:
         return None
     tree = lxml_html.fromstring(article_html)
     for el in list(tree.iter()):
-        if isinstance(el.tag, str) and el.tag not in _ALLOWED_TAGS:
+        if isinstance(el.tag, str) and el.tag in _DROP_TREE_TAGS:
+            el.drop_tree()
+        elif isinstance(el.tag, str) and el.tag not in _ALLOWED_TAGS:
             el.drop_tag()
     body = tree.xpath('//body')
     target = body[0] if body else tree

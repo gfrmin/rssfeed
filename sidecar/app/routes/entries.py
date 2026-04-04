@@ -1,7 +1,7 @@
 import difflib
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app import miniflux_client
@@ -82,7 +82,7 @@ async def entry_list(
     starred: bool = False,
     category_id: int | None = None,
     time_filter: str | None = None,
-    tag: str | None = None,
+    tag: list[str] = Query(default=[]),
     changed: bool = False,
 ):
     limit = 50
@@ -137,7 +137,8 @@ async def entry_list(
 
     # Filter by tag if requested
     if tag:
-        entries = [e for e in entries if tag in e["_tags"]]
+        tag_set = set(tag)
+        entries = [e for e in entries if tag_set & set(e["_tags"])]
 
     # Filter to changed-only if requested
     if changed:
@@ -161,7 +162,7 @@ async def entry_list(
             "starred": starred,
             "category_id": category_id,
             "time_filter": time_filter or "",
-            "tag": tag or "",
+            "tag": tag,
             "changed": changed,
             "all_tags": all_tags,
         },
@@ -294,13 +295,31 @@ async def summary_stream(entry_id: int):
     )
 
 
+def _render_content_block(entry_id: int, snapshot: dict, version_count: int, message: str | None = None) -> str:
+    """Render the badge + article HTML for the #entry-content swap."""
+    from html import escape
+    fetched = snapshot["fetched_at"].strftime("%Y-%m-%d %H:%M") if snapshot.get("fetched_at") else "unknown"
+    diff_link = (
+        f' &middot; <a href="/entries/{entry_id}/diff" class="text-white underline">'
+        f'{version_count} versions — view changes</a>'
+    ) if version_count > 1 else ""
+    msg_part = f' &middot; <span class="font-normal">{escape(message)}</span>' if message else ""
+    badge = (
+        f'<div class="block w-fit px-3 py-0.5 text-xs rounded-lg mb-5 bg-accent text-white cursor-pointer"'
+        f' hx-post="/entries/{entry_id}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML"'
+        f' hx-indicator="#loading" title="Click to refetch">'
+        f'Full article v{snapshot["version"]} (fetched {fetched}){diff_link}{msg_part}</div>'
+    )
+    return badge + (snapshot.get("content_html") or snapshot.get("content_text") or "")
+
+
 @router.post("/entries/{entry_id}/fetch-full")
 async def fetch_full_content(entry_id: int):
     """On-demand fetch of full article content, creating a new version if content changed."""
     entry = await miniflux_client.get_entry(entry_id)
     url = entry.get("url", "")
     if not url:
-        return HTMLResponse('<span class="error">No URL for entry</span>')
+        return HTMLResponse('<span class="text-danger text-detail">No URL for entry</span>')
 
     async with get_conn() as conn:
         cur = await conn.execute(
@@ -312,14 +331,15 @@ async def fetch_full_content(entry_id: int):
 
     extracted = await fetch_and_extract(url, extract_rules)
     if not extracted:
-        return HTMLResponse('<span class="error">Extraction failed — no content found</span>')
+        return HTMLResponse('<span class="text-danger text-detail">Extraction failed — no content found</span>')
 
     import psycopg.types.json
 
     async with get_conn() as conn:
         latest = await _get_snapshot(conn, entry_id)
         if latest and latest["content_hash"] == extracted["content_hash"]:
-            return HTMLResponse('<span class="success">No changes detected</span>')
+            vc = await _version_count(conn, entry_id)
+            return HTMLResponse(_render_content_block(entry_id, latest, vc, "No changes detected"))
 
         next_version = (latest["version"] + 1) if latest else 1
         await conn.execute(
@@ -340,8 +360,10 @@ async def fetch_full_content(entry_id: int):
             ),
         )
         await conn.commit()
-    label = "Full article fetched" if next_version == 1 else f"Updated to v{next_version}"
-    return HTMLResponse(f'<span class="success">{label} — reload to view</span>')
+        snapshot = await _get_snapshot(conn, entry_id)
+        vc = await _version_count(conn, entry_id)
+
+    return HTMLResponse(_render_content_block(entry_id, snapshot, vc))
 
 
 @router.get("/entries/{entry_id}/diff", response_class=HTMLResponse)

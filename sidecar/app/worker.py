@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 
 import psycopg
@@ -22,12 +23,16 @@ async def _get_enabled_feeds(conn: psycopg.AsyncConnection) -> dict[int, dict]:
     }
 
 
-async def _has_snapshot(conn: psycopg.AsyncConnection, entry_id: int) -> bool:
+async def _get_snapshot_info(conn: psycopg.AsyncConnection, entry_id: int) -> tuple[bool, str | None, int]:
+    """Return (exists, source_hash, max_version) for the latest snapshot of an entry."""
     cur = await conn.execute(
-        "SELECT 1 FROM article_snapshots WHERE entry_id = %s LIMIT 1",
+        "SELECT source_hash, version FROM article_snapshots WHERE entry_id = %s ORDER BY version DESC LIMIT 1",
         (entry_id,),
     )
-    return (await cur.fetchone()) is not None
+    row = await cur.fetchone()
+    if row is None:
+        return False, None, 0
+    return True, row["source_hash"], row["version"]
 
 
 async def _store_snapshot(
@@ -36,12 +41,14 @@ async def _store_snapshot(
     feed_id: int,
     url: str,
     extracted: dict,
+    source_hash: str,
+    version: int = 1,
 ) -> None:
     await conn.execute(
         """
         INSERT INTO article_snapshots
-            (entry_id, feed_id, url, content_text, content_html, content_hash, metadata, version)
-        VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, 1)
+            (entry_id, feed_id, url, content_text, content_html, content_hash, metadata, version, source_hash)
+        VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
         """,
         (
             entry_id,
@@ -51,6 +58,8 @@ async def _store_snapshot(
             extracted["content_html"],
             extracted["content_hash"],
             psycopg.types.json.Json(extracted["metadata"]),
+            version,
+            source_hash,
         ),
     )
     await conn.commit()
@@ -142,13 +151,31 @@ async def process_new_entries() -> int:
                 if not url:
                     continue
 
-                if await _has_snapshot(conn, entry_id):
+                source_hash = hashlib.sha256(entry.get("content", "").encode()).hexdigest()
+                exists, stored_hash, max_version = await _get_snapshot_info(conn, entry_id)
+
+                if exists and stored_hash == source_hash:
+                    continue  # No change in RSS content
+
+                if exists and stored_hash is None:
+                    # Backfill source_hash for pre-existing snapshots (no re-fetch)
+                    await conn.execute(
+                        "UPDATE article_snapshots SET source_hash = %s "
+                        "WHERE entry_id = %s AND version = %s",
+                        (source_hash, entry_id, max_version),
+                    )
+                    await conn.commit()
                     continue
 
-                logger.info("Extracting entry %d: %s", entry_id, url)
+                next_version = max_version + 1 if exists else 1
+                if exists:
+                    logger.info("RSS content changed for entry %d, re-fetching: %s", entry_id, url)
+                else:
+                    logger.info("Extracting entry %d: %s", entry_id, url)
+
                 extracted = await fetch_and_extract(url, extract_rules)
                 if extracted:
-                    await _store_snapshot(conn, entry_id, feed_id, url, extracted)
+                    await _store_snapshot(conn, entry_id, feed_id, url, extracted, source_hash, next_version)
                     processed += 1
 
                     # Run LLM tasks (non-blocking — failures are logged, not raised)
@@ -157,11 +184,12 @@ async def process_new_entries() -> int:
                     except Exception:
                         logger.exception("LLM tasks failed for entry %d", entry_id)
 
-                    # Apply filter rules
-                    try:
-                        await _apply_filters(conn, entry)
-                    except Exception:
-                        logger.exception("Filter application failed for entry %d", entry_id)
+                    # Apply filter rules (only for new entries, not re-fetches)
+                    if not exists:
+                        try:
+                            await _apply_filters(conn, entry)
+                        except Exception:
+                            logger.exception("Filter application failed for entry %d", entry_id)
                 else:
                     logger.warning("Extraction failed for entry %d: %s", entry_id, url)
 

@@ -333,7 +333,10 @@ async def fetch_full_content(entry_id: int):
     if not extracted:
         return HTMLResponse('<span class="text-danger text-detail">Extraction failed — no content found</span>')
 
+    import hashlib
     import psycopg.types.json
+
+    source_hash = hashlib.sha256(entry.get("content", "").encode()).hexdigest()
 
     async with get_conn() as conn:
         latest = await _get_snapshot(conn, entry_id)
@@ -345,8 +348,8 @@ async def fetch_full_content(entry_id: int):
         await conn.execute(
             """
             INSERT INTO article_snapshots
-                (entry_id, feed_id, url, content_text, content_html, content_hash, metadata, version)
-            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                (entry_id, feed_id, url, content_text, content_html, content_hash, metadata, version, source_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
             """,
             (
                 entry_id,
@@ -357,6 +360,7 @@ async def fetch_full_content(entry_id: int):
                 extracted["content_hash"],
                 psycopg.types.json.Json(extracted["metadata"]),
                 next_version,
+                source_hash,
             ),
         )
         await conn.commit()

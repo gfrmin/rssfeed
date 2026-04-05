@@ -23,16 +23,16 @@ async def _get_enabled_feeds(conn: psycopg.AsyncConnection) -> dict[int, dict]:
     }
 
 
-async def _get_snapshot_info(conn: psycopg.AsyncConnection, entry_id: int) -> tuple[bool, str | None, int]:
-    """Return (exists, source_hash, max_version) for the latest snapshot of an entry."""
+async def _get_snapshot_info(conn: psycopg.AsyncConnection, entry_id: int) -> tuple[bool, str | None, str | None, int]:
+    """Return (exists, source_hash, content_hash, max_version) for the latest snapshot of an entry."""
     cur = await conn.execute(
-        "SELECT source_hash, version FROM article_snapshots WHERE entry_id = %s ORDER BY version DESC LIMIT 1",
+        "SELECT source_hash, content_hash, version FROM article_snapshots WHERE entry_id = %s ORDER BY version DESC LIMIT 1",
         (entry_id,),
     )
     row = await cur.fetchone()
     if row is None:
-        return False, None, 0
-    return True, row["source_hash"], row["version"]
+        return False, None, None, 0
+    return True, row["source_hash"], row["content_hash"], row["version"]
 
 
 async def _store_snapshot(
@@ -152,7 +152,7 @@ async def process_new_entries() -> int:
                     continue
 
                 source_hash = hashlib.sha256(entry.get("content", "").encode()).hexdigest()
-                exists, stored_hash, max_version = await _get_snapshot_info(conn, entry_id)
+                exists, stored_hash, stored_content_hash, max_version = await _get_snapshot_info(conn, entry_id)
 
                 if exists and stored_hash == source_hash:
                     continue  # No change in RSS content
@@ -174,24 +174,44 @@ async def process_new_entries() -> int:
                     logger.info("Extracting entry %d: %s", entry_id, url)
 
                 extracted = await fetch_and_extract(url, extract_rules)
-                if extracted:
-                    await _store_snapshot(conn, entry_id, feed_id, url, extracted, source_hash, next_version)
-                    processed += 1
-
-                    # Run LLM tasks (non-blocking — failures are logged, not raised)
-                    try:
-                        await _run_llm_tasks(conn, entry_id, extracted["content_text"], do_summarize)
-                    except Exception:
-                        logger.exception("LLM tasks failed for entry %d", entry_id)
-
-                    # Apply filter rules (only for new entries, not re-fetches)
-                    if not exists:
-                        try:
-                            await _apply_filters(conn, entry)
-                        except Exception:
-                            logger.exception("Filter application failed for entry %d", entry_id)
-                else:
+                if not extracted:
+                    # Update source_hash to prevent infinite retry on extraction failure
+                    if exists:
+                        await conn.execute(
+                            "UPDATE article_snapshots SET source_hash = %s "
+                            "WHERE entry_id = %s AND version = %s",
+                            (source_hash, entry_id, max_version),
+                        )
+                        await conn.commit()
                     logger.warning("Extraction failed for entry %d: %s", entry_id, url)
+                    continue
+
+                # RSS changed but extracted content is the same — just update source_hash
+                if exists and extracted["content_hash"] == stored_content_hash:
+                    await conn.execute(
+                        "UPDATE article_snapshots SET source_hash = %s "
+                        "WHERE entry_id = %s AND version = %s",
+                        (source_hash, entry_id, max_version),
+                    )
+                    await conn.commit()
+                    logger.info("RSS content changed but extracted content unchanged for entry %d", entry_id)
+                    continue
+
+                await _store_snapshot(conn, entry_id, feed_id, url, extracted, source_hash, next_version)
+                processed += 1
+
+                # Run LLM tasks (non-blocking — failures are logged, not raised)
+                try:
+                    await _run_llm_tasks(conn, entry_id, extracted["content_text"], do_summarize)
+                except Exception:
+                    logger.exception("LLM tasks failed for entry %d", entry_id)
+
+                # Apply filter rules (only for new entries, not re-fetches)
+                if not exists:
+                    try:
+                        await _apply_filters(conn, entry)
+                    except Exception:
+                        logger.exception("Filter application failed for entry %d", entry_id)
 
     return processed
 

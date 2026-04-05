@@ -23,10 +23,15 @@
   </form>
 
   <div class="flex gap-1 flex-wrap">
-    <a href="/entries?time_filter=today{% if feed_id %}&feed_id={{ feed_id }}{% endif %}" class="btn btn-sm {% if time_filter == 'today' %}active{% endif %}">Today</a>
-    <a href="/entries?time_filter=24h{% if feed_id %}&feed_id={{ feed_id }}{% endif %}" class="btn btn-sm {% if time_filter == '24h' %}active{% endif %}">24h</a>
-    <a href="/entries?time_filter=week{% if feed_id %}&feed_id={{ feed_id }}{% endif %}" class="btn btn-sm {% if time_filter == 'week' %}active{% endif %}">Week</a>
-    <a href="/entries?changed=true{% if feed_id %}&feed_id={{ feed_id }}{% endif %}" class="btn btn-sm {% if changed %}active{% endif %}" title="Show entries with content changes">Changed</a>
+    <a href="/entries?{% if feed_id %}feed_id={{ feed_id }}&{% endif %}{% if search %}search={{ search }}&{% endif %}{% if time_filter %}time_filter={{ time_filter }}&{% endif %}{% if starred %}starred=true&{% endif %}{% for t in tag %}tag={{ t }}&{% endfor %}" class="btn btn-sm {% if not status %}active{% endif %}">All</a>
+    <a href="/entries?status=unread{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if search %}&search={{ search }}{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% if starred %}&starred=true{% endif %}{% for t in tag %}&tag={{ t }}{% endfor %}" class="btn btn-sm {% if status == 'unread' %}active{% endif %}">Unread</a>
+  </div>
+
+  <div class="flex gap-1 flex-wrap">
+    <a href="/entries?time_filter=today{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}" class="btn btn-sm {% if time_filter == 'today' %}active{% endif %}">Today</a>
+    <a href="/entries?time_filter=24h{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}" class="btn btn-sm {% if time_filter == '24h' %}active{% endif %}">24h</a>
+    <a href="/entries?time_filter=week{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}" class="btn btn-sm {% if time_filter == 'week' %}active{% endif %}">Week</a>
+    <a href="/entries?changed=true{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}" class="btn btn-sm {% if changed %}active{% endif %}" title="Show entries with content changes">Changed</a>
   </div>
 
   <div class="flex gap-1 flex-wrap">

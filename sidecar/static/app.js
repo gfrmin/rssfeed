@@ -196,6 +196,19 @@
     }, { passive: true });
   });
 
+  /* --- Mark read on click --- */
+  document.querySelectorAll('.entry-row .entry-link').forEach(link => {
+    link.addEventListener('click', () => {
+      const row = link.closest('.entry-row');
+      if (!row || !row.classList.contains('unread')) return;
+      const entryId = row.dataset.entryId;
+      if (!entryId) return;
+      fetch(`/entries/${entryId}/mark-read`, { method: 'POST' });
+      row.classList.remove('unread');
+      row.classList.add('read');
+    });
+  });
+
   /* --- Unread count polling (title badge) --- */
   let lastCount = null;
   function pollUnreadCount() {

@@ -182,6 +182,24 @@ def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = Tr
         _extract_by_xpath(cleaned, content_xpath) if content_xpath else None
     ) or _extract_html_readability(cleaned)
 
+    # Sanity check: if readability HTML is much shorter than trafilatura text,
+    # readability likely grabbed the wrong element — fall back to trafilatura HTML
+    if text and html_content:
+        readability_text_len = len(lxml_html.fromstring(html_content).text_content())
+        if readability_text_len < len(text) * 0.4:
+            logger.info("Readability output too short (%d vs %d chars), falling back to trafilatura HTML", readability_text_len, len(text))
+            traf_html = extract(cleaned, url=url, include_comments=False, favor_precision=True, output_format="html")
+            if traf_html:
+                tree = lxml_html.fromstring(traf_html)
+                body = tree.xpath("//body")
+                target = body[0] if body else tree
+                parts = [target.text or ""]
+                for child in target:
+                    parts.append(lxml_html.tostring(child, encoding="unicode"))
+                fallback = "".join(parts).strip()
+                if fallback:
+                    html_content = fallback
+
     if not text and not html_content:
         return None
 

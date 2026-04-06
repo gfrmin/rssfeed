@@ -57,9 +57,7 @@ services:
     restart: unless-stopped
 
   credence:
-    image: julia:1.11-bookworm
-    working_dir: /app
-    command: julia domains/rss/server.jl
+    build: ./credence-docker
     volumes:
       - ../bayesian-stuff/credence/src:/app/src:ro
       - ../bayesian-stuff/credence/domains/rss:/app/domains/rss:ro

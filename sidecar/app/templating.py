@@ -33,7 +33,9 @@ def _excerpt(content: str, length: int = 400) -> str:
     if not content:
         return ""
     import re
+    from html import unescape
     text = re.sub(r"<[^>]+>", "", content)
+    text = unescape(text)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) <= length:
         return text

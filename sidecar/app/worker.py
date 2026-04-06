@@ -173,7 +173,11 @@ async def process_new_entries() -> int:
                 else:
                     logger.info("Extracting entry %d: %s", entry_id, url)
 
-                extracted = await fetch_and_extract(url, extract_rules)
+                try:
+                    extracted = await fetch_and_extract(url, extract_rules)
+                except Exception:
+                    logger.exception("Extraction crashed for entry %d: %s", entry_id, url)
+                    extracted = None
                 if not extracted:
                     # Update source_hash to prevent infinite retry on extraction failure
                     if exists:

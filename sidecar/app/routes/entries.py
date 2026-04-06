@@ -4,7 +4,10 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+import httpx
+
 from app import miniflux_client
+from app.config import CREDENCE_URL
 from app.db import get_conn
 from app.extractor import fetch_and_extract
 from app.templating import templates
@@ -72,6 +75,19 @@ def _time_filter_params(time_filter: str | None) -> dict[str, str]:
     return {"after": str(int(start.timestamp()))}
 
 
+async def _get_credence_ranking(n: int = 200) -> dict[int, float] | None:
+    """Fetch ranking scores from credence service. Returns {entry_id: score} or None."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{CREDENCE_URL}/rank", params={"n": n})
+            if resp.status_code == 200:
+                data = resp.json()
+                return {item["entry_id"]: item["score"] for item in data["ranking"]}
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/entries", response_class=HTMLResponse)
 async def entry_list(
     request: Request,
@@ -106,24 +122,28 @@ async def entry_list(
         all_entries = data.get("entries", [])
         total = data.get("total", 0)
 
-        async with get_conn() as conn:
-            priorities = await _feed_priorities(conn)
+        # Try credence ranking, fall back to priority sort
+        scores = await _get_credence_ranking(n=len(all_entries))
+        if scores:
+            all_entries.sort(key=lambda e: -scores.get(e["id"], 0.0))
+            entries = all_entries[:limit]
+        else:
+            async with get_conn() as conn:
+                priorities = await _feed_priorities(conn)
+            for entry in all_entries:
+                entry["_priority"] = priorities.get(entry.get("feed_id"), 2)
 
-        for entry in all_entries:
-            entry["_priority"] = priorities.get(entry.get("feed_id"), 2)
-
-        from itertools import groupby
-        all_entries.sort(key=lambda e: (
-            e["_priority"],
-            "".join(c for c in (e.get("published_at") or "") if c not in ":-TZ"),
-        ))
-        entries = []
-        for _, group in groupby(all_entries, key=lambda e: e["_priority"]):
-            tier = list(group)
-            tier.sort(key=lambda e: e.get("published_at", ""), reverse=True)
-            entries.extend(tier)
-
-        entries = entries[:limit]
+            from itertools import groupby
+            all_entries.sort(key=lambda e: (
+                e["_priority"],
+                "".join(c for c in (e.get("published_at") or "") if c not in ":-TZ"),
+            ))
+            entries = []
+            for _, group in groupby(all_entries, key=lambda e: e["_priority"]):
+                tier = list(group)
+                tier.sort(key=lambda e: e.get("published_at", ""), reverse=True)
+                entries.extend(tier)
+            entries = entries[:limit]
 
     # Enrich with tags and change indicators
     entry_ids = [e["id"] for e in entries]
@@ -184,6 +204,13 @@ async def entry_detail(request: Request, entry_id: int):
             (entry_id, entry.get("feed_id", 0)),
         )
         await conn.commit()
+    # Notify credence service of read event
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            await client.post(f"{CREDENCE_URL}/train")
+    except Exception:
+        pass  # Non-critical — credence will catch up on next train
+    async with get_conn() as conn:
         # Get tags
         cur = await conn.execute(
             "SELECT tag FROM article_tags WHERE entry_id = %s", (entry_id,)
@@ -406,6 +433,12 @@ async def entry_diff(request: Request, entry_id: int):
 @router.post("/entries/{entry_id}/mark-read")
 async def mark_read(entry_id: int):
     await miniflux_client.update_entry_status([entry_id], "read")
+    # Notify credence service of dismiss event
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            await client.post(f"{CREDENCE_URL}/train")
+    except Exception:
+        pass
     return HTMLResponse(
         f'<button hx-post="/entries/{entry_id}/mark-unread" hx-swap="outerHTML">Mark unread</button>'
     )

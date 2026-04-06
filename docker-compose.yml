@@ -46,6 +46,7 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      CREDENCE_URL: http://credence:8081
     volumes:
       - ./sidecar:/sidecar
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
@@ -53,6 +54,22 @@ services:
       - "9145:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  credence:
+    image: julia:1.11-bookworm
+    working_dir: /app
+    command: julia domains/rss/server.jl
+    volumes:
+      - ../bayesian-stuff/credence/src:/app/src:ro
+      - ../bayesian-stuff/credence/domains/rss:/app/domains/rss:ro
+    environment:
+      DATABASE_URL: postgres://miniflux:${POSTGRES_PASSWORD:-miniflux}@db/miniflux?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "9146:8081"
     restart: unless-stopped
 
 volumes:

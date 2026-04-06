@@ -3,7 +3,8 @@
 {% block content %}
 <h1 class="heading-page">Feeds</h1>
 
-<div class="mb-5 flex gap-2 items-center">
+<div class="mb-5 flex gap-2 items-center flex-wrap">
+  <input type="search" id="feed-search" placeholder="Filter feeds..." class="input w-[200px] px-3 py-1.5 text-detail" autofocus>
   <a href="/opml/export" class="btn" download>Export OPML</a>
   <form hx-post="/opml/import" hx-encoding="multipart/form-data" hx-swap="afterend" class="inline">
     <label class="btn cursor-pointer">
@@ -42,4 +43,34 @@
   </tbody>
 </table>
 </div>
+<p id="no-match" class="text-text-muted mt-4 hidden">No feeds match your filter.</p>
+
+<script>
+(function () {
+  const input = document.getElementById('feed-search');
+  const rows = document.querySelectorAll('tbody tr');
+  const noMatch = document.getElementById('no-match');
+
+  input.addEventListener('input', function () {
+    const q = this.value.toLowerCase();
+    let visible = 0;
+    rows.forEach(function (row) {
+      const text = row.textContent.toLowerCase();
+      const show = text.includes(q);
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    noMatch.classList.toggle('hidden', visible > 0);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === '/' && !e.ctrlKey && !e.metaKey &&
+        document.activeElement !== input &&
+        !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+      e.preventDefault();
+      input.focus();
+    }
+  });
+})();
+</script>
 {% endblock %}

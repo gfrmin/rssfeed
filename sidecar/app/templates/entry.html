@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ entry.title }}{% endblock %}
 {% block content %}
-<article class="max-w-[700px] mx-auto">
+<article class="max-w-[700px] mx-auto" {% if prev_entry_id %}data-prev-entry="{{ prev_entry_id }}"{% endif %} {% if next_entry_id %}data-next-entry="{{ next_entry_id }}"{% endif %}>
   <div class="flex justify-between items-center mb-8 text-detail">
     <a href="/entries?feed_id={{ entry.feed.id }}" class="action-link no-underline">&larr; {{ entry.feed.title }}</a>
     <div class="action-right flex gap-4 items-center flex-wrap">

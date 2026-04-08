@@ -196,6 +196,34 @@
     }, { passive: true });
   });
 
+  /* --- Swipe navigation on entry detail page --- */
+  const detailArticle = document.querySelector('article[data-prev-entry], article[data-next-entry]');
+  if (detailArticle) {
+    let detailStartX = 0;
+    let detailStartY = 0;
+
+    detailArticle.addEventListener('touchstart', (e) => {
+      detailStartX = e.touches[0].clientX;
+      detailStartY = e.touches[0].clientY;
+    }, { passive: true });
+
+    detailArticle.addEventListener('touchend', (e) => {
+      const dx = e.changedTouches[0].clientX - detailStartX;
+      const dy = e.changedTouches[0].clientY - detailStartY;
+      if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dy) > Math.abs(dx)) return;
+
+      const target = dx > 0
+        ? detailArticle.dataset.prevEntry   // swipe right → newer
+        : detailArticle.dataset.nextEntry;  // swipe left  → older
+      if (target) {
+        detailArticle.style.transition = 'transform 0.2s ease-out, opacity 0.2s';
+        detailArticle.style.transform = `translateX(${dx > 0 ? '100%' : '-100%'})`;
+        detailArticle.style.opacity = '0';
+        setTimeout(() => { window.location.href = '/entries/' + target; }, 200);
+      }
+    }, { passive: true });
+  }
+
   /* --- Mark read on click --- */
   document.querySelectorAll('.entry-row .entry-link').forEach(link => {
     link.addEventListener('click', () => {

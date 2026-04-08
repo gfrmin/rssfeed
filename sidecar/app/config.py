@@ -11,5 +11,3 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2")
 OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
-# Credence ranking service
-CREDENCE_URL = os.environ.get("CREDENCE_URL", "http://credence:8081")

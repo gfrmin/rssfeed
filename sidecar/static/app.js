@@ -53,6 +53,19 @@
     btn.addEventListener('click', () => applyView(btn.dataset.view));
   });
 
+  /* --- Tag cloud filter --- */
+  const tagFilter = document.getElementById('tag-filter');
+  const tagCloud = document.getElementById('tag-cloud');
+  if (tagFilter && tagCloud) {
+    const tagLinks = tagCloud.querySelectorAll('a');
+    tagFilter.addEventListener('input', function () {
+      const q = this.value.toLowerCase();
+      tagLinks.forEach(a => {
+        a.style.display = a.textContent.toLowerCase().includes(q) ? '' : 'none';
+      });
+    });
+  }
+
   /* --- Scroll position memory --- */
   const scrollKey = 'scroll_' + location.pathname + location.search;
   const savedScroll = sessionStorage.getItem(scrollKey);

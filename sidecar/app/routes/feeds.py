@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 from datetime import datetime, timezone, timedelta
@@ -19,6 +20,14 @@ async def _feed_configs(conn) -> dict[int, dict]:
     return {row["feed_id"]: row for row in await cur.fetchall()}
 
 
+async def _latest_entry_date(feed_id: int) -> tuple[int, str]:
+    data = await miniflux_client.get_entries(
+        feed_id=feed_id, limit=1, direction="desc", order="published_at",
+    )
+    entries = data.get("entries") or []
+    return (feed_id, entries[0].get("published_at", "") if entries else "")
+
+
 @router.get("/", response_class=HTMLResponse)
 async def feed_list(request: Request):
     feeds = await miniflux_client.get_feeds()
@@ -26,12 +35,22 @@ async def feed_list(request: Request):
     unreads = counters.get("unreads", {})
     async with get_conn() as conn:
         configs = await _feed_configs(conn)
+
+    latest_dates = dict(await asyncio.gather(
+        *[_latest_entry_date(f["id"]) for f in feeds]
+    ))
+
     for feed in feeds:
         cfg = configs.get(feed["id"], {})
         feed["fetch_full_content"] = cfg.get("fetch_full_content", False)
         feed["priority"] = cfg.get("priority", 2)
         feed["unread_count"] = unreads.get(str(feed["id"]), 0)
-    feeds.sort(key=lambda f: (f["priority"], f.get("title", "").lower()))
+        feed["latest_entry_at"] = latest_dates.get(feed["id"], "")
+
+    # Stable sort: first by latest entry (most recent first), then by priority
+    feeds.sort(key=lambda f: f.get("latest_entry_at", ""), reverse=True)
+    feeds.sort(key=lambda f: f["priority"])
+
     return templates.TemplateResponse(request, "feeds.html", {"feeds": feeds})
 
 

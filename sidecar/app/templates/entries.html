@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Articles{% endblock %}
+{% set status_param = "all" if show_all else status %}
 {% block content %}
 {% if feed %}
 <h1 class="heading-page">
@@ -9,7 +10,7 @@
 </h1>
 <p class="block text-caption text-text-muted overflow-hidden text-ellipsis whitespace-nowrap"><a href="{{ feed.site_url or feed.feed_url }}" target="_blank" rel="noopener" class="text-text-muted no-underline hover:text-link hover:underline">{{ feed.site_url or feed.feed_url }}</a></p>
 {% else %}
-<h1 class="heading-page">Articles{% if status %} — {{ status }}{% endif %}{% if starred %} — Starred{% endif %}{% if changed %} — Changed{% endif %}</h1>
+<h1 class="heading-page">Articles{% if show_all %} — all{% elif status and status != 'unread' %} — {{ status }}{% endif %}{% if starred %} — Starred{% endif %}{% if changed %} — Changed{% endif %}</h1>
 {% endif %}
 
 <!-- Search and filters bar -->
@@ -17,21 +18,21 @@
   <form class="flex gap-1.5 w-full sm:w-auto" action="/entries" method="get">
     <input type="search" name="search" value="{{ search }}" placeholder="Search articles..." class="input w-[200px] px-3 py-1.5 text-detail" id="search-input">
     {% if feed_id %}<input type="hidden" name="feed_id" value="{{ feed_id }}">{% endif %}
-    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    <input type="hidden" name="status" value="{{ status_param }}">
     {% if starred %}<input type="hidden" name="starred" value="true">{% endif %}
     <button type="submit" class="btn">Search</button>
   </form>
 
   <div class="flex gap-1 flex-wrap">
-    <a href="/entries?{% if feed_id %}feed_id={{ feed_id }}&{% endif %}{% if search %}search={{ search }}&{% endif %}{% if time_filter %}time_filter={{ time_filter }}&{% endif %}{% if starred %}starred=true&{% endif %}{% for t in tag %}tag={{ t }}&{% endfor %}" class="btn btn-sm {% if not status %}active{% endif %}">All</a>
+    <a href="/entries?status=all{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if search %}&search={{ search }}{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% if starred %}&starred=true{% endif %}{% for t in tag %}&tag={{ t }}{% endfor %}" class="btn btn-sm {% if show_all %}active{% endif %}">All</a>
     <a href="/entries?status=unread{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if search %}&search={{ search }}{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% if starred %}&starred=true{% endif %}{% for t in tag %}&tag={{ t }}{% endfor %}" class="btn btn-sm {% if status == 'unread' %}active{% endif %}">Unread</a>
   </div>
 
   <div class="flex gap-1 flex-wrap">
-    <a href="/entries?time_filter=today{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}" class="btn btn-sm {% if time_filter == 'today' %}active{% endif %}">Today</a>
-    <a href="/entries?time_filter=24h{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}" class="btn btn-sm {% if time_filter == '24h' %}active{% endif %}">24h</a>
-    <a href="/entries?time_filter=week{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}" class="btn btn-sm {% if time_filter == 'week' %}active{% endif %}">Week</a>
-    <a href="/entries?changed=true{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}" class="btn btn-sm {% if changed %}active{% endif %}" title="Show entries with content changes">Changed</a>
+    <a href="/entries?time_filter=today{% if feed_id %}&feed_id={{ feed_id }}{% endif %}&status={{ status_param }}" class="btn btn-sm {% if time_filter == 'today' %}active{% endif %}">Today</a>
+    <a href="/entries?time_filter=24h{% if feed_id %}&feed_id={{ feed_id }}{% endif %}&status={{ status_param }}" class="btn btn-sm {% if time_filter == '24h' %}active{% endif %}">24h</a>
+    <a href="/entries?time_filter=week{% if feed_id %}&feed_id={{ feed_id }}{% endif %}&status={{ status_param }}" class="btn btn-sm {% if time_filter == 'week' %}active{% endif %}">Week</a>
+    <a href="/entries?changed=true{% if feed_id %}&feed_id={{ feed_id }}{% endif %}&status={{ status_param }}" class="btn btn-sm {% if changed %}active{% endif %}" title="Show entries with content changes">Changed</a>
   </div>
 
   <div class="flex gap-1 flex-wrap">
@@ -43,15 +44,19 @@
 </div>
 
 {% if all_tags %}
-<div class="flex flex-wrap gap-1.5 mb-5">
-  {% for t in all_tags %}
-  {% if t in tag %}
-  <a href="/entries?{% for ot in tag if ot != t %}tag={{ ot }}&{% endfor %}{% if feed_id %}feed_id={{ feed_id }}&{% endif %}{% if status %}status={{ status }}&{% endif %}{% if starred %}starred=true&{% endif %}{% if time_filter %}time_filter={{ time_filter }}&{% endif %}" class="tag-interactive active">{{ t }}</a>
-  {% else %}
-  <a href="/entries?{% for ot in tag %}tag={{ ot }}&{% endfor %}tag={{ t }}&{% if feed_id %}feed_id={{ feed_id }}&{% endif %}{% if status %}status={{ status }}&{% endif %}{% if starred %}starred=true&{% endif %}{% if time_filter %}time_filter={{ time_filter }}&{% endif %}" class="tag-interactive">{{ t }}</a>
-  {% endif %}
-  {% endfor %}
-</div>
+<details class="mb-5"{% if tag %} open{% endif %}>
+  <summary class="cursor-pointer text-text-muted text-detail">Tags ({{ all_tags|length }})</summary>
+  <input type="search" placeholder="Filter tags..." class="input w-[180px] px-2 py-1 text-2xs mt-2 mb-1" id="tag-filter">
+  <div class="flex flex-wrap gap-1.5 mt-1" id="tag-cloud">
+    {% for t in all_tags %}
+    {% if t in tag %}
+    <a href="/entries?{% for ot in tag if ot != t %}tag={{ ot }}&{% endfor %}{% if feed_id %}feed_id={{ feed_id }}&{% endif %}status={{ status_param }}&{% if starred %}starred=true&{% endif %}{% if time_filter %}time_filter={{ time_filter }}&{% endif %}" class="tag-interactive active">{{ t }}</a>
+    {% else %}
+    <a href="/entries?{% for ot in tag %}tag={{ ot }}&{% endfor %}tag={{ t }}&{% if feed_id %}feed_id={{ feed_id }}&{% endif %}status={{ status_param }}&{% if starred %}starred=true&{% endif %}{% if time_filter %}time_filter={{ time_filter }}&{% endif %}" class="tag-interactive">{{ t }}</a>
+    {% endif %}
+    {% endfor %}
+  </div>
+</details>
 {% endif %}
 
 <div class="entry-list flex flex-col" id="entry-list">
@@ -74,7 +79,11 @@
     </div>
     {% if entry._tags %}
     <div class="entry-tags-inline block mt-1">
-      {% for t in entry._tags %}<span class="tag text-2xs px-1.5">{{ t }}</span>{% endfor %}
+      {% for t in entry._tags[:5] %}<span class="tag text-2xs px-1.5">{{ t }}</span>{% endfor %}
+      {% if entry._tags|length > 5 %}
+      <button class="tag text-2xs px-1.5 cursor-pointer hover:border-accent hover:text-accent" onclick="this.nextElementSibling.classList.remove('hidden'); this.remove();">+{{ entry._tags|length - 5 }}</button>
+      <span class="hidden">{% for t in entry._tags[5:] %}<span class="tag text-2xs px-1.5">{{ t }}</span>{% endfor %}</span>
+      {% endif %}
     </div>
     {% endif %}
   </article>
@@ -86,9 +95,9 @@
 {% if entries|length == limit %}
 <div class="mt-8 flex gap-4">
   {% if offset > 0 %}
-  <a href="?offset={{ offset - limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if search %}&search={{ search }}{% endif %}{% if starred %}&starred=true{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% for t in tag %}&tag={{ t }}{% endfor %}" class="text-accent no-underline px-4 py-1.5 border border-accent rounded-lg hover:bg-accent hover:text-white transition-colors">Previous</a>
+  <a href="?offset={{ offset - limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}&status={{ status_param }}{% if search %}&search={{ search }}{% endif %}{% if starred %}&starred=true{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% for t in tag %}&tag={{ t }}{% endfor %}" class="text-accent no-underline px-4 py-1.5 border border-accent rounded-lg hover:bg-accent hover:text-white transition-colors">Previous</a>
   {% endif %}
-  <a href="?offset={{ offset + limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if search %}&search={{ search }}{% endif %}{% if starred %}&starred=true{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% for t in tag %}&tag={{ t }}{% endfor %}" class="text-accent no-underline px-4 py-1.5 border border-accent rounded-lg hover:bg-accent hover:text-white transition-colors">Next</a>
+  <a href="?offset={{ offset + limit }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}&status={{ status_param }}{% if search %}&search={{ search }}{% endif %}{% if starred %}&starred=true{% endif %}{% if time_filter %}&time_filter={{ time_filter }}{% endif %}{% for t in tag %}&tag={{ t }}{% endfor %}" class="text-accent no-underline px-4 py-1.5 border border-accent rounded-lg hover:bg-accent hover:text-white transition-colors">Next</a>
 </div>
 {% endif %}
 {% endblock %}

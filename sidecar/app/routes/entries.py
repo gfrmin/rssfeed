@@ -86,6 +86,11 @@ async def entry_list(
     changed: bool = False,
 ):
     limit = 50
+    show_all = status == "all"
+    if show_all:
+        status = None
+    elif status is None:
+        status = "unread"
     time_params = _time_filter_params(time_filter)
 
     feed = None
@@ -153,6 +158,7 @@ async def entry_list(
             "feed": feed,
             "feed_id": feed_id,
             "status": status,
+            "show_all": show_all,
             "offset": offset,
             "limit": limit,
             "total": total,

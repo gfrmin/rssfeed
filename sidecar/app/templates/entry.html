@@ -42,10 +42,24 @@
       &middot;
       {{ entry.content | reading_time }}
     </div>
-    {% if entry.tags or llm_tags %}
+    {% set all_entry_tags = (entry.tags or []) + llm_tags %}
+    {% if all_entry_tags %}
     <div class="mt-3 flex flex-wrap gap-1.5">
-      {% for tag in entry.tags or [] %}<span class="tag">{{ tag }}</span>{% endfor %}
-      {% for tag in llm_tags %}<a href="/entries?tag={{ tag }}" class="tag-interactive border-dashed">{{ tag }}</a>{% endfor %}
+      {% for tag in (entry.tags or [])[:5] %}<span class="tag">{{ tag }}</span>{% endfor %}
+      {% if (entry.tags or [])|length < 5 %}
+        {% for tag in llm_tags[:5 - (entry.tags or [])|length] %}<a href="/entries?tag={{ tag }}" class="tag-interactive border-dashed">{{ tag }}</a>{% endfor %}
+      {% endif %}
+      {% if all_entry_tags|length > 5 %}
+      <button class="tag cursor-pointer hover:border-accent hover:text-accent" onclick="this.nextElementSibling.classList.remove('hidden'); this.remove();">+{{ all_entry_tags|length - 5 }}</button>
+      <span class="hidden">
+        {% for tag in (entry.tags or [])[5:] %}<span class="tag">{{ tag }}</span>{% endfor %}
+        {% if (entry.tags or [])|length < 5 %}
+          {% for tag in llm_tags[5 - (entry.tags or [])|length:] %}<a href="/entries?tag={{ tag }}" class="tag-interactive border-dashed">{{ tag }}</a>{% endfor %}
+        {% else %}
+          {% for tag in llm_tags %}<a href="/entries?tag={{ tag }}" class="tag-interactive border-dashed">{{ tag }}</a>{% endfor %}
+        {% endif %}
+      </span>
+      {% endif %}
     </div>
     {% endif %}
   </header>

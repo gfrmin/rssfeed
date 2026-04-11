@@ -51,7 +51,9 @@ async def feed_list(request: Request):
     feeds.sort(key=lambda f: f.get("latest_entry_at", ""), reverse=True)
     feeds.sort(key=lambda f: f["priority"])
 
-    return templates.TemplateResponse(request, "feeds.html", {"feeds": feeds})
+    categories = await miniflux_client.get_categories()
+
+    return templates.TemplateResponse(request, "feeds.html", {"feeds": feeds, "categories": categories})
 
 
 @router.get("/categories", response_class=HTMLResponse)
@@ -170,6 +172,27 @@ async def feed_icon(feed_id: int):
         await conn.commit()
 
     return Response(content=icon_data, media_type=icon_mime)
+
+
+@router.post("/feeds/subscribe")
+async def subscribe_feed(feed_url: str = Form(...), category_id: int = Form(...)):
+    feed_url = feed_url.strip()
+    if not feed_url:
+        return HTMLResponse('<span class="error">URL is required</span>', status_code=400)
+    try:
+        result = await miniflux_client.create_feed(feed_url, category_id)
+        feed_id = result.get("feed_id", "")
+        return HTMLResponse(
+            f'<span class="success">Subscribed! <a href="/feeds/{feed_id}" class="text-link underline">Settings</a></span>'
+        )
+    except Exception as e:
+        return HTMLResponse(f'<span class="error">Failed: {e}</span>', status_code=400)
+
+
+@router.post("/feeds/{feed_id}/delete")
+async def delete_feed(feed_id: int):
+    await miniflux_client.delete_feed(feed_id)
+    return HTMLResponse('<span class="success">Feed deleted</span>')
 
 
 @router.post("/feeds/{feed_id}/rename")

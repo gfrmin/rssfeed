@@ -73,9 +73,18 @@
   </details>
 </div>
 
-<p class="mt-4 text-body-sm">
-  <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">&larr; Entries</a>
-  &middot;
-  <a href="/" class="text-link no-underline hover:underline">All feeds</a>
-</p>
+<div class="mt-8 pt-4 border-t border-border flex justify-between items-center">
+  <div class="text-body-sm">
+    <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">&larr; Entries</a>
+    &middot;
+    <a href="/" class="text-link no-underline hover:underline">All feeds</a>
+  </div>
+  <button
+    hx-post="/feeds/{{ feed.id }}/delete"
+    hx-confirm="Delete feed &quot;{{ feed.title }}&quot;? This removes all entries."
+    hx-swap="innerHTML"
+    hx-target="closest div"
+    class="text-danger text-caption cursor-pointer bg-transparent border border-danger rounded px-2 py-1 hover:bg-danger hover:text-white transition-colors"
+  >Delete feed</button>
+</div>
 {% endblock %}

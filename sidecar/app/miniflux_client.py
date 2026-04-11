@@ -120,6 +120,19 @@ async def export_opml() -> str:
         return r.text
 
 
+async def create_feed(feed_url: str, category_id: int) -> dict[str, Any]:
+    async with _client() as c:
+        r = await c.post("/v1/feeds", json={"feed_url": feed_url, "category_id": category_id})
+        r.raise_for_status()
+        return r.json()
+
+
+async def delete_feed(feed_id: int) -> None:
+    async with _client() as c:
+        r = await c.delete(f"/v1/feeds/{feed_id}")
+        r.raise_for_status()
+
+
 async def update_feed(feed_id: int, **fields: Any) -> dict[str, Any]:
     async with _client() as c:
         r = await c.put(f"/v1/feeds/{feed_id}", json=fields)

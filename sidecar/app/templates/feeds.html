@@ -5,15 +5,28 @@
 
 <div class="mb-5 flex gap-2 items-center flex-wrap">
   <input type="search" id="feed-search" placeholder="Filter feeds..." class="input w-[200px] px-3 py-1.5 text-detail" autofocus>
-  <a href="/opml/export" class="btn" download>Export OPML</a>
-  <form hx-post="/opml/import" hx-encoding="multipart/form-data" hx-swap="afterend" class="inline">
-    <label class="btn cursor-pointer">
-      Import OPML
-      <input type="file" name="file" accept=".opml,.xml" hidden
-             onchange="this.closest('form').requestSubmit()">
-    </label>
+  <form hx-post="/feeds/subscribe" hx-swap="afterend" class="flex gap-1.5 items-center">
+    <input type="url" name="feed_url" placeholder="Feed URL..." class="input w-[250px] px-2.5 py-1.5 text-detail" required>
+    <select name="category_id" class="input w-auto px-2 py-1.5 text-detail">
+      {% for cat in categories %}<option value="{{ cat.id }}">{{ cat.title }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="btn">Subscribe</button>
   </form>
 </div>
+
+<details class="mb-4">
+  <summary class="cursor-pointer text-text-muted text-detail">OPML import/export</summary>
+  <div class="flex gap-2 mt-2">
+    <a href="/opml/export" class="btn" download>Export OPML</a>
+    <form hx-post="/opml/import" hx-encoding="multipart/form-data" hx-swap="afterend" class="inline">
+      <label class="btn cursor-pointer">
+        Import OPML
+        <input type="file" name="file" accept=".opml,.xml" hidden
+               onchange="this.closest('form').requestSubmit()">
+      </label>
+    </form>
+  </div>
+</details>
 
 <div class="overflow-x-auto">
 <table class="w-full border-collapse">

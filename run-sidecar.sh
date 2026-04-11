@@ -12,4 +12,4 @@ export DATABASE_URL="postgres://miniflux:${POSTGRES_PASSWORD:-miniflux}@localhos
 export MINIFLUX_URL="http://localhost:9144"
 
 cd "$SCRIPT_DIR/sidecar"
-exec uv run uvicorn app.main:app --host 127.0.0.1 --port 9145 --reload
+exec uv run uvicorn app.main:app --host 0.0.0.0 --port 9145 --reload

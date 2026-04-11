@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from app import miniflux_client
 from app.db import get_conn
 from app.extractor import fetch_and_extract
+from app.routes.cookies import get_cookies_for_url
 from app.templating import templates
 
 logger = logging.getLogger(__name__)
@@ -360,7 +361,8 @@ async def fetch_full_content(entry_id: int):
         row = await cur.fetchone()
         extract_rules = (row["extract_rules"] if row else None) or {}
 
-    extracted = await fetch_and_extract(url, extract_rules)
+    cookies = await get_cookies_for_url(url)
+    extracted = await fetch_and_extract(url, extract_rules, cookies=cookies)
     if not extracted:
         return HTMLResponse('<span class="text-danger text-detail">Extraction failed — no content found</span>')
 

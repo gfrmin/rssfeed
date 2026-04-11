@@ -97,6 +97,13 @@ ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS summarize BOOLEAN DEFAULT FALSE
 
 -- Track RSS source content hash for change detection
 ALTER TABLE article_snapshots ADD COLUMN IF NOT EXISTS source_hash TEXT;
+
+-- Domain-level cookies for paywalled sites
+CREATE TABLE IF NOT EXISTS site_cookies (
+    domain TEXT PRIMARY KEY,
+    cookies JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 """
 
 

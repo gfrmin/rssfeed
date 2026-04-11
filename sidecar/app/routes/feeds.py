@@ -172,6 +172,43 @@ async def feed_icon(feed_id: int):
     return Response(content=icon_data, media_type=icon_mime)
 
 
+@router.post("/feeds/{feed_id}/rename")
+async def rename_feed(feed_id: int, title: str = Form(...)):
+    title = title.strip()
+    if not title:
+        return HTMLResponse('<span class="error">Title cannot be empty</span>', status_code=400)
+    await miniflux_client.update_feed(feed_id, title=title)
+    return HTMLResponse('<span class="success">Title updated</span>')
+
+
+@router.post("/feeds/fix-author-titles")
+async def fix_author_titles():
+    """Batch rename author-based feeds whose titles are missing the author name."""
+    feeds = await miniflux_client.get_feeds()
+    fixed = 0
+    for feed in feeds:
+        feed_url = feed.get("feed_url", "")
+        if "/author/" not in feed_url:
+            continue
+        # Get author name from the first entry (more accurate than URL slug)
+        data = await miniflux_client.get_entries(feed_id=feed["id"], limit=1)
+        entries = data.get("entries") or []
+        if entries and entries[0].get("author"):
+            author = entries[0]["author"]
+        else:
+            # Fall back to URL slug
+            slug = feed_url.rstrip("/").split("/author/")[-1].split("/")[0]
+            author = slug.replace("-", " ").title()
+        # Extract publication name from existing title (after | or whole title)
+        existing = feed.get("title", "").strip()
+        pub = existing.lstrip("| ").strip() if "|" in existing else existing
+        new_title = f"{author} | {pub}" if pub else author
+        if new_title != existing:
+            await miniflux_client.update_feed(feed["id"], title=new_title)
+            fixed += 1
+    return HTMLResponse(f'<span class="success">Renamed {fixed} feeds</span>')
+
+
 @router.post("/feeds/{feed_id}/set-priority")
 async def set_priority(feed_id: int, priority: int = Form(2)):
     priority = max(1, min(3, priority))

@@ -8,6 +8,7 @@ from app import miniflux_client, llm
 from app.config import WORKER_POLL_INTERVAL
 from app.db import get_conn
 from app.extractor import fetch_and_extract
+from app.routes.cookies import get_cookies_for_url
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +175,8 @@ async def process_new_entries() -> int:
                     logger.info("Extracting entry %d: %s", entry_id, url)
 
                 try:
-                    extracted = await fetch_and_extract(url, extract_rules)
+                    cookies = await get_cookies_for_url(url)
+                    extracted = await fetch_and_extract(url, extract_rules, cookies=cookies)
                 except Exception:
                     logger.exception("Extraction crashed for entry %d: %s", entry_id, url)
                     extracted = None

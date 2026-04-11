@@ -72,6 +72,7 @@
     </a>
     <div class="entry-meta text-caption text-text-muted mt-1 block">
       {% if entry.feed %}<a href="/entries?feed_id={{ entry.feed.id }}" class="text-text-muted no-underline hover:text-link hover:underline">{{ entry.feed.title }}</a>{% endif %}
+      {% if entry.author %}&middot; {{ entry.author }}{% endif %}
       &middot;
       {{ entry.published_at | timeago }}
       &middot;

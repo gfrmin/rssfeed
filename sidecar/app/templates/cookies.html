@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Site Cookies{% endblock %}
+{% block content %}
+<h1 class="heading-page">Site Cookies</h1>
+<p class="text-text-muted text-detail mb-5">Store login cookies per domain for fetching paywalled content. Cookies are sent with all article fetch requests to matching domains.</p>
+
+<div class="card p-4 mb-6">
+  <div class="flex gap-3 items-start flex-col sm:flex-row">
+    <div>
+      <label class="block text-caption text-text-muted mb-1">Domain</label>
+      <input type="text" id="cookie-domain" name="domain" placeholder="nationalreview.com" class="input px-2.5 py-1.5 w-[250px]" required>
+    </div>
+    <div class="flex-1 w-full">
+      <label class="block text-caption text-text-muted mb-1">Cookies</label>
+      <textarea id="cookie-raw" name="cookies_raw" rows="3" placeholder="Paste from browser DevTools: key=value; key2=value2" class="input w-full px-2.5 py-1.5 font-mono text-detail"></textarea>
+    </div>
+  </div>
+  <div class="flex gap-2 mt-3 items-center flex-wrap" id="cookie-actions">
+    <button hx-post="/cookies/from-firefox" hx-include="#cookie-domain" hx-swap="afterend" hx-target="#cookie-actions" class="btn" title="Read cookies from your Firefox browser">Import from Firefox</button>
+    <button hx-post="/cookies" hx-include="#cookie-domain, #cookie-raw" hx-swap="afterend" hx-target="#cookie-actions" class="btn">Save manual</button>
+  </div>
+</div>
+
+{% if entries %}
+<table class="w-full border-collapse">
+  <thead>
+    <tr>
+      <th class="th">Domain</th>
+      <th class="th">Cookies</th>
+      <th class="th">Updated</th>
+      <th class="th"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for entry in entries %}
+    <tr>
+      <td class="td font-mono text-detail">{{ entry.domain }}</td>
+      <td class="td text-detail text-text-muted">{{ entry.cookies | length }} cookie{{ 's' if entry.cookies | length != 1 else '' }}</td>
+      <td class="td text-caption text-text-muted whitespace-nowrap">{{ entry.updated_at.strftime('%Y-%m-%d %H:%M') if entry.updated_at else '-' }}</td>
+      <td class="td">
+        <button hx-post="/cookies/{{ entry.domain }}/delete" hx-swap="outerHTML" hx-target="closest tr" hx-confirm="Delete cookies for {{ entry.domain }}?" class="text-danger text-caption cursor-pointer bg-transparent border-none hover:underline">Delete</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-text-muted">No site cookies configured.</p>
+{% endif %}
+{% endblock %}

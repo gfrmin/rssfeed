@@ -120,6 +120,13 @@ async def export_opml() -> str:
         return r.text
 
 
+async def update_feed(feed_id: int, **fields: Any) -> dict[str, Any]:
+    async with _client() as c:
+        r = await c.put(f"/v1/feeds/{feed_id}", json=fields)
+        r.raise_for_status()
+        return r.json()
+
+
 async def import_opml(data: bytes) -> None:
     async with _client() as c:
         r = await c.post(

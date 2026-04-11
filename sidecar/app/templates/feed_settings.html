@@ -5,7 +5,20 @@
   <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
   {{ feed.title }}
 </h1>
-<p class="block text-caption text-text-muted overflow-hidden text-ellipsis whitespace-nowrap"><a href="{{ feed.site_url or feed.feed_url }}" target="_blank" rel="noopener" class="text-text-muted no-underline hover:text-link hover:underline">{{ feed.site_url or feed.feed_url }}</a></p>
+<p class="block text-caption text-text-muted overflow-hidden text-ellipsis whitespace-nowrap">
+  <a href="{{ feed.site_url }}" target="_blank" rel="noopener" class="text-text-muted no-underline hover:text-link hover:underline">{{ feed.site_url }}</a>
+  {% if feed.feed_url and feed.feed_url != feed.site_url %}
+  &middot; <a href="{{ feed.feed_url }}" target="_blank" rel="noopener" class="text-text-muted no-underline hover:text-link hover:underline" title="Feed XML URL">{{ feed.feed_url }}</a>
+  {% endif %}
+</p>
+
+<div class="my-6 flex items-center gap-4 flex-wrap">
+  <label class="text-text-muted min-w-[180px]">Title</label>
+  <form hx-post="/feeds/{{ feed.id }}/rename" hx-swap="afterend" class="flex gap-2 items-center">
+    <input type="text" name="title" value="{{ feed.title }}" class="input px-2.5 py-1.5 w-[300px]">
+    <button type="submit" class="btn">Rename</button>
+  </form>
+</div>
 
 <div class="my-6 flex items-center gap-4 flex-wrap">
   <label class="text-text-muted min-w-[180px]">Priority</label>

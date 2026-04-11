@@ -14,10 +14,13 @@ logger = logging.getLogger(__name__)
 
 
 async def fetch_and_extract(
-    url: str, extract_rules: dict[str, Any] | None = None, proxy_images: bool = True
+    url: str,
+    extract_rules: dict[str, Any] | None = None,
+    proxy_images: bool = True,
+    cookies: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """Fetch a URL (direct, then proxy fallback, then Wayback) and extract article content."""
-    html = await _fetch_html(url)
+    html = await _fetch_html(url, cookies=cookies)
     if not html:
         return None
     return _extract(html, url, extract_rules or {}, proxy_images=proxy_images)
@@ -32,10 +35,14 @@ _HTTP_KWARGS = dict(
 )
 
 
-async def _fetch_html(url: str) -> str | None:
+async def _fetch_html(url: str, cookies: dict[str, str] | None = None) -> str | None:
+    kwargs = {**_HTTP_KWARGS}
+    if cookies:
+        kwargs["cookies"] = cookies
+
     # Try direct first
     try:
-        async with httpx.AsyncClient(**_HTTP_KWARGS) as client:
+        async with httpx.AsyncClient(**kwargs) as client:
             r = await client.get(url)
             r.raise_for_status()
             return r.text
@@ -45,7 +52,7 @@ async def _fetch_html(url: str) -> str | None:
     # Fall back to Brightdata proxy
     if BRIGHTDATA_PROXY:
         try:
-            async with httpx.AsyncClient(proxy=BRIGHTDATA_PROXY, **_HTTP_KWARGS) as client:
+            async with httpx.AsyncClient(proxy=BRIGHTDATA_PROXY, **kwargs) as client:
                 r = await client.get(url)
                 r.raise_for_status()
                 return r.text
@@ -54,7 +61,7 @@ async def _fetch_html(url: str) -> str | None:
     else:
         logger.info("No proxy configured, trying Wayback Machine for %s", url)
 
-    # Fall back to Wayback Machine
+    # Fall back to Wayback Machine (no cookies — site-specific creds are irrelevant)
     try:
         wayback_url = f"https://web.archive.org/web/{quote(url, safe='')}"
         async with httpx.AsyncClient(**_HTTP_KWARGS) as client:

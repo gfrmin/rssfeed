@@ -1,4 +1,5 @@
 import difflib
+import logging
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Query, Request
@@ -8,6 +9,8 @@ from app import miniflux_client
 from app.db import get_conn
 from app.extractor import fetch_and_extract
 from app.templating import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -293,6 +296,7 @@ async def summary_stream(entry_id: int):
                 full.append(token)
                 yield f"event: token\ndata: <span>{escape(token)}</span>\n\n"
         except Exception:
+            logger.exception("Summary stream failed for entry %s", entry_id)
             yield 'event: done\ndata: <span class="text-danger">Summarization failed</span>\n\n'
             return
 

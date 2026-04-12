@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import json
 from datetime import datetime, timezone, timedelta
 
@@ -141,37 +140,21 @@ async def feed_settings(request: Request, feed_id: int):
 
 @router.get("/feeds/{feed_id}/icon")
 async def feed_icon(feed_id: int):
-    """Serve feed favicon, caching in sidecar DB."""
+    """Serve feed favicon from Miniflux's own icons table."""
     async with get_conn() as conn:
         cur = await conn.execute(
-            "SELECT icon_data, icon_mime FROM feed_icons WHERE feed_id = %s",
+            """
+            SELECT i.content, i.mime_type
+            FROM feed_icons fi
+            JOIN icons i ON i.id = fi.icon_id
+            WHERE fi.feed_id = %s
+            """,
             (feed_id,),
         )
-        cached = await cur.fetchone()
-        if cached and cached["icon_data"]:
-            return Response(
-                content=bytes(cached["icon_data"]),
-                media_type=cached["icon_mime"] or "image/png",
-            )
-
-    # Fetch from Miniflux
-    icon = await miniflux_client.get_feed_icon(feed_id)
-    if not icon:
+        row = await cur.fetchone()
+    if not row:
         return Response(status_code=404)
-
-    icon_data = base64.b64decode(icon.get("data", ""))
-    icon_mime = icon.get("mime_type", "image/png")
-
-    async with get_conn() as conn:
-        await conn.execute(
-            """INSERT INTO feed_icons (feed_id, icon_data, icon_mime)
-               VALUES (%s, %s, %s)
-               ON CONFLICT (feed_id) DO UPDATE SET icon_data = %s, icon_mime = %s, fetched_at = NOW()""",
-            (feed_id, icon_data, icon_mime, icon_data, icon_mime),
-        )
-        await conn.commit()
-
-    return Response(content=icon_data, media_type=icon_mime)
+    return Response(content=bytes(row["content"]), media_type=row["mime_type"])
 
 
 @router.post("/feeds/subscribe")

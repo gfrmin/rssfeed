@@ -103,16 +103,6 @@ async def get_feed_counters() -> dict[str, Any]:
         return r.json()
 
 
-async def get_feed_icon(feed_id: int) -> dict[str, Any] | None:
-    async with _client() as c:
-        try:
-            r = await c.get(f"/v1/feeds/{feed_id}/icon")
-            r.raise_for_status()
-            return r.json()
-        except httpx.HTTPStatusError:
-            return None
-
-
 async def export_opml() -> str:
     async with _client() as c:
         r = await c.get("/v1/export")

@@ -37,14 +37,6 @@ ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS extract_rules JSONB DEFAULT '{}
 CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_entry_hash
   ON article_snapshots(entry_id, content_hash);
 
--- Feed icon cache
-CREATE TABLE IF NOT EXISTS feed_icons (
-    feed_id BIGINT PRIMARY KEY,
-    icon_data BYTEA,
-    icon_mime TEXT,
-    fetched_at TIMESTAMPTZ DEFAULT NOW()
-);
-
 -- Read events for statistics
 CREATE TABLE IF NOT EXISTS read_events (
     id BIGSERIAL PRIMARY KEY,

@@ -32,9 +32,11 @@ async def _ollama_generate_stream(prompt: str, system: str = ""):
 
 
 SUMMARIZE_SYSTEM = (
-    "You are a concise article summarizer. Write a 2-3 sentence summary "
-    "of the article below. Focus on the key points and takeaways. "
-    "Do not start with 'This article' or 'The article'. Just state the facts."
+    "You are a concise article summarizer. Output ONLY the summary itself — "
+    "2-3 sentences stating the key facts and takeaways. "
+    "Do not include any preamble, meta-commentary, or framing. "
+    "Never begin with phrases like 'Here is', 'This article', 'The article', "
+    "'In summary', 'Summary:', or similar. Start directly with the content."
 )
 
 
@@ -69,7 +71,7 @@ async def embed(text: str) -> list[float] | None:
     """Generate an embedding vector for text using Ollama."""
     if not text:
         return None
-    truncated = " ".join(text.split()[:2000])
+    truncated = " ".join(text.split()[:1200])
     try:
         r = await _client.embed(model=OLLAMA_EMBED_MODEL, input=truncated)
         embeddings = r.embeddings

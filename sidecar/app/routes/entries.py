@@ -296,9 +296,10 @@ async def summary_stream(entry_id: int):
             async for token in _ollama_generate_stream(truncated, SUMMARIZE_SYSTEM):
                 full.append(token)
                 yield f"event: token\ndata: <span>{escape(token)}</span>\n\n"
-        except Exception:
+        except Exception as exc:
             logger.exception("Summary stream failed for entry %s", entry_id)
-            yield 'event: done\ndata: <span class="text-danger">Summarization failed</span>\n\n'
+            msg = escape(f"Summarization failed: {exc}")
+            yield f'event: done\ndata: <span class="text-danger">{msg}</span>\n\n'
             return
 
         summary_text = "".join(full).strip()

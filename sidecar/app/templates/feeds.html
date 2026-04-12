@@ -45,7 +45,7 @@
         <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
         <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">{{ feed.title }}</a>
         <a href="/feeds/{{ feed.id }}" class="text-caption text-text-muted ml-2 hover:text-accent" title="Feed settings">&#9881;</a>
-        <br><a href="{{ feed.feed_url }}" target="_blank" rel="noopener" class="text-2xs text-text-muted no-underline hover:text-link hover:underline" title="Feed XML URL">{{ feed.feed_url }}</a>
+        <br><a href="{{ feed.feed_url }}" target="_blank" rel="noopener" class="text-2xs text-text-muted no-underline hover:text-link hover:underline break-all" title="Feed XML URL">{{ feed.feed_url }}</a>
       </td>
       <td class="td break-words hidden sm:table-cell">{{ feed.category.title if feed.category else '-' }}</td>
       <td class="td hidden sm:table-cell whitespace-nowrap text-text-muted text-caption">{{ feed.latest_entry_at | timeago }}</td>

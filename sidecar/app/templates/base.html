@@ -24,6 +24,7 @@
       </div>
     </div>
     <div class="flex gap-3 items-center flex-wrap">
+      <span hx-get="/feeds/health/summary" hx-trigger="load" hx-swap="innerHTML"></span>
       <div class="nav-dropdown relative">
         <button class="btn py-1 px-2" title="Settings &amp; tools" aria-haspopup="true">&#9881;</button>
         <div class="nav-dropdown-menu hidden absolute right-0 top-[calc(100%+4px)] bg-surface border border-border rounded-lg py-1.5 min-w-[140px] z-50 shadow-[0_4px_12px_rgba(0,0,0,0.3)]" role="menu">

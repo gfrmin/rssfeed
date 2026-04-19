@@ -12,6 +12,32 @@
   {% endif %}
 </p>
 
+{% if feed._has_error or feed._is_stale %}
+<div class="my-4 p-3 rounded-lg border {% if feed._is_persistent %}bg-error-bg border-danger{% elif feed._has_error %}border-danger{% else %}border-[#fbbf24]{% endif %}">
+  <div class="flex items-center justify-between gap-2 flex-wrap">
+    <div class="text-body-sm">
+      {% if feed._is_persistent %}
+      <strong class="text-danger">Persistent errors</strong> — {{ feed._error_count }} consecutive failures. Miniflux may have stopped polling this feed.
+      {% elif feed._has_error %}
+      <strong class="text-danger">Recent error</strong> ({{ feed._error_count }})
+      {% else %}
+      <strong class="text-[#fbbf24]">Stale</strong> — not polled in over 24 hours.
+      {% endif %}
+      <span class="text-text-muted">· last checked {{ feed.checked_at | timeago }}</span>
+    </div>
+    <button
+      hx-put="/feeds/{{ feed.id }}/refresh"
+      hx-swap="none"
+      class="btn text-caption"
+      title="Trigger an immediate refresh and reset the error count"
+    >Refresh now</button>
+  </div>
+  {% if feed.parsing_error_message %}
+  <pre class="mt-2 text-detail text-text-muted whitespace-pre-wrap break-words">{{ feed.parsing_error_message }}</pre>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="my-6 flex items-center gap-4 flex-wrap">
   <label class="text-text-muted min-w-[180px]">Title</label>
   <form hx-post="/feeds/{{ feed.id }}/rename" hx-swap="afterend" class="flex gap-2 items-center">

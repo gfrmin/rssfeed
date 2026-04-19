@@ -1,0 +1,8 @@
+{% if persistent or transient or stale %}
+<a href="/feeds/health"
+   class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-caption font-semibold no-underline
+          {% if persistent %}bg-danger text-white{% elif transient %}border border-danger text-danger{% else %}border border-[#fbbf24] text-[#fbbf24]{% endif %}"
+   title="{% if persistent %}{{ persistent }} feed(s) with persistent errors (won't self-recover){% endif %}{% if transient %}{% if persistent %} · {% endif %}{{ transient }} feed(s) with recent errors{% endif %}{% if stale %}{% if persistent or transient %} · {% endif %}{{ stale }} feed(s) not polled in 24h{% endif %}">
+  ⚠ {{ persistent + transient + stale }}
+</a>
+{% endif %}

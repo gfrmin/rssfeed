@@ -79,32 +79,40 @@ async def category_list(request: Request):
     )
 
 
+_STALE_SECONDS = 24 * 3600
+_PERSISTENT_ERROR_THRESHOLD = 3
+
+
+def _annotate_health(feed: dict, now: datetime) -> None:
+    checked = feed.get("checked_at", "")
+    if checked:
+        try:
+            dt = datetime.fromisoformat(checked.replace("Z", "+00:00"))
+            feed["_checked_ago"] = (now - dt).total_seconds()
+        except Exception:
+            feed["_checked_ago"] = None
+    else:
+        feed["_checked_ago"] = None
+
+    feed["_error_count"] = feed.get("parsing_error_count", 0)
+    feed["_has_error"] = bool(feed.get("parsing_error_message"))
+    feed["_is_persistent"] = feed["_error_count"] >= _PERSISTENT_ERROR_THRESHOLD
+    feed["_is_stale"] = (
+        feed["_checked_ago"] is not None and feed["_checked_ago"] > _STALE_SECONDS
+    )
+
+
 @router.get("/feeds/health", response_class=HTMLResponse)
 async def feed_health(request: Request):
     feeds = await miniflux_client.get_feeds()
     now = datetime.now(timezone.utc)
 
     for feed in feeds:
-        # Parse checked_at
-        checked = feed.get("checked_at", "")
-        if checked:
-            try:
-                dt = datetime.fromisoformat(checked.replace("Z", "+00:00"))
-                feed["_checked_ago"] = (now - dt).total_seconds()
-            except Exception:
-                feed["_checked_ago"] = None
-        else:
-            feed["_checked_ago"] = None
+        _annotate_health(feed, now)
 
-        feed["_has_error"] = bool(feed.get("parsing_error_message"))
-        feed["_is_stale"] = (
-            feed["_checked_ago"] is not None and feed["_checked_ago"] > 30 * 86400
-        )
-        feed["_error_count"] = feed.get("parsing_error_count", 0)
-
-    # Sort: errors first, then stale, then OK
+    # Sort: persistent errors first, then transient errors, then stale, then OK
     feeds.sort(key=lambda f: (
-        0 if f["_has_error"] else 1 if f["_is_stale"] else 2,
+        0 if f["_is_persistent"] else 1 if f["_has_error"] else 2 if f["_is_stale"] else 3,
         f.get("title", "").lower(),
     ))
 
@@ -113,9 +121,32 @@ async def feed_health(request: Request):
     )
 
 
+@router.get("/feeds/health/summary", response_class=HTMLResponse)
+async def feed_health_summary(request: Request):
+    """Small HTML fragment for the nav badge — lazy-loaded via htmx."""
+    feeds = await miniflux_client.get_feeds()
+    now = datetime.now(timezone.utc)
+    persistent = 0
+    transient = 0
+    stale = 0
+    for feed in feeds:
+        _annotate_health(feed, now)
+        if feed["_is_persistent"]:
+            persistent += 1
+        elif feed["_has_error"]:
+            transient += 1
+        elif feed["_is_stale"]:
+            stale += 1
+    return templates.TemplateResponse(
+        request, "feed_health_badge.html",
+        {"persistent": persistent, "transient": transient, "stale": stale},
+    )
+
+
 @router.get("/feeds/{feed_id}", response_class=HTMLResponse)
 async def feed_settings(request: Request, feed_id: int):
     feed = await miniflux_client.get_feed(feed_id)
+    _annotate_health(feed, datetime.now(timezone.utc))
     async with get_conn() as conn:
         cur = await conn.execute(
             "SELECT fetch_full_content, priority, extract_rules FROM feed_config WHERE feed_id = %s",
@@ -174,6 +205,12 @@ async def subscribe_feed(feed_url: str = Form(...), category_id: int = Form(...)
 async def delete_feed(feed_id: int):
     await miniflux_client.delete_feed(feed_id)
     return HTMLResponse('<span class="success">Feed deleted</span>')
+
+
+@router.put("/feeds/{feed_id}/refresh")
+async def refresh_feed(feed_id: int):
+    await miniflux_client.refresh_feed(feed_id)
+    return HTMLResponse('<span class="success">Refresh triggered</span>')
 
 
 @router.post("/feeds/{feed_id}/rename")

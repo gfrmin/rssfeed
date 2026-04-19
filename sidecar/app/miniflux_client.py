@@ -123,6 +123,12 @@ async def delete_feed(feed_id: int) -> None:
         r.raise_for_status()
 
 
+async def refresh_feed(feed_id: int) -> None:
+    async with _client() as c:
+        r = await c.put(f"/v1/feeds/{feed_id}/refresh")
+        r.raise_for_status()
+
+
 async def update_feed(feed_id: int, **fields: Any) -> dict[str, Any]:
     async with _client() as c:
         r = await c.put(f"/v1/feeds/{feed_id}", json=fields)

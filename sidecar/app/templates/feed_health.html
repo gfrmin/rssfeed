@@ -15,12 +15,14 @@
   </thead>
   <tbody>
     {% for feed in feeds %}
-    <tr class="{% if feed._has_error %}bg-error-bg{% elif feed._is_stale %}bg-[#fbbf2410]{% endif %}">
+    <tr class="{% if feed._is_persistent %}bg-error-bg{% elif feed._has_error %}bg-[#f8717118]{% elif feed._is_stale %}bg-[#fbbf2410]{% endif %}">
       <td class="td">
-        {% if feed._has_error %}
-        <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#f87171]" title="Parsing error"></span>
+        {% if feed._is_persistent %}
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-danger" title="Persistent error — 3+ consecutive failures; won't self-recover if Miniflux POLLING_PARSING_ERROR_LIMIT is non-zero"></span>
+        {% elif feed._has_error %}
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#f87171]" title="Recent parsing error"></span>
         {% elif feed._is_stale %}
-        <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#fbbf24]" title="Stale (30+ days)"></span>
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#fbbf24]" title="Not polled in 24h"></span>
         {% else %}
         <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#4ade80]" title="OK"></span>
         {% endif %}

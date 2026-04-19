@@ -1,6 +1,8 @@
-<div hx-ext="sse" sse-connect="/entries/{{ entry_id }}/summary-stream" sse-swap="done" hx-swap="outerHTML">
+<div hx-ext="sse"
+     sse-connect="/entries/{{ entry_id }}/summary-stream?prompt_id={{ prompt_id | urlencode }}&inline_prompt={{ inline_prompt | urlencode }}"
+     sse-swap="done" hx-swap="outerHTML">
   <details class="card mb-6" open>
-    <summary class="cursor-pointer font-semibold text-accent text-caption uppercase tracking-wide">AI Summary</summary>
-    <p class="mt-2 text-prose leading-relaxed" sse-swap="token" hx-swap="beforeend"></p>
+    <summary class="cursor-pointer font-semibold text-accent text-caption uppercase tracking-wide">{{ prompt_label }}</summary>
+    <p class="mt-2 text-prose leading-relaxed whitespace-pre-line" sse-swap="token" hx-swap="beforeend"></p>
   </details>
 </div>

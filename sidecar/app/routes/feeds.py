@@ -14,7 +14,7 @@ router = APIRouter()
 
 async def _feed_configs(conn) -> dict[int, dict]:
     cur = await conn.execute(
-        "SELECT feed_id, fetch_full_content, priority, summarize FROM feed_config"
+        "SELECT feed_id, fetch_full_content, priority FROM feed_config"
     )
     return {row["feed_id"]: row for row in await cur.fetchall()}
 
@@ -118,14 +118,13 @@ async def feed_settings(request: Request, feed_id: int):
     feed = await miniflux_client.get_feed(feed_id)
     async with get_conn() as conn:
         cur = await conn.execute(
-            "SELECT fetch_full_content, priority, extract_rules, summarize FROM feed_config WHERE feed_id = %s",
+            "SELECT fetch_full_content, priority, extract_rules FROM feed_config WHERE feed_id = %s",
             (feed_id,),
         )
         row = await cur.fetchone()
         fetch_full = row["fetch_full_content"] if row else False
         priority = row["priority"] if row else 2
         extract_rules = row["extract_rules"] if row else {}
-        summarize = row["summarize"] if row else False
     return templates.TemplateResponse(
         request, "feed_settings.html",
         {
@@ -133,7 +132,6 @@ async def feed_settings(request: Request, feed_id: int):
             "fetch_full_content": fetch_full,
             "priority": priority,
             "extract_rules_json": json.dumps(extract_rules or {}, indent=2),
-            "summarize": summarize,
         },
     )
 
@@ -270,25 +268,11 @@ async def set_extract_rules(feed_id: int, extract_rules: str = Form("")):
     return HTMLResponse('<span class="success">Extract rules saved</span>')
 
 
-def _summarize_section_html(feed_id: int, fetch_full: bool, summarize: bool) -> str:
-    """Render the summarize settings section."""
-    if fetch_full:
-        cls = "on" if summarize else "off"
-        label = "ON" if summarize else "OFF"
-        btn = f'<button hx-post="/feeds/{feed_id}/toggle-summarize" hx-swap="outerHTML" class="toggle {cls}">{label}</button>'
-    else:
-        btn = '<button class="toggle off" disabled>OFF</button><span class="hint">Requires full content fetching</span>'
-    return (
-        f'<div class="settings-section" id="summarize-section">'
-        f'<label>LLM Summarization</label>{btn}</div>'
-    )
-
-
 @router.post("/feeds/{feed_id}/toggle-full-content")
 async def toggle_full_content(feed_id: int):
     async with get_conn() as conn:
         cur = await conn.execute(
-            "SELECT fetch_full_content, summarize FROM feed_config WHERE feed_id = %s",
+            "SELECT fetch_full_content FROM feed_config WHERE feed_id = %s",
             (feed_id,),
         )
         row = await cur.fetchone()
@@ -298,10 +282,8 @@ async def toggle_full_content(feed_id: int):
                 (feed_id,),
             )
             new_val = True
-            summarize = False
         else:
             new_val = not row["fetch_full_content"]
-            summarize = row["summarize"]
             await conn.execute(
                 "UPDATE feed_config SET fetch_full_content = %s, updated_at = NOW() WHERE feed_id = %s",
                 (new_val, feed_id),
@@ -309,44 +291,8 @@ async def toggle_full_content(feed_id: int):
         await conn.commit()
     label = "ON" if new_val else "OFF"
     cls = "on" if new_val else "off"
-    btn = f'<button hx-post="/feeds/{feed_id}/toggle-full-content" hx-swap="outerHTML" class="toggle {cls}">{label}</button>'
-    oob = _summarize_section_html(feed_id, new_val, summarize).replace(
-        'id="summarize-section"', 'id="summarize-section" hx-swap-oob="outerHTML:#summarize-section"'
-    )
-    return HTMLResponse(btn + oob)
-
-
-@router.post("/feeds/{feed_id}/toggle-summarize")
-async def toggle_summarize(feed_id: int):
-    async with get_conn() as conn:
-        cur = await conn.execute(
-            "SELECT fetch_full_content, summarize FROM feed_config WHERE feed_id = %s",
-            (feed_id,),
-        )
-        row = await cur.fetchone()
-        fetch_full = row["fetch_full_content"] if row else False
-        if not fetch_full:
-            return HTMLResponse(
-                '<button class="toggle off" disabled>OFF</button>'
-                '<span class="hint">Requires full content fetching</span>'
-            )
-        if row is None:
-            await conn.execute(
-                "INSERT INTO feed_config (feed_id, summarize) VALUES (%s, TRUE)",
-                (feed_id,),
-            )
-            new_val = True
-        else:
-            new_val = not row["summarize"]
-            await conn.execute(
-                "UPDATE feed_config SET summarize = %s, updated_at = NOW() WHERE feed_id = %s",
-                (new_val, feed_id),
-            )
-        await conn.commit()
-    label = "ON" if new_val else "OFF"
-    cls = "on" if new_val else "off"
     return HTMLResponse(
-        f'<button hx-post="/feeds/{feed_id}/toggle-summarize" hx-swap="outerHTML" class="toggle {cls}">{label}</button>'
+        f'<button hx-post="/feeds/{feed_id}/toggle-full-content" hx-swap="outerHTML" class="toggle {cls}">{label}</button>'
     )
 
 

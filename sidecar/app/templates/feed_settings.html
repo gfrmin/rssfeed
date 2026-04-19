@@ -40,22 +40,6 @@
   </button>
 </div>
 
-<div class="my-6 flex items-center gap-4 flex-wrap" id="summarize-section">
-  <label class="text-text-muted min-w-[180px]">LLM Summarization</label>
-  {% if fetch_full_content %}
-  <button
-    hx-post="/feeds/{{ feed.id }}/toggle-summarize"
-    hx-swap="outerHTML"
-    class="toggle border-none px-3 py-1.5 rounded-lg cursor-pointer font-semibold text-caption hover:opacity-85 {{ 'on' if summarize else 'off' }}"
-  >
-    {{ 'ON' if summarize else 'OFF' }}
-  </button>
-  {% else %}
-  <button class="toggle off border-none px-3 py-1.5 rounded-lg font-semibold text-caption opacity-40 cursor-not-allowed" disabled>OFF</button>
-  <span class="text-text-muted text-detail ml-2">Requires full content fetching</span>
-  {% endif %}
-</div>
-
 <div class="my-6 flex items-center gap-4 flex-wrap">
   <label class="text-text-muted min-w-[180px]">Extract rules (JSON)</label>
   <form hx-post="/feeds/{{ feed.id }}/set-extract-rules" hx-swap="afterend">

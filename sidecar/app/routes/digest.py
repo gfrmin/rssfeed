@@ -34,21 +34,31 @@ async def daily_digest(request: Request):
     priority_entries = [e for e in entries if e.get("feed_id") in priority_feeds]
     other_entries = [e for e in entries if e.get("feed_id") not in priority_feeds]
 
-    # Get summaries for all entries
+    # Get summaries for all entries: prefer the "default" prompt, fall back to any available
     entry_ids = [e["id"] for e in entries]
     summaries = {}
     if entry_ids:
         async with get_conn() as conn:
             cur = await conn.execute(
                 "SELECT entry_id, metadata FROM article_snapshots "
-                "WHERE entry_id = ANY(%s) AND metadata->>'summary' IS NOT NULL "
+                "WHERE entry_id = ANY(%s) "
+                "AND (metadata ? 'summaries' OR metadata ? 'summary') "
                 "ORDER BY version DESC",
                 (entry_ids,),
             )
             for row in await cur.fetchall():
                 eid = row["entry_id"]
-                if eid not in summaries:
-                    summaries[eid] = (row["metadata"] or {}).get("summary", "")
+                if eid in summaries:
+                    continue
+                meta = row["metadata"] or {}
+                dict_sums = meta.get("summaries") or {}
+                chosen = (
+                    dict_sums.get("default")
+                    or (next(iter(dict_sums.values())) if dict_sums else None)
+                    or meta.get("summary")
+                )
+                if chosen:
+                    summaries[eid] = chosen
 
     for entry in entries:
         entry["_summary"] = summaries.get(entry["id"], "")

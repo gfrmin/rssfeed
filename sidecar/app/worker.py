@@ -14,12 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 async def _get_enabled_feeds(conn: psycopg.AsyncConnection) -> dict[int, dict]:
-    """Return {feed_id: {extract_rules, summarize}} for feeds with full content enabled."""
+    """Return {feed_id: {extract_rules}} for feeds with full content enabled."""
     cur = await conn.execute(
-        "SELECT feed_id, extract_rules, summarize FROM feed_config WHERE fetch_full_content = TRUE"
+        "SELECT feed_id, extract_rules FROM feed_config WHERE fetch_full_content = TRUE"
     )
     return {
-        row["feed_id"]: {"extract_rules": row["extract_rules"] or {}, "summarize": row["summarize"]}
+        row["feed_id"]: {"extract_rules": row["extract_rules"] or {}}
         for row in await cur.fetchall()
     }
 
@@ -66,20 +66,9 @@ async def _store_snapshot(
     await conn.commit()
 
 
-async def _run_llm_tasks(conn: psycopg.AsyncConnection, entry_id: int, text: str, do_summarize: bool) -> dict:
-    """Run LLM summarization, tagging, and embedding for an entry."""
-    metadata_updates = {}
-
-    # Summarize
-    if do_summarize and text:
-        summary = await llm.summarize(text)
-        if summary:
-            metadata_updates["summary"] = summary
-            await conn.execute(
-                "UPDATE article_snapshots SET metadata = metadata || %s::jsonb "
-                "WHERE entry_id = %s AND version = (SELECT MAX(version) FROM article_snapshots WHERE entry_id = %s)",
-                (psycopg.types.json.Json({"summary": summary}), entry_id, entry_id),
-            )
+async def _run_llm_tasks(conn: psycopg.AsyncConnection, entry_id: int, text: str) -> dict:
+    """Run LLM tagging and embedding for an entry. Summarisation is on-demand from the UI."""
+    metadata_updates: dict = {}
 
     # Auto-tag
     if text:
@@ -138,7 +127,6 @@ async def process_new_entries() -> int:
 
         for feed_id, config in enabled.items():
             extract_rules = config["extract_rules"]
-            do_summarize = config.get("summarize", False)
 
             try:
                 data = await miniflux_client.get_entries(feed_id=feed_id, limit=50)
@@ -208,7 +196,7 @@ async def process_new_entries() -> int:
 
                 # Run LLM tasks (non-blocking — failures are logged, not raised)
                 try:
-                    await _run_llm_tasks(conn, entry_id, extracted["content_text"], do_summarize)
+                    await _run_llm_tasks(conn, entry_id, extracted["content_text"])
                 except Exception:
                     logger.exception("LLM tasks failed for entry %d", entry_id)
 

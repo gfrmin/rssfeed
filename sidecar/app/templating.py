@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import humanize
+import markdown as _markdown
+from markupsafe import Markup
 from fastapi.templating import Jinja2Templates
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -42,6 +44,19 @@ def _excerpt(content: str, length: int = 400) -> str:
     return text[:length].rsplit(" ", 1)[0] + "..."
 
 
+def _md(text: str) -> Markup:
+    """Render LLM-produced markdown to safe-ish HTML. Escapes raw HTML in the source."""
+    if not text:
+        return Markup("")
+    html = _markdown.markdown(
+        text,
+        extensions=["extra", "sane_lists", "nl2br"],
+        output_format="html",
+    )
+    return Markup(html)
+
+
 templates.env.filters["timeago"] = _timeago
 templates.env.filters["reading_time"] = _reading_time
 templates.env.filters["excerpt"] = _excerpt
+templates.env.filters["md"] = _md

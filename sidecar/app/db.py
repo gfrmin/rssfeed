@@ -84,8 +84,17 @@ CREATE TABLE IF NOT EXISTS article_embeddings (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- LLM summarize flag on feed_config
-ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS summarize BOOLEAN DEFAULT FALSE;
+-- Drop obsolete summarize flag (summarisation is now on-demand per article)
+ALTER TABLE feed_config DROP COLUMN IF EXISTS summarize;
+
+-- Named summarisation prompts (built-in presets + user-saved)
+CREATE TABLE IF NOT EXISTS summary_prompts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    system_prompt TEXT NOT NULL,
+    is_builtin BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- Track RSS source content hash for change detection
 ALTER TABLE article_snapshots ADD COLUMN IF NOT EXISTS source_hash TEXT;
@@ -111,7 +120,51 @@ async def get_conn() -> AsyncIterator[psycopg.AsyncConnection]:
         yield conn
 
 
+BUILTIN_PROMPTS = [
+    (
+        "default",
+        "Concise",
+        "You are a concise article summarizer. Output ONLY the summary itself — "
+        "2-3 sentences stating the key facts and takeaways. "
+        "Do not include any preamble, meta-commentary, or framing. "
+        "Never begin with phrases like 'Here is', 'This article', 'The article', "
+        "'In summary', 'Summary:', or similar. Start directly with the content.",
+    ),
+    (
+        "bullets",
+        "Bullet points",
+        "You are an article summarizer. Output 3-6 terse bullet points covering the key facts and takeaways. "
+        "Each bullet on its own line, prefixed with '- '. No preamble, no headings, no closing commentary. "
+        "Start directly with the first bullet.",
+    ),
+    (
+        "eli5",
+        "ELI5",
+        "You are explaining an article to a curious non-expert. In 2-4 short sentences, convey the main idea "
+        "in plain, everyday language. Avoid jargon; if you must use a technical term, briefly define it inline. "
+        "No preamble, no 'Here is', no framing — start directly.",
+    ),
+    (
+        "skeptic",
+        "Skeptic's take",
+        "You are a skeptical reader. In 2-4 sentences, summarise the article's central claim and then flag the "
+        "weakest assumption, unstated caveat, or missing evidence a careful reader should question. "
+        "No preamble, no framing — start directly with the claim.",
+    ),
+]
+
+
+def _seed_builtin_prompts(conn: psycopg.Connection) -> None:
+    for slug, name, system_prompt in BUILTIN_PROMPTS:
+        conn.execute(
+            "INSERT INTO summary_prompts (id, name, system_prompt, is_builtin) "
+            "VALUES (%s, %s, %s, TRUE) ON CONFLICT (id) DO NOTHING",
+            (slug, name, system_prompt),
+        )
+
+
 def run_migrations() -> None:
     with get_sync_conn() as conn:
         conn.execute(SCHEMA_SQL)
+        _seed_builtin_prompts(conn)
         conn.commit()

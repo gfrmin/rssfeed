@@ -14,7 +14,7 @@
       {% if entry.feed %}<a href="/entries?feed_id={{ entry.feed.id }}" class="text-text-muted no-underline hover:text-link hover:underline">{{ entry.feed.title }}</a>{% endif %} &middot; {{ entry.published_at | timeago }}
     </span>
     {% if entry._summary %}
-    <p class="text-body-sm text-text-muted mt-1 leading-normal">{{ entry._summary }}</p>
+    <div class="text-body-sm text-text-muted mt-1 leading-normal summary-md">{{ entry._summary | md }}</div>
     {% else %}
     <p class="text-body-sm text-text-muted mt-1 leading-normal">{{ entry.content | excerpt }}</p>
     {% endif %}

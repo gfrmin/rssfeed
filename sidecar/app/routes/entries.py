@@ -1,8 +1,9 @@
 import difflib
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app import miniflux_client
@@ -50,6 +51,44 @@ async def _entry_tags(conn, entry_ids: list[int]) -> dict[int, list[str]]:
     for row in await cur.fetchall():
         result.setdefault(row["entry_id"], []).append(row["tag"])
     return result
+
+
+async def _list_prompts(conn) -> list[dict]:
+    """Return all saved summary prompts (built-ins first, then custom by name)."""
+    cur = await conn.execute(
+        "SELECT id, name, system_prompt, is_builtin FROM summary_prompts "
+        "ORDER BY is_builtin DESC, name ASC"
+    )
+    return [dict(row) for row in await cur.fetchall()]
+
+
+def _extract_summaries(metadata: dict | None) -> dict[str, str]:
+    """Read summaries dict, falling back to legacy single-summary field under the 'default' key."""
+    if not metadata:
+        return {}
+    out = dict(metadata.get("summaries") or {})
+    legacy = metadata.get("summary")
+    if legacy and "default" not in out:
+        out["default"] = legacy
+    return out
+
+
+def _slugify(name: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    return s[:50] or "custom"
+
+
+async def _unique_slug(conn, base: str) -> str:
+    slug = base
+    suffix = 2
+    while True:
+        cur = await conn.execute(
+            "SELECT 1 FROM summary_prompts WHERE id = %s", (slug,),
+        )
+        if await cur.fetchone() is None:
+            return slug
+        slug = f"{base}_{suffix}"
+        suffix += 1
 
 
 async def _entries_with_changes(conn) -> set[int]:
@@ -198,8 +237,10 @@ async def entry_detail(request: Request, entry_id: int):
             "SELECT tag FROM article_tags WHERE entry_id = %s", (entry_id,)
         )
         llm_tags = [row["tag"] for row in await cur.fetchall()]
-        # Get summary from snapshot metadata
-        summary = (snapshot.get("metadata") or {}).get("summary") if snapshot else None
+        # Get summaries (keyed by prompt slug) and prompt library
+        summaries = _extract_summaries(snapshot.get("metadata") if snapshot else None)
+        prompts = await _list_prompts(conn)
+        prompt_names = {p["id"]: p["name"] for p in prompts}
         # Check for similar articles via embeddings
         similar = []
         cur2 = await conn.execute(
@@ -249,7 +290,9 @@ async def entry_detail(request: Request, entry_id: int):
             "snapshot": snapshot,
             "version_count": vc,
             "llm_tags": llm_tags,
-            "summary": summary,
+            "summaries": summaries,
+            "prompts": prompts,
+            "prompt_names": prompt_names,
             "audio_enclosure": audio_enclosure,
             "similar": similar,
             "prev_entry_id": prev_entry_id,
@@ -259,8 +302,18 @@ async def entry_detail(request: Request, entry_id: int):
 
 
 @router.post("/entries/{entry_id}/generate-summary")
-async def generate_summary(request: Request, entry_id: int):
-    """Return SSE-connected fragment to kick off streaming summarization."""
+async def generate_summary(
+    request: Request,
+    entry_id: int,
+    prompt_id: str = Form(""),
+    inline_prompt: str = Form(""),
+    save_as: str = Form(""),
+):
+    """Kick off streaming summarisation.
+
+    Form accepts either `prompt_id` (use a saved prompt) OR `inline_prompt` (ad-hoc text).
+    If `save_as` is set alongside `inline_prompt`, the prompt is persisted to the library first.
+    """
     async with get_conn() as conn:
         snapshot = await _get_snapshot(conn, entry_id)
         if not snapshot:
@@ -269,15 +322,56 @@ async def generate_summary(request: Request, entry_id: int):
         if not text:
             return HTMLResponse('<span class="text-danger">No text content to summarize</span>')
 
-    return templates.TemplateResponse(request, "summary_stream.html", {"entry_id": entry_id})
+        resolved_prompt_id: str | None = None
+        prompt_label = "AI Summary"
+
+        if prompt_id:
+            cur = await conn.execute(
+                "SELECT id, name FROM summary_prompts WHERE id = %s", (prompt_id,),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                return HTMLResponse('<span class="text-danger">Unknown prompt</span>')
+            resolved_prompt_id = row["id"]
+            prompt_label = row["name"]
+        elif inline_prompt.strip():
+            if save_as.strip():
+                slug = await _unique_slug(conn, _slugify(save_as))
+                await conn.execute(
+                    "INSERT INTO summary_prompts (id, name, system_prompt, is_builtin) "
+                    "VALUES (%s, %s, %s, FALSE)",
+                    (slug, save_as.strip(), inline_prompt.strip()),
+                )
+                await conn.commit()
+                resolved_prompt_id = slug
+                prompt_label = save_as.strip()
+            else:
+                prompt_label = "Custom (one-off)"
+        else:
+            return HTMLResponse('<span class="text-danger">Pick a prompt or write a custom one</span>')
+
+    return templates.TemplateResponse(
+        request,
+        "summary_stream.html",
+        {
+            "entry_id": entry_id,
+            "prompt_id": resolved_prompt_id or "",
+            "inline_prompt": "" if resolved_prompt_id else inline_prompt,
+            "prompt_label": prompt_label,
+        },
+    )
 
 
 @router.get("/entries/{entry_id}/summary-stream")
-async def summary_stream(entry_id: int):
-    """SSE endpoint that generates and streams summary tokens."""
+async def summary_stream(
+    entry_id: int,
+    prompt_id: str = "",
+    inline_prompt: str = "",
+):
+    """SSE endpoint that generates and streams summary tokens for one prompt."""
     from html import escape
     from fastapi.responses import StreamingResponse
-    from app.llm import _ollama_generate_stream, SUMMARIZE_SYSTEM
+    from app.llm import _ollama_generate_stream
 
     async with get_conn() as conn:
         snapshot = await _get_snapshot(conn, entry_id)
@@ -288,12 +382,28 @@ async def summary_stream(entry_id: int):
             return HTMLResponse("")
         version = snapshot["version"]
 
+        prompt_label = "AI Summary"
+        if prompt_id:
+            cur = await conn.execute(
+                "SELECT name, system_prompt FROM summary_prompts WHERE id = %s", (prompt_id,),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                return HTMLResponse("")
+            system_prompt = row["system_prompt"]
+            prompt_label = row["name"]
+        elif inline_prompt.strip():
+            system_prompt = inline_prompt.strip()
+            prompt_label = "Custom (one-off)"
+        else:
+            return HTMLResponse("")
+
     truncated = " ".join(text.split()[:4000])
 
     async def sse():
         full = []
         try:
-            async for token in _ollama_generate_stream(truncated, SUMMARIZE_SYSTEM):
+            async for token in _ollama_generate_stream(truncated, system_prompt):
                 full.append(token)
                 yield f"event: token\ndata: <span>{escape(token)}</span>\n\n"
         except Exception as exc:
@@ -303,20 +413,28 @@ async def summary_stream(entry_id: int):
             return
 
         summary_text = "".join(full).strip()
-        if summary_text:
+        if summary_text and prompt_id:
             import psycopg.types.json
             async with get_conn() as conn:
                 await conn.execute(
-                    "UPDATE article_snapshots SET metadata = COALESCE(metadata, '{}'::jsonb) || %s::jsonb "
+                    "UPDATE article_snapshots "
+                    "SET metadata = jsonb_set("
+                    "  COALESCE(metadata, '{}'::jsonb), "
+                    "  '{summaries}', "
+                    "  COALESCE(metadata->'summaries', '{}'::jsonb) || %s::jsonb, "
+                    "  true"
+                    ") "
                     "WHERE entry_id = %s AND version = %s",
-                    (psycopg.types.json.Json({"summary": summary_text}), entry_id, version),
+                    (psycopg.types.json.Json({prompt_id: summary_text}), entry_id, version),
                 )
                 await conn.commit()
 
+        from app.templating import _md
+        rendered = str(_md(summary_text)).replace("\n", "")
         done_html = (
-            '<details class="bg-surface border border-border rounded-lg px-5 py-4 mb-6" open>'
-            '<summary class="cursor-pointer font-semibold text-accent text-[0.8rem] uppercase tracking-wide">AI Summary</summary>'
-            f'<p class="mt-2 text-[0.95rem] leading-relaxed">{escape(summary_text)}</p>'
+            '<details class="card mb-6" open>'
+            f'<summary class="cursor-pointer font-semibold text-accent text-caption uppercase tracking-wide">{escape(prompt_label)}</summary>'
+            f'<div class="mt-2 text-prose leading-relaxed summary-md">{rendered}</div>'
             '</details>'
         )
         yield f"event: done\ndata: {done_html}\n\n"

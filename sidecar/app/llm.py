@@ -31,21 +31,12 @@ async def _ollama_generate_stream(prompt: str, system: str = ""):
             yield token
 
 
-SUMMARIZE_SYSTEM = (
-    "You are a concise article summarizer. Output ONLY the summary itself — "
-    "2-3 sentences stating the key facts and takeaways. "
-    "Do not include any preamble, meta-commentary, or framing. "
-    "Never begin with phrases like 'Here is', 'This article', 'The article', "
-    "'In summary', 'Summary:', or similar. Start directly with the content."
-)
-
-
-async def summarize(text: str) -> str | None:
-    """Generate a 2-3 sentence summary of article text."""
+async def summarize(text: str, system_prompt: str) -> str | None:
+    """Generate a summary of article text using the supplied system prompt."""
     if not text or len(text) < 100:
         return None
     truncated = " ".join(text.split()[:4000])
-    return await _ollama_generate(prompt=truncated, system=SUMMARIZE_SYSTEM)
+    return await _ollama_generate(prompt=truncated, system=system_prompt)
 
 
 async def classify(text: str) -> list[str]:

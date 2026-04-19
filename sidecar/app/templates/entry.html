@@ -65,20 +65,56 @@
   </header>
 
   <div id="summary-section">
-  {% if summary %}
-  <details class="card mb-6" open>
-    <summary class="cursor-pointer font-semibold text-accent text-caption uppercase tracking-wide">AI Summary</summary>
-    <p class="mt-2 text-prose leading-relaxed">{{ summary }}</p>
-  </details>
-  {% elif snapshot %}
-  <button
-    class="border border-border bg-bg text-text-muted px-3 py-1 rounded-md cursor-pointer text-detail hover:text-body hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-wait"
-    hx-post="/entries/{{ entry.id }}/generate-summary"
-    hx-target="#summary-section"
-    hx-swap="innerHTML"
-    hx-disabled-elt="this"
-  >Generate summary</button>
-  {% endif %}
+    {% set first = true %}
+    {% for slug, text in summaries.items() %}
+    <details class="card mb-3" {% if first %}open{% endif %}>
+      <summary class="cursor-pointer font-semibold text-accent text-caption uppercase tracking-wide">{{ prompt_names.get(slug, slug) }}</summary>
+      <div class="mt-2 text-prose leading-relaxed summary-md">{{ text | md }}</div>
+    </details>
+    {% set first = false %}
+    {% endfor %}
+
+    {% if snapshot %}
+    <form id="summary-form"
+          hx-post="/entries/{{ entry.id }}/generate-summary"
+          hx-target="#summary-stream-slot"
+          hx-swap="innerHTML"
+          hx-disabled-elt="find button"
+          class="mt-3 flex flex-wrap items-center gap-2 text-detail">
+      <label class="text-text-muted">Summarise as</label>
+      <select name="prompt_id" class="input w-auto px-2 py-1"
+              onchange="document.getElementById('custom-prompt-fields').classList.toggle('hidden', this.value !== '__other__')">
+        {% for p in prompts %}
+        <option value="{{ p.id }}">{{ p.name }}</option>
+        {% endfor %}
+        <option value="__other__">Other…</option>
+      </select>
+      <button type="submit" class="btn text-detail px-2 py-1">Generate</button>
+
+      <div id="custom-prompt-fields" class="hidden w-full flex flex-col gap-2 mt-2">
+        <textarea name="inline_prompt" rows="3" placeholder="System prompt (describe the style of summary you want)…"
+                  class="input font-mono text-body-sm w-full"></textarea>
+        <div class="flex items-center gap-2">
+          <label class="text-text-muted">Save as</label>
+          <input type="text" name="save_as" placeholder="(leave blank for one-off)" class="input px-2 py-1 flex-1">
+        </div>
+      </div>
+    </form>
+
+    <script>
+      // Strip prompt_id when "Other…" is selected so the server uses inline_prompt instead.
+      document.getElementById('summary-form').addEventListener('htmx:configRequest', (e) => {
+        if (e.detail.parameters.prompt_id === '__other__') {
+          e.detail.parameters.prompt_id = '';
+        } else {
+          e.detail.parameters.inline_prompt = '';
+          e.detail.parameters.save_as = '';
+        }
+      });
+    </script>
+
+    <div id="summary-stream-slot" class="mt-3"></div>
+    {% endif %}
   </div>
 
   {% if audio_enclosure %}

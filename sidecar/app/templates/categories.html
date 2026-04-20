@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import paused_badge %}
 {% block title %}Categories{% endblock %}
 {% block content %}
 <h1 class="heading-page">Categories</h1>
@@ -14,9 +15,10 @@
     </h2>
     <div class="flex flex-wrap gap-2">
       {% for feed in cat.feeds %}
-      <a href="/entries?feed_id={{ feed.id }}" class="inline-flex items-center gap-1 text-detail text-link no-underline px-2.5 py-0.5 rounded-lg bg-bg hover:bg-border transition-colors">
+      <a href="/entries?feed_id={{ feed.id }}" class="inline-flex items-center gap-1 text-detail text-link no-underline px-2.5 py-0.5 rounded-lg bg-bg hover:bg-border transition-colors {% if feed.disabled %}opacity-60{% endif %}">
         <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
         {{ feed.title }}
+        {{ paused_badge(feed) }}
       </a>
       <a href="/feeds/{{ feed.id }}" class="text-caption text-text-muted hover:text-accent" title="Feed settings">&#9881;</a>
       {% endfor %}

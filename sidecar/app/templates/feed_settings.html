@@ -1,10 +1,24 @@
 {% extends "base.html" %}
+{% from "_macros.html" import paused_badge %}
 {% block title %}{{ feed.title }} — Settings{% endblock %}
 {% block content %}
 <h1 class="heading-page">
   <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
   {{ feed.title }}
+  {{ paused_badge(feed) }}
 </h1>
+
+{% if feed.disabled %}
+<div class="my-4 p-3 rounded-lg border border-[#94a3b8] bg-[#94a3b814] flex items-center justify-between gap-2 flex-wrap">
+  <div class="text-body-sm">
+    <strong>&#9208; Polling paused</strong> — Miniflux is not fetching new items for this feed. Existing entries remain available.
+  </div>
+  <form hx-post="/feeds/resume-polling" hx-swap="afterend" hx-confirm="Resume polling for this feed?">
+    <input type="hidden" name="feed_ids" value="{{ feed.id }}">
+    <button type="submit" class="btn text-caption">Resume polling</button>
+  </form>
+</div>
+{% endif %}
 <p class="block text-caption text-text-muted overflow-hidden text-ellipsis whitespace-nowrap">
   <a href="{{ feed.site_url }}" target="_blank" rel="noopener" class="text-text-muted no-underline hover:text-link hover:underline">{{ feed.site_url }}</a>
   {% if feed.feed_url and feed.feed_url != feed.site_url %}
@@ -27,9 +41,9 @@
     </div>
     <button
       hx-put="/feeds/{{ feed.id }}/refresh"
-      hx-swap="none"
+      hx-swap="afterend"
       class="btn text-caption"
-      title="Trigger an immediate refresh and reset the error count"
+      title="Trigger an immediate refresh; reload the page after a few seconds to see the new state"
     >Refresh now</button>
   </div>
   {% if feed.parsing_error_message %}
@@ -44,6 +58,46 @@
     <input type="text" name="title" value="{{ feed.title }}" class="input px-2.5 py-1.5 w-[300px]">
     <button type="submit" class="btn">Rename</button>
   </form>
+</div>
+
+<div class="my-6 flex items-start gap-4 flex-wrap">
+  <label class="text-text-muted min-w-[180px] pt-1.5">Feed URL</label>
+  <div class="flex flex-col gap-2 flex-1 min-w-[300px]">
+    <form hx-post="/feeds/{{ feed.id }}/set-url"
+          hx-swap="afterend"
+          hx-confirm="Change this feed's URL? Miniflux keeps all existing entries and starts polling the new URL."
+          class="flex flex-col gap-2">
+      <input type="url" name="feed_url" value="{{ feed.feed_url }}"
+             class="input px-2.5 py-1.5 w-full font-mono text-body-sm"
+             required>
+      <div class="flex gap-2 items-center flex-wrap">
+        <button type="submit" class="btn">Update URL</button>
+        <span class="text-detail text-text-muted">Entries preserved; only the poll target changes.</span>
+      </div>
+    </form>
+    {% if url_history %}
+    <details class="mt-1">
+      <summary class="cursor-pointer text-text-muted text-detail">URL history ({{ url_history|length }})</summary>
+      <table class="mt-2 w-full border-collapse text-detail">
+        <thead>
+          <tr><th class="th">When</th><th class="th">Previous URL</th><th class="th">Source</th></tr>
+        </thead>
+        <tbody>
+          {% for h in url_history %}
+          <tr>
+            <td class="td whitespace-nowrap text-text-muted">{{ h.changed_at | timeago }}</td>
+            <td class="td font-mono break-all">{{ h.old_url }}</td>
+            <td class="td text-text-muted whitespace-nowrap">{{ h.source or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="text-detail text-text-muted mt-1">
+        Past URLs are kept so imported legacy posts (e.g. NewsBlur export) can be matched back to this feed.
+      </p>
+    </details>
+    {% endif %}
+  </div>
 </div>
 
 <div class="my-6 flex items-center gap-4 flex-wrap">
@@ -67,6 +121,35 @@
 </div>
 
 <div class="my-6 flex items-center gap-4 flex-wrap">
+  <label class="text-text-muted min-w-[180px]">Fetch via BrightData proxy</label>
+  <button
+    hx-post="/feeds/{{ feed.id }}/toggle-proxy"
+    hx-swap="outerHTML"
+    class="toggle border-none px-3 py-1.5 rounded-lg cursor-pointer font-semibold text-caption hover:opacity-85 {{ 'on' if feed.fetch_via_proxy else 'off' }}"
+  >
+    {{ 'ON' if feed.fetch_via_proxy else 'OFF' }}
+  </button>
+  <span class="text-detail text-text-muted">
+    Routes polling through the proxy — helps with bot-blocking. Does <em>not</em> fix TLS chain problems (the proxy is a CONNECT tunnel; Miniflux still does TLS itself).
+    {% if not has_proxy %}<br><span class="text-danger">BRIGHTDATA_PROXY not set in sidecar env — toggle will fail.</span>{% endif %}
+  </span>
+</div>
+
+<div class="my-6 flex items-center gap-4 flex-wrap">
+  <label class="text-text-muted min-w-[180px]">TLS verification</label>
+  <button
+    hx-post="/feeds/{{ feed.id }}/toggle-tls-verify"
+    hx-swap="outerHTML"
+    class="toggle border-none px-3 py-1.5 rounded-lg cursor-pointer font-semibold text-caption hover:opacity-85 {{ 'on' if feed.allow_self_signed_certificates else 'off' }}"
+  >
+    {{ 'SKIP' if feed.allow_self_signed_certificates else 'VERIFY' }}
+  </button>
+  <span class="text-detail text-text-muted">
+    <code>SKIP</code> disables <strong>all</strong> TLS verification for this feed (hostname, chain, expiry). Use only when the site has a misconfigured chain (e.g. missing intermediate) you've verified by hand. Mapped to Miniflux's <code>allow_self_signed_certificates</code> — misleadingly named; it's really <code>InsecureSkipVerify</code>.
+  </span>
+</div>
+
+<div class="my-6 flex items-center gap-4 flex-wrap">
   <label class="text-text-muted min-w-[180px]">Extract rules (JSON)</label>
   <form hx-post="/feeds/{{ feed.id }}/set-extract-rules" hx-swap="afterend">
     <textarea name="extract_rules" rows="6" cols="50" class="input font-mono text-body-sm">{{ extract_rules_json }}</textarea>
@@ -82,6 +165,18 @@
     </ul>
   </details>
 </div>
+
+{% if not feed.disabled %}
+<div class="my-6 flex items-center gap-4 flex-wrap">
+  <label class="text-text-muted min-w-[180px]">Polling</label>
+  <form hx-post="/feeds/pause-polling" hx-swap="afterend"
+        hx-confirm="Pause polling for this feed? Existing entries are kept; Miniflux will stop fetching new items until you resume.">
+    <input type="hidden" name="feed_ids" value="{{ feed.id }}">
+    <button type="submit" class="btn">&#9208; Pause polling</button>
+  </form>
+  <span class="text-detail text-text-muted">Non-destructive — entries are preserved.</span>
+</div>
+{% endif %}
 
 <div class="mt-8 pt-4 border-t border-border flex justify-between items-center">
   <div class="text-body-sm">

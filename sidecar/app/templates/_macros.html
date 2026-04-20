@@ -1,0 +1,8 @@
+{% macro paused_badge(feed) %}
+{%- if feed and feed.get("disabled") -%}
+<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[#94a3b8] text-white text-2xs font-semibold align-middle"
+      title="Polling paused — entries kept but Miniflux is not fetching new items">
+  &#9208; paused
+</span>
+{%- endif -%}
+{% endmacro %}

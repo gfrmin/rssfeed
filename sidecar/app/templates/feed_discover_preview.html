@@ -1,0 +1,46 @@
+<div class="py-2">
+  <p class="text-caption mb-2">
+    <span class="font-semibold">{{ counts.candidates }} candidate(s)</span>
+    · {{ counts.same }} already correct
+    · {{ counts.no_candidate }} no candidate
+    · {{ counts.fetch_failed }} fetch failed
+  </p>
+
+  {% if candidates %}
+  <table class="w-full border-collapse text-caption">
+    <thead>
+      <tr>
+        <th class="th">Feed</th>
+        <th class="th">Current URL → Suggested URL</th>
+        <th class="th whitespace-nowrap">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in candidates %}
+      <tr id="discover-row-{{ c.feed_id }}">
+        <td class="td break-words">
+          <a href="/feeds/{{ c.feed_id }}" class="text-link no-underline hover:underline">{{ c.title }}</a>
+        </td>
+        <td class="td">
+          <div class="font-mono text-detail break-all text-text-muted">{{ c.current_url }}</div>
+          <div class="font-mono text-detail break-all text-accent">→ {{ c.new_url }}</div>
+        </td>
+        <td class="td whitespace-nowrap">
+          <form hx-post="/feeds/apply-discovered"
+                hx-target="#discover-row-{{ c.feed_id }} .apply-result"
+                hx-swap="innerHTML"
+                hx-confirm="Repoint &quot;{{ c.title }}&quot; to the suggested URL? Entries are preserved.">
+            <input type="hidden" name="feed_id" value="{{ c.feed_id }}">
+            <input type="hidden" name="new_url" value="{{ c.new_url }}">
+            <button type="submit" class="btn py-0.5 px-2 text-caption">Apply</button>
+            <span class="apply-result ml-2"></span>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-text-muted">No candidate URLs found for the selected feeds.</p>
+  {% endif %}
+</div>

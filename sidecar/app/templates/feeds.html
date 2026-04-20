@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import paused_badge %}
 {% block title %}Feeds{% endblock %}
 {% block content %}
 <h1 class="heading-page">Feeds</h1>
@@ -41,9 +42,10 @@
   <tbody>
     {% for feed in feeds %}
     <tr>
-      <td class="td break-words">
+      <td class="td break-words {% if feed.disabled %}opacity-60{% endif %}">
         <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
         <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">{{ feed.title }}</a>
+        {{ paused_badge(feed) }}
         <a href="/feeds/{{ feed.id }}" class="text-caption text-text-muted ml-2 hover:text-accent" title="Feed settings">&#9881;</a>
         <br><a href="{{ feed.feed_url }}" target="_blank" rel="noopener" class="text-2xs text-text-muted no-underline hover:text-link hover:underline break-all" title="Feed XML URL">{{ feed.feed_url }}</a>
       </td>

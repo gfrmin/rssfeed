@@ -9,18 +9,23 @@ from fastapi.templating import Jinja2Templates
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 
-def _timeago(iso_str: str) -> str:
-    if not iso_str:
+def _timeago(value) -> str:
+    if not value:
         return ""
     try:
-        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        if isinstance(value, datetime):
+            dt = value
+        else:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
         delta = now - dt
         if delta.total_seconds() < 86400:
             return humanize.naturaltime(delta)
         return dt.strftime("%Y-%m-%d %H:%M")
     except Exception:
-        return iso_str[:16].replace("T", " ")
+        return str(value)[:16].replace("T", " ")
 
 
 def _reading_time(content: str) -> str:

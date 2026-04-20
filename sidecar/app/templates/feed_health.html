@@ -3,47 +3,110 @@
 {% block content %}
 <h1 class="heading-page">Feed Health</h1>
 
-<div class="overflow-x-auto">
-<table class="w-full border-collapse">
-  <thead>
-    <tr>
-      <th class="th">Status</th>
-      <th class="th">Feed</th>
-      <th class="th whitespace-nowrap">Last Checked</th>
-      <th class="th whitespace-nowrap">Errors</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for feed in feeds %}
-    <tr class="{% if feed._is_persistent %}bg-error-bg{% elif feed._has_error %}bg-[#f8717118]{% elif feed._is_stale %}bg-[#fbbf2410]{% endif %}">
-      <td class="td">
-        {% if feed._is_persistent %}
-        <span class="inline-block w-2.5 h-2.5 rounded-full bg-danger" title="Persistent error — 3+ consecutive failures; won't self-recover if Miniflux POLLING_PARSING_ERROR_LIMIT is non-zero"></span>
-        {% elif feed._has_error %}
-        <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#f87171]" title="Recent parsing error"></span>
-        {% elif feed._is_stale %}
-        <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#fbbf24]" title="Not polled in 24h"></span>
-        {% else %}
-        <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#4ade80]" title="OK"></span>
+<p class="text-caption text-text-muted mb-4">
+  Feeds grouped by error type. Use bucket actions to repair non-destructively — entries and feed records are never deleted.
+</p>
+
+{% if not has_proxy %}
+<p class="text-caption text-text-muted mb-4">
+  ⓘ <code>BRIGHTDATA_PROXY</code> is not set in the sidecar env — the bot-blocked bucket action will fail until you set it in <code>.env</code> and restart.
+</p>
+{% endif %}
+
+{% set bucket_colors = {
+  "http_404": "bg-error-bg",
+  "not_a_feed": "bg-error-bg",
+  "bot_blocked": "bg-error-bg",
+  "server_5xx": "bg-[#f8717118]",
+  "auth": "bg-error-bg",
+  "tls": "bg-error-bg",
+  "unsupported_scheme": "bg-error-bg",
+  "dns_fail": "bg-error-bg",
+  "connect_fail": "bg-error-bg",
+  "other": "bg-error-bg",
+  "stale": "bg-[#fbbf2410]",
+  "paused": "bg-[#94a3b814]",
+  "ok": "",
+} %}
+
+{% set bucket_actions = {
+  "http_404": ("/feeds/auto-discover", "Auto-discover new URLs"),
+  "not_a_feed": ("/feeds/auto-discover", "Auto-discover new URLs"),
+  "bot_blocked": ("/feeds/set-proxy", "Route through BrightData proxy"),
+  "server_5xx": ("/feeds/bulk-refresh", "Refresh now"),
+  "tls": ("/feeds/allow-self-signed", "Allow self-signed certificates"),
+  "unsupported_scheme": ("/feeds/pause-polling", "Pause polling (keep entries)"),
+  "dns_fail": ("/feeds/pause-polling", "Pause polling (keep entries)"),
+  "connect_fail": ("/feeds/pause-polling", "Pause polling (keep entries)"),
+  "other": ("/feeds/pause-polling", "Pause polling (keep entries)"),
+  "paused": ("/feeds/resume-polling", "Resume polling"),
+} %}
+
+{% for section in bucket_sections %}
+<details class="mb-4 border border-border rounded-lg {{ bucket_colors.get(section.key, '') }}" {% if section.key not in ('ok', 'paused') %}open{% endif %}>
+  <summary class="px-4 py-2 cursor-pointer font-semibold flex items-center justify-between gap-3 flex-wrap">
+    <span>{{ section.label }} <span class="text-text-muted font-normal">({{ section.count }})</span></span>
+    {% if bucket_actions.get(section.key) %}
+      {% set action_url, action_label = bucket_actions[section.key] %}
+      <button type="submit"
+              form="bucket-form-{{ section.key }}"
+              class="btn py-1 px-3 text-caption"
+              hx-post="{{ action_url }}"
+              hx-include="#bucket-form-{{ section.key }}"
+              hx-target="#bucket-result-{{ section.key }}"
+              hx-swap="innerHTML"
+              hx-confirm="Apply '{{ action_label }}' to selected feeds? No feeds or entries will be deleted.">
+        {{ action_label }}
+      </button>
+    {% endif %}
+  </summary>
+
+  {% if bucket_actions.get(section.key) %}
+  <div id="bucket-result-{{ section.key }}" class="px-4 py-1 text-caption"></div>
+  <form id="bucket-form-{{ section.key }}" class="px-2">
+  {% endif %}
+
+  <div class="overflow-x-auto">
+  <table class="w-full border-collapse">
+    <thead>
+      <tr>
+        {% if bucket_actions.get(section.key) %}
+        <th class="th w-8">
+          <input type="checkbox" onclick="this.closest('details').querySelectorAll('input[name=feed_ids]').forEach(c => c.checked = this.checked)" title="Select all">
+        </th>
         {% endif %}
-      </td>
-      <td class="td break-words">
-        <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
-        <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">{{ feed.title }}</a>
-        <a href="/feeds/{{ feed.id }}" class="text-caption text-text-muted ml-2 hover:text-accent" title="Feed settings">&#9881;</a>
-      </td>
-      <td class="td whitespace-nowrap">{{ feed.checked_at | timeago }}</td>
-      <td class="td">
-        {% if feed._has_error %}
-        <span class="text-caption text-danger">{{ feed.parsing_error_message }}</span>
-        <br><small class="text-text-muted">{{ feed._error_count }} error(s)</small>
-        {% else %}
-        —
+        <th class="th">Feed</th>
+        <th class="th whitespace-nowrap">Last Checked</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for feed in section.feeds %}
+      <tr>
+        {% if bucket_actions.get(section.key) %}
+        <td class="td">
+          <input type="checkbox" name="feed_ids" value="{{ feed.id }}">
+        </td>
         {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-</div>
+        <td class="td break-words">
+          <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded inline-block" alt="" onerror="this.style.display='none'">
+          <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">{{ feed.title }}</a>
+          {% if feed._error_count %}
+          <span class="text-detail text-text-muted" title="Consecutive error count">· {{ feed._error_count }}×</span>
+          {% endif %}
+          <a href="/feeds/{{ feed.id }}" class="text-caption text-text-muted ml-2 hover:text-accent" title="Feed settings">&#9881;</a>
+          <div class="text-caption text-text-muted break-all">{{ feed.feed_url }}</div>
+        </td>
+        <td class="td whitespace-nowrap text-caption">{{ feed.checked_at | timeago }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  {% if bucket_actions.get(section.key) %}
+  </form>
+  {% endif %}
+</details>
+{% endfor %}
+
 {% endblock %}

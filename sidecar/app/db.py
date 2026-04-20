@@ -105,6 +105,19 @@ CREATE TABLE IF NOT EXISTS site_cookies (
     cookies JSONB NOT NULL DEFAULT '{}'::jsonb,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- History of feed URL changes so imported legacy posts (e.g. from NewsBlur)
+-- can be matched to current feeds via their old URL.
+CREATE TABLE IF NOT EXISTS feed_url_history (
+    id BIGSERIAL PRIMARY KEY,
+    feed_id BIGINT NOT NULL,
+    old_url TEXT NOT NULL,
+    new_url TEXT NOT NULL,
+    source TEXT,
+    changed_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_feed_url_history_feed ON feed_url_history(feed_id);
+CREATE INDEX IF NOT EXISTS idx_feed_url_history_old_url ON feed_url_history(old_url);
 """
 
 

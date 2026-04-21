@@ -1,0 +1,47 @@
+<div class="py-2 discover-panel">
+  <p class="text-caption mb-2">
+    Apply to feed
+    <a href="/feeds/{{ feed_id }}" class="text-link no-underline hover:underline">#{{ feed_id }}</a>.
+    Empty fields are skipped.
+  </p>
+  <form hx-post="/feeds/apply-discovered"
+        hx-target="closest .discover-panel"
+        hx-swap="innerHTML"
+        class="flex flex-col gap-2 max-w-[700px]">
+    <input type="hidden" name="feed_id" value="{{ feed_id }}">
+    <input type="hidden" name="new_url" value="{{ new_url }}">
+
+    <div class="flex items-center gap-2 text-detail">
+      <span class="text-text-muted w-[90px] shrink-0">Feed URL</span>
+      <code class="font-mono text-detail break-all flex-1">{{ new_url }}</code>
+      <span class="text-text-muted whitespace-nowrap">was: <code class="font-mono text-detail break-all">{{ current_feed.feed_url }}</code></span>
+    </div>
+
+    <div class="flex items-center gap-2 text-detail">
+      <label for="confirm-title-{{ feed_id }}" class="text-text-muted w-[90px] shrink-0">Title</label>
+      <input type="text" name="new_title" id="confirm-title-{{ feed_id }}"
+             value="{{ candidate_title }}"
+             class="input px-2.5 py-1.5 flex-1 font-mono text-body-sm"
+             placeholder="leave blank to skip">
+      <span class="text-text-muted whitespace-nowrap">was: <code class="font-mono text-detail">{{ current_feed.title or "—" }}</code></span>
+    </div>
+
+    <div class="flex items-center gap-2 text-detail">
+      <label for="confirm-site-url-{{ feed_id }}" class="text-text-muted w-[90px] shrink-0">Site URL</label>
+      <input type="text" name="new_site_url" id="confirm-site-url-{{ feed_id }}"
+             value="{{ typed_url }}"
+             class="input px-2.5 py-1.5 flex-1 font-mono text-body-sm"
+             placeholder="leave blank to skip">
+      <span class="text-text-muted whitespace-nowrap">was: <code class="font-mono text-detail break-all">{{ current_feed.site_url or "—" }}</code></span>
+    </div>
+
+    <div class="flex gap-2 items-center mt-1">
+      <button type="submit" class="btn">Confirm</button>
+      <button type="button" class="btn"
+              hx-post="/feeds/discover"
+              hx-vals='js:{"url": "{{ typed_url|e }}", "feed_id": {{ feed_id }}}'
+              hx-target="closest .discover-panel"
+              hx-swap="innerHTML">Back</button>
+    </div>
+  </form>
+</div>

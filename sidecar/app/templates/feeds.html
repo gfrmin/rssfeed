@@ -6,14 +6,26 @@
 
 <div class="mb-5 flex gap-2 items-center flex-wrap">
   <input type="search" id="feed-search" placeholder="Filter feeds..." class="input w-[200px] px-3 py-1.5 text-detail" autofocus>
-  <form hx-post="/feeds/subscribe" hx-swap="afterend" class="flex gap-1.5 items-center">
-    <input type="url" name="feed_url" placeholder="Feed URL..." class="input w-[250px] px-2.5 py-1.5 text-detail" required>
+  <form id="add-feed-form" class="flex gap-1.5 items-center">
+    <input type="url" name="feed_url" id="add-feed-url" placeholder="Feed or page URL..." class="input w-[250px] px-2.5 py-1.5 text-detail" required>
     <select name="category_id" class="input w-auto px-2 py-1.5 text-detail">
       {% for cat in categories %}<option value="{{ cat.id }}">{{ cat.title }}</option>{% endfor %}
     </select>
-    <button type="submit" class="btn">Subscribe</button>
+    <button type="submit"
+            class="btn"
+            hx-post="/feeds/subscribe"
+            hx-target="#discover-results"
+            hx-swap="innerHTML">Subscribe</button>
+    <button type="button"
+            class="btn"
+            hx-post="/feeds/discover"
+            hx-include="#add-feed-form"
+            hx-vals='js:{"url": document.getElementById("add-feed-url").value}'
+            hx-target="#discover-results"
+            hx-swap="innerHTML">Discover</button>
   </form>
 </div>
+<div id="discover-results" class="mb-5"></div>
 
 <details class="mb-4">
   <summary class="cursor-pointer text-text-muted text-detail">OPML import/export</summary>

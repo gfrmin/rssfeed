@@ -1,0 +1,108 @@
+<div class="py-2 discover-panel">
+  {% if candidates %}
+  <p class="text-caption mb-2">
+    <span class="font-semibold">{{ candidates|length }} candidate(s)</span>
+    for <code class="text-detail break-all">{{ url }}</code>
+    {% if source == "proxy" %}
+      · <span class="text-text-muted">via proxy fallback</span>
+    {% elif source == "miniflux" %}
+      · <span class="text-text-muted">via Miniflux</span>
+    {% endif %}
+  </p>
+  {% if mode == "apply" %}
+  <p class="text-detail text-text-muted mb-2">
+    Choose a candidate to review and confirm. Existing entries are preserved.
+  </p>
+  {% endif %}
+
+  <div class="overflow-x-auto">
+  <table class="w-full table-fixed border-collapse text-caption">
+    <colgroup>
+      <col>
+      <col style="width: 60px">
+      <col style="width: 110px">
+    </colgroup>
+    <thead>
+      <tr>
+        <th class="th">Feed</th>
+        <th class="th">Type</th>
+        <th class="th">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in candidates %}
+      <tr id="candidate-row-{{ loop.index }}">
+        <td class="td align-top">
+          {% if c.title and c.title != c.url %}
+          <div class="break-all font-medium">{{ c.title }}</div>
+          {% endif %}
+          <div class="font-mono text-detail break-all">
+            <a href="{{ c.url }}" target="_blank" rel="noopener" class="text-link no-underline hover:underline">{{ c.url }}</a>
+          </div>
+          <div class="preview-area mt-1"></div>
+        </td>
+        <td class="td text-text-muted align-top">{{ c.type }}</td>
+        <td class="td align-top">
+          <div class="flex flex-col gap-1 items-stretch">
+            {% if mode == "apply" %}
+            <form hx-post="/feeds/apply-discovered/confirm"
+                  hx-target="closest .discover-panel"
+                  hx-swap="innerHTML">
+              <input type="hidden" name="feed_id" value="{{ feed_id }}">
+              <input type="hidden" name="new_url" value="{{ c.url }}">
+              <input type="hidden" name="candidate_title" value="{{ c.title }}">
+              <input type="hidden" name="typed_url" value="{{ url }}">
+              <button type="submit" class="btn py-0.5 px-2 text-caption w-full">Choose</button>
+            </form>
+            {% else %}
+            <form hx-post="/feeds/subscribe"
+                  hx-target="#candidate-row-{{ loop.index }} .subscribe-result"
+                  hx-swap="innerHTML">
+              <input type="hidden" name="feed_url" value="{{ c.url }}">
+              <input type="hidden" name="category_id" value="{{ category_id }}">
+              <button type="submit" class="btn py-0.5 px-2 text-caption w-full">Subscribe</button>
+            </form>
+            {% endif %}
+            <form hx-post="/feeds/discover/preview"
+                  hx-target="#candidate-row-{{ loop.index }} .preview-area"
+                  hx-swap="innerHTML">
+              <input type="hidden" name="feed_url" value="{{ c.url }}">
+              <button type="submit" class="btn py-0.5 px-2 text-caption w-full">Preview</button>
+            </form>
+            <span class="subscribe-result"></span>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="text-text-muted">No feeds found at <code class="text-detail break-all">{{ url }}</code>.</p>
+  {% if raw_links %}
+  <details class="mt-2">
+    <summary class="cursor-pointer text-text-muted text-detail">Raw &lt;link&gt; tags found in HTML ({{ raw_links|length }})</summary>
+    <table class="w-full border-collapse text-caption mt-2">
+      <thead>
+        <tr>
+          <th class="th">rel</th>
+          <th class="th">type</th>
+          <th class="th">href</th>
+          <th class="th">title</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in raw_links %}
+        <tr>
+          <td class="td text-detail">{{ l.rel }}</td>
+          <td class="td text-detail">{{ l.type or "-" }}</td>
+          <td class="td font-mono text-detail break-all">{{ l.href }}</td>
+          <td class="td text-detail">{{ l.title or "-" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+  {% endif %}
+</div>

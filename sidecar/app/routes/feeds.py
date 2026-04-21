@@ -1,13 +1,15 @@
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone, timedelta
+from typing import Any
 from urllib.parse import urljoin
 
 import httpx
 from fastapi import APIRouter, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, Response
-from lxml import html as lxml_html
+from lxml import etree as lxml_etree, html as lxml_html
 
 from app import miniflux_client
 from app.config import BRIGHTDATA_PROXY
@@ -26,26 +28,43 @@ async def _feed_configs(conn) -> dict[int, dict]:
     return {row["feed_id"]: row for row in await cur.fetchall()}
 
 
-async def _latest_entry_date(feed_id: int) -> tuple[int, str]:
+async def _latest_entry_dates_all() -> dict[int, str]:
+    """Derive per-feed latest published_at from a single bulk /v1/entries call.
+
+    Feeds whose latest entry is older than the top-1000 window get an empty
+    date — they sort to the bottom of their priority bucket, matching the
+    pre-existing behavior for feeds with zero entries.
+    """
     data = await miniflux_client.get_entries(
-        feed_id=feed_id, limit=1, direction="desc", order="published_at",
+        limit=1000, direction="desc", order="published_at",
     )
-    entries = data.get("entries") or []
-    return (feed_id, entries[0].get("published_at", "") if entries else "")
+    latest: dict[int, str] = {}
+    for e in data.get("entries") or []:
+        fid = e.get("feed_id") or (e.get("feed") or {}).get("id")
+        if fid is not None and fid not in latest:
+            latest[fid] = e.get("published_at", "") or ""
+    return latest
+
+
+async def _fetch_feed_configs() -> dict[int, dict]:
+    async with get_conn() as conn:
+        return await _feed_configs(conn)
 
 
 @router.get("/", response_class=HTMLResponse)
 async def feed_list(request: Request):
-    feeds = await miniflux_client.get_feeds()
-    counters = await miniflux_client.get_feed_counters()
+    t0 = time.perf_counter()
+
+    feeds, counters, latest_dates, categories, configs = await asyncio.gather(
+        miniflux_client.get_feeds(),
+        miniflux_client.get_feed_counters(),
+        _latest_entry_dates_all(),
+        miniflux_client.get_categories(),
+        _fetch_feed_configs(),
+    )
+    t_fetch = time.perf_counter()
+
     unreads = counters.get("unreads", {})
-    async with get_conn() as conn:
-        configs = await _feed_configs(conn)
-
-    latest_dates = dict(await asyncio.gather(
-        *[_latest_entry_date(f["id"]) for f in feeds]
-    ))
-
     for feed in feeds:
         cfg = configs.get(feed["id"], {})
         feed["fetch_full_content"] = cfg.get("fetch_full_content", False)
@@ -56,10 +75,21 @@ async def feed_list(request: Request):
     # Stable sort: first by latest entry (most recent first), then by priority
     feeds.sort(key=lambda f: f.get("latest_entry_at", ""), reverse=True)
     feeds.sort(key=lambda f: f["priority"])
+    t_sort = time.perf_counter()
 
-    categories = await miniflux_client.get_categories()
+    response = templates.TemplateResponse(
+        request, "feeds.html", {"feeds": feeds, "categories": categories}
+    )
+    t_render = time.perf_counter()
 
-    return templates.TemplateResponse(request, "feeds.html", {"feeds": feeds, "categories": categories})
+    logger.info(
+        "feed_list timings: fetch=%.0fms sort=%.0fms render=%.0fms feeds=%d",
+        (t_fetch - t0) * 1000,
+        (t_sort - t_fetch) * 1000,
+        (t_render - t_sort) * 1000,
+        len(feeds),
+    )
+    return response
 
 
 @router.get("/categories", response_class=HTMLResponse)
@@ -234,14 +264,14 @@ _DISCOVERY_TYPES = (
 )
 
 
-async def _fetch_html_for_discovery(url: str) -> str | None:
-    """Fetch a page for feed auto-discovery. Tries direct then BrightData proxy."""
+async def _fetch_with_proxy_fallback(url: str, *, accept: str = "text/html,application/xhtml+xml") -> str | None:
+    """Fetch any URL with direct-then-BrightData-proxy fallback. Returns response text or None."""
     kwargs = dict(
         timeout=20.0,
         follow_redirects=True,
         headers={
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:137.0) Gecko/20100101 Firefox/137.0",
-            "Accept": "text/html,application/xhtml+xml",
+            "Accept": accept,
         },
     )
     try:
@@ -250,7 +280,7 @@ async def _fetch_html_for_discovery(url: str) -> str | None:
             r.raise_for_status()
             return r.text
     except Exception as e:
-        logger.info("Direct discovery fetch failed for %s: %s", url, e)
+        logger.info("Direct fetch failed for %s: %s", url, e)
     if BRIGHTDATA_PROXY:
         try:
             async with httpx.AsyncClient(proxy=BRIGHTDATA_PROXY, **kwargs) as c:
@@ -258,28 +288,73 @@ async def _fetch_html_for_discovery(url: str) -> str | None:
                 r.raise_for_status()
                 return r.text
         except Exception as e:
-            logger.info("Proxy discovery fetch failed for %s: %s", url, e)
+            logger.info("Proxy fetch failed for %s: %s", url, e)
     return None
 
 
-def _find_feed_link(html: str, base_url: str) -> str | None:
-    """Parse HTML for <link rel=alternate type=application/rss+xml|atom+xml>."""
+async def _fetch_html_for_discovery(url: str) -> str | None:
+    """Fetch a page for feed auto-discovery. Tries direct then BrightData proxy."""
+    return await _fetch_with_proxy_fallback(url)
+
+
+def _infer_feed_type(ltype: str, href: str) -> str:
+    """Normalise a feed type from a <link type=...> attr or URL suffix. Returns 'rss'|'atom'|'json'|'unknown'."""
+    ltype = ltype.lower().strip()
+    if "atom" in ltype:
+        return "atom"
+    if "json" in ltype:
+        return "json"
+    if "rss" in ltype or "xml" in ltype:
+        return "rss"
+    h = href.lower()
+    if "atom" in h:
+        return "atom"
+    if h.endswith(".json") or "feed.json" in h:
+        return "json"
+    if "rss" in h or h.endswith(".xml") or "/feed" in h:
+        return "rss"
+    return "unknown"
+
+
+def _parse_feed_links(html: str, base_url: str) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Parse HTML for feed-ish <link> tags.
+
+    Returns (candidates, raw_links):
+      candidates — list of {url, title, type} ready to subscribe (dedup'd, feed-like).
+      raw_links  — every <link rel=alternate|feed> seen (rel, type, href, title), for debug display.
+    """
     try:
         tree = lxml_html.fromstring(html)
     except Exception:
-        return None
-    for link in tree.xpath("//link[@rel='alternate' and @href]"):
-        ltype = (link.get("type") or "").lower().strip()
-        if ltype in _DISCOVERY_TYPES:
-            href = link.get("href", "").strip()
-            if href:
-                return urljoin(base_url, href)
-    # Fallback: any rel=alternate href that looks like a feed
-    for link in tree.xpath("//link[@rel='alternate' and @href]"):
-        href = link.get("href", "").strip().lower()
-        if any(k in href for k in ("/rss", "/atom", "/feed", ".xml")):
-            return urljoin(base_url, link.get("href", "").strip())
-    return None
+        return [], []
+    raw_links: list[dict[str, str]] = []
+    candidates: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for link in tree.xpath("//link[@href and (@rel='alternate' or @rel='feed')]"):
+        href = (link.get("href") or "").strip()
+        if not href:
+            continue
+        abs_href = urljoin(base_url, href)
+        rel = (link.get("rel") or "").strip()
+        ltype = (link.get("type") or "").strip()
+        title = (link.get("title") or "").strip()
+        raw_links.append({"rel": rel, "type": ltype, "href": abs_href, "title": title})
+        is_typed_feed = ltype.lower() in _DISCOVERY_TYPES
+        is_href_feedish = any(k in href.lower() for k in ("/rss", "/atom", "/feed", ".xml"))
+        if (is_typed_feed or is_href_feedish) and abs_href not in seen:
+            seen.add(abs_href)
+            candidates.append({
+                "url": abs_href,
+                "title": title,
+                "type": _infer_feed_type(ltype, abs_href),
+            })
+    return candidates, raw_links
+
+
+def _find_feed_link(html: str, base_url: str) -> str | None:
+    """Back-compat wrapper: return the first discovered feed URL, or None."""
+    candidates, _ = _parse_feed_links(html, base_url)
+    return candidates[0]["url"] if candidates else None
 
 
 async def _probe_one(feed: dict, sem: asyncio.Semaphore) -> dict:
@@ -356,20 +431,192 @@ async def _record_url_change(feed_id: int, old_url: str, new_url: str, source: s
 
 
 @router.post("/feeds/apply-discovered")
-async def apply_discovered(feed_id: int = Form(...), new_url: str = Form(...)):
-    """Apply a previewed feed_url change. Records history, logs, and echoes the old URL."""
+async def apply_discovered(
+    feed_id: int = Form(...),
+    new_url: str = Form(...),
+    new_title: str | None = Form(None),
+    new_site_url: str | None = Form(None),
+):
+    """Apply a previewed feed_url change. Optionally also update title/site_url.
+
+    Non-empty new_title / new_site_url are forwarded to Miniflux alongside the feed_url update.
+    """
+    updates: dict[str, Any] = {"feed_url": new_url}
+    title_val = (new_title or "").strip()
+    site_url_val = (new_site_url or "").strip()
+    if title_val:
+        updates["title"] = title_val
+    if site_url_val:
+        updates["site_url"] = site_url_val
+
     try:
         feed = await miniflux_client.get_feed(feed_id)
         old_url = feed.get("feed_url", "")
-        await miniflux_client.update_feed(feed_id, feed_url=new_url)
+        await miniflux_client.update_feed(feed_id, **updates)
     except Exception as e:
-        logger.warning("apply_discovered(%s, %s) failed: %s", feed_id, new_url, e)
-        return HTMLResponse(f'<span class="error">Failed: {e}</span>', status_code=500)
+        detail = _extract_miniflux_error(e) or str(e)
+        logger.warning("apply_discovered(%s, %s) failed: %s", feed_id, new_url, detail)
+        return HTMLResponse(f'<span class="error">Failed: {detail}</span>')
+    try:
+        await miniflux_client.refresh_feed(feed_id)
+    except Exception as e:
+        logger.info("post-apply refresh failed for feed %s: %s", feed_id, e)
     await _record_url_change(feed_id, old_url, new_url, source="auto-discover")
-    logger.info("feed %s feed_url change (auto-discover): %s -> %s", feed_id, old_url, new_url)
+    extras = []
+    if title_val:
+        extras.append(f"title→{title_val!r}")
+    if site_url_val:
+        extras.append(f"site_url→{site_url_val!r}")
+    extras_str = (" (" + ", ".join(extras) + ")") if extras else ""
+    logger.info("feed %s feed_url change (auto-discover): %s -> %s%s", feed_id, old_url, new_url, extras_str)
     return HTMLResponse(
-        f'<span class="success">Applied. Previous URL: <code class="text-detail">{old_url}</code></span>'
+        f'<span class="success">Applied{extras_str}. Previous URL: <code class="text-detail">{old_url}</code></span>',
+        headers={"HX-Refresh": "true"},
     )
+
+
+@router.post("/feeds/discover")
+async def discover_feeds(
+    request: Request,
+    url: str = Form(...),
+    category_id: int | None = Form(None),
+    feed_id: int | None = Form(None),
+):
+    """Discover candidate feeds for a page URL. Tries Miniflux /v1/discover, falls back to proxy-enabled HTML parse.
+
+    Mode:
+      - If `feed_id` is set, candidates render with "Apply" buttons that re-point that feed.
+      - Otherwise (requires `category_id`), candidates render with "Subscribe" buttons for new feeds.
+    """
+    url = url.strip()
+    if not url:
+        return HTMLResponse('<span class="error">URL is required</span>', status_code=400)
+    mode = "apply" if feed_id is not None else "subscribe"
+    if mode == "subscribe" and category_id is None:
+        return HTMLResponse('<span class="error">category_id is required</span>', status_code=400)
+
+    current_feed: dict[str, Any] | None = None
+    if feed_id is not None:
+        try:
+            current_feed = await miniflux_client.get_feed(feed_id)
+        except Exception as e:
+            logger.info("Failed to fetch feed %s for discover context: %s", feed_id, e)
+
+    candidates: list[dict[str, str]] = []
+    source_label = ""
+    try:
+        miniflux_result = await miniflux_client.discover(url)
+        if miniflux_result:
+            for item in miniflux_result:
+                candidates.append({
+                    "url": item.get("url", ""),
+                    "title": item.get("title", ""),
+                    "type": (item.get("type") or "").lower() or "unknown",
+                    "source": "miniflux",
+                })
+            source_label = "miniflux"
+    except Exception as e:
+        logger.info("Miniflux discover failed for %s: %s", url, e)
+
+    raw_links: list[dict[str, str]] = []
+    if not candidates:
+        html = await _fetch_html_for_discovery(url)
+        if html:
+            fallback_candidates, raw_links = _parse_feed_links(html, url)
+            for c in fallback_candidates:
+                candidates.append({**c, "source": "proxy"})
+            if fallback_candidates:
+                source_label = "proxy"
+
+    return templates.TemplateResponse(
+        request, "feed_discover_results.html",
+        {
+            "candidates": candidates,
+            "raw_links": raw_links,
+            "category_id": category_id,
+            "feed_id": feed_id,
+            "mode": mode,
+            "source": source_label,
+            "url": url,
+            "current_feed": current_feed,
+        },
+    )
+
+
+@router.post("/feeds/apply-discovered/confirm")
+async def apply_discovered_confirm(
+    request: Request,
+    feed_id: int = Form(...),
+    new_url: str = Form(...),
+    candidate_title: str | None = Form(None),
+    typed_url: str | None = Form(None),
+):
+    """Render a confirmation panel: chosen candidate URL + editable title/site_url suggestions."""
+    try:
+        feed = await miniflux_client.get_feed(feed_id)
+    except Exception as e:
+        detail = _extract_miniflux_error(e) or str(e)
+        return HTMLResponse(f'<span class="error">Failed: {detail}</span>')
+    return templates.TemplateResponse(
+        request, "feed_discover_confirm.html",
+        {
+            "feed_id": feed_id,
+            "new_url": new_url,
+            "candidate_title": (candidate_title or "").strip(),
+            "typed_url": (typed_url or "").strip(),
+            "current_feed": feed,
+        },
+    )
+
+
+def _parse_feed_preview(text: str) -> list[dict[str, str]]:
+    """Parse RSS or Atom XML and return up to 3 {title, published} entries."""
+    try:
+        raw = text.encode("utf-8") if isinstance(text, str) else text
+        root = lxml_etree.fromstring(raw)
+    except Exception:
+        return []
+
+    def _first_child_text(parent, localnames: tuple[str, ...]) -> str:
+        for child in parent:
+            if lxml_etree.QName(child).localname in localnames:
+                return (child.text or "").strip()
+        return ""
+
+    items: list[dict[str, str]] = []
+    for item in root.iter():
+        if lxml_etree.QName(item).localname not in ("item", "entry"):
+            continue
+        title = _first_child_text(item, ("title",))
+        published = _first_child_text(item, ("pubDate", "published", "updated", "date"))
+        if title or published:
+            items.append({"title": title, "published": published})
+        if len(items) >= 3:
+            break
+    return items
+
+
+@router.post("/feeds/discover/preview")
+async def discover_preview(feed_url: str = Form(...)):
+    """Fetch a candidate feed URL and return up to 3 latest entry titles as an htmx fragment."""
+    feed_url = feed_url.strip()
+    if not feed_url:
+        return HTMLResponse('<span class="error">URL is required</span>', status_code=400)
+    text = await _fetch_with_proxy_fallback(
+        feed_url,
+        accept="application/rss+xml,application/atom+xml,application/xml,text/xml",
+    )
+    if not text:
+        return HTMLResponse('<span class="error">Could not fetch feed</span>', status_code=502)
+    items = _parse_feed_preview(text)
+    if not items:
+        return HTMLResponse('<span class="error">Could not parse feed</span>', status_code=502)
+    rows = "".join(
+        f'<li class="text-detail"><span class="font-medium">{i["title"] or "(no title)"}</span>'
+        f'{(" <span class=\"text-text-muted\">— " + i["published"] + "</span>") if i["published"] else ""}</li>'
+        for i in items
+    )
+    return HTMLResponse(f'<ul class="list-disc ml-5 my-1">{rows}</ul>')
 
 
 @router.post("/feeds/set-proxy")
@@ -488,26 +735,89 @@ async def resume_polling(feed_ids: list[int] = Form(...)):
     )
 
 
+def _extract_miniflux_error(e: Exception) -> str | None:
+    """If the exception is an httpx HTTPStatusError, try to read Miniflux's JSON error_message."""
+    resp = getattr(e, "response", None)
+    if resp is None:
+        return None
+    try:
+        body = resp.json()
+    except Exception:
+        return (resp.text or "").strip() or None
+    if isinstance(body, dict):
+        msg = body.get("error_message") or body.get("error")
+        if isinstance(msg, str):
+            return msg
+    return None
+
+
+def _looks_like_feed(text: str) -> bool:
+    """Heuristic: does the fetched text look like a feed (RSS/Atom/RDF/JSON Feed)?"""
+    if not text:
+        return False
+    try:
+        raw = text.encode("utf-8") if isinstance(text, str) else text
+        root = lxml_etree.fromstring(raw)
+        local = lxml_etree.QName(root).localname.lower()
+        if local in ("rss", "feed", "rdf"):
+            return True
+    except Exception:
+        pass
+    stripped = text.lstrip()
+    if stripped.startswith("{"):
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict) and isinstance(obj.get("version"), str) and "jsonfeed.org" in obj["version"]:
+                return True
+        except Exception:
+            pass
+    return False
+
+
 @router.post("/feeds/{feed_id}/set-url")
-async def set_feed_url(feed_id: int, feed_url: str = Form(...)):
-    """Update a feed's URL in place. Non-destructive — Miniflux preserves entries."""
+async def set_feed_url(request: Request, feed_id: int, feed_url: str = Form(...)):
+    """Update a feed's URL. Tries the URL as-is first; if it doesn't parse as a feed, runs discovery.
+
+    - If the URL looks like a feed, update feed_url directly (non-destructive — entries preserved).
+    - Otherwise, render the discovery candidates (apply mode) so the user can pick and apply.
+    """
     new_url = feed_url.strip()
     if not new_url:
         return HTMLResponse('<span class="error">URL is required</span>', status_code=400)
+
     try:
         feed = await miniflux_client.get_feed(feed_id)
-        old_url = feed.get("feed_url", "")
-        if new_url == old_url:
-            return HTMLResponse('<span class="text-text-muted">No change</span>')
-        await miniflux_client.update_feed(feed_id, feed_url=new_url)
     except Exception as e:
-        logger.warning("set-url feed %s -> %s failed: %s", feed_id, new_url, e)
+        logger.warning("set-url feed %s lookup failed: %s", feed_id, e)
         return HTMLResponse(f'<span class="error">Failed: {e}</span>', status_code=500)
-    await _record_url_change(feed_id, old_url, new_url, source="set-url")
-    logger.info("feed %s feed_url change (set-url): %s -> %s", feed_id, old_url, new_url)
-    return HTMLResponse(
-        f'<span class="success">URL updated. Previous: <code class="text-detail">{old_url}</code></span>'
+    old_url = feed.get("feed_url", "")
+    if new_url == old_url:
+        return HTMLResponse('<span class="text-text-muted">No change</span>')
+
+    text = await _fetch_with_proxy_fallback(
+        new_url,
+        accept="application/rss+xml,application/atom+xml,application/feed+json,application/json,application/xml,text/xml,text/html",
     )
+    if _looks_like_feed(text or ""):
+        try:
+            await miniflux_client.update_feed(feed_id, feed_url=new_url)
+        except Exception as e:
+            detail = _extract_miniflux_error(e) or str(e)
+            logger.warning("set-url feed %s -> %s failed: %s", feed_id, new_url, detail)
+            return HTMLResponse(f'<span class="error">Failed: {detail}</span>')
+        try:
+            await miniflux_client.refresh_feed(feed_id)
+        except Exception as e:
+            logger.info("post-set-url refresh failed for feed %s: %s", feed_id, e)
+        await _record_url_change(feed_id, old_url, new_url, source="set-url")
+        logger.info("feed %s feed_url change (set-url): %s -> %s", feed_id, old_url, new_url)
+        return HTMLResponse(
+            f'<span class="success">URL updated. Previous: <code class="text-detail">{old_url}</code></span>',
+            headers={"HX-Refresh": "true"},
+        )
+
+    logger.info("set-url feed %s: URL %s is not a feed, falling back to discovery", feed_id, new_url)
+    return await discover_feeds(request, url=new_url, feed_id=feed_id)
 
 
 @router.get("/feeds/{feed_id}", response_class=HTMLResponse)

@@ -13,7 +13,7 @@
   <div class="text-body-sm">
     <strong>&#9208; Polling paused</strong> — Miniflux is not fetching new items for this feed. Existing entries remain available.
   </div>
-  <form hx-post="/feeds/resume-polling" hx-swap="afterend" hx-confirm="Resume polling for this feed?">
+  <form hx-post="/feeds/resume-polling" hx-swap="afterend">
     <input type="hidden" name="feed_ids" value="{{ feed.id }}">
     <button type="submit" class="btn text-caption">Resume polling</button>
   </form>
@@ -63,18 +63,20 @@
 <div class="my-6 flex items-start gap-4 flex-wrap">
   <label class="text-text-muted min-w-[180px] pt-1.5">Feed URL</label>
   <div class="flex flex-col gap-2 flex-1 min-w-[300px]">
-    <form hx-post="/feeds/{{ feed.id }}/set-url"
-          hx-swap="afterend"
-          hx-confirm="Change this feed's URL? Miniflux keeps all existing entries and starts polling the new URL."
+    <form id="set-url-form-{{ feed.id }}"
+          hx-post="/feeds/{{ feed.id }}/set-url"
+          hx-target="#feed-discover-results-{{ feed.id }}"
+          hx-swap="innerHTML"
           class="flex flex-col gap-2">
-      <input type="url" name="feed_url" value="{{ feed.feed_url }}"
+      <input type="url" name="feed_url" id="feed-url-input-{{ feed.id }}" value="{{ feed.feed_url }}"
              class="input px-2.5 py-1.5 w-full font-mono text-body-sm"
              required>
       <div class="flex gap-2 items-center flex-wrap">
         <button type="submit" class="btn">Update URL</button>
-        <span class="text-detail text-text-muted">Entries preserved; only the poll target changes.</span>
+        <span class="text-detail text-text-muted">Paste a feed URL, or a page URL to discover feeds on it. Entries are preserved.</span>
       </div>
     </form>
+    <div id="feed-discover-results-{{ feed.id }}"></div>
     {% if url_history %}
     <details class="mt-1">
       <summary class="cursor-pointer text-text-muted text-detail">URL history ({{ url_history|length }})</summary>
@@ -169,12 +171,11 @@
 {% if not feed.disabled %}
 <div class="my-6 flex items-center gap-4 flex-wrap">
   <label class="text-text-muted min-w-[180px]">Polling</label>
-  <form hx-post="/feeds/pause-polling" hx-swap="afterend"
-        hx-confirm="Pause polling for this feed? Existing entries are kept; Miniflux will stop fetching new items until you resume.">
+  <form hx-post="/feeds/pause-polling" hx-swap="afterend">
     <input type="hidden" name="feed_ids" value="{{ feed.id }}">
     <button type="submit" class="btn">&#9208; Pause polling</button>
   </form>
-  <span class="text-detail text-text-muted">Non-destructive — entries are preserved.</span>
+  <span class="text-detail text-text-muted">Miniflux stops fetching new items; existing entries are preserved. Resume any time.</span>
 </div>
 {% endif %}
 

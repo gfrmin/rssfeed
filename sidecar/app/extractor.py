@@ -8,7 +8,7 @@ import httpx
 from lxml import html as lxml_html
 from trafilatura import extract
 
-from app.config import BRIGHTDATA_PROXY
+from app.config import BRIGHTDATA_PROXY, BRIGHTDATA_UNLOCKER_PROXY
 
 logger = logging.getLogger(__name__)
 
@@ -34,62 +34,80 @@ _HTTP_KWARGS = dict(
     },
 )
 
+# web_unlocker MITMs TLS to inject its own cert, so skip verification when
+# routing through it. The static zone is a plain CONNECT tunnel — verify as normal.
+_UNLOCKER_KWARGS = {**_HTTP_KWARGS, "verify": False}
 
-async def _fetch_html(url: str, cookies: dict[str, str] | None = None) -> str | None:
-    kwargs = {**_HTTP_KWARGS}
+
+async def _get_via(
+    client_kwargs: dict, url: str, proxy: str | None, cookies: dict[str, str] | None,
+) -> str:
+    kwargs = {**client_kwargs}
     if cookies:
         kwargs["cookies"] = cookies
+    if proxy:
+        kwargs["proxy"] = proxy
+    async with httpx.AsyncClient(**kwargs) as client:
+        r = await client.get(url)
+        r.raise_for_status()
+        return r.text
 
-    # Try direct first
+
+async def _fetch_html(url: str, cookies: dict[str, str] | None = None) -> str | None:
+    # 1. Direct (free)
     try:
-        async with httpx.AsyncClient(**kwargs) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            return r.text
+        return await _get_via(_HTTP_KWARGS, url, proxy=None, cookies=cookies)
     except Exception:
-        logger.info("Direct fetch failed for %s, trying proxy", url)
+        logger.info("Direct fetch failed for %s, trying static proxy", url)
 
-    # Fall back to Brightdata proxy
+    # 2. Static datacenter proxy (cheap — bandwidth only, different IP)
     if BRIGHTDATA_PROXY:
         try:
-            async with httpx.AsyncClient(proxy=BRIGHTDATA_PROXY, **kwargs) as client:
-                r = await client.get(url)
-                r.raise_for_status()
-                return r.text
+            return await _get_via(_HTTP_KWARGS, url, proxy=BRIGHTDATA_PROXY, cookies=cookies)
         except Exception:
-            logger.info("Proxy fetch also failed for %s, trying Wayback Machine", url)
-    else:
-        logger.info("No proxy configured, trying Wayback Machine for %s", url)
+            logger.info("Static proxy failed for %s, trying web_unlocker", url)
 
-    # Fall back to Wayback Machine (no cookies — site-specific creds are irrelevant)
+    # 3. Web Unlocker (expensive — per-request anti-bot bypass)
+    if BRIGHTDATA_UNLOCKER_PROXY:
+        try:
+            return await _get_via(
+                _UNLOCKER_KWARGS, url, proxy=BRIGHTDATA_UNLOCKER_PROXY, cookies=cookies,
+            )
+        except Exception:
+            logger.info("Web Unlocker failed for %s, trying Wayback Machine", url)
+
+    # 4. Wayback Machine (free last resort — no cookies, site-specific creds irrelevant)
     try:
         wayback_url = f"https://web.archive.org/web/{quote(url, safe='')}"
-        async with httpx.AsyncClient(**_HTTP_KWARGS) as client:
-            r = await client.get(wayback_url)
-            r.raise_for_status()
-            return r.text
+        return await _get_via(_HTTP_KWARGS, wayback_url, proxy=None, cookies=None)
     except Exception:
         logger.warning("All fetch methods failed for %s", url)
         return None
 
 
 async def fetch_proxied_image(url: str) -> tuple[bytes, str] | None:
-    """Fetch an image, returning (bytes, content_type) or None."""
-    try:
-        async with httpx.AsyncClient(**_HTTP_KWARGS) as client:
+    """Fetch an image, returning (bytes, content_type) or None.
+
+    Images only try direct + static proxy — never the web_unlocker (per-request
+    billing makes it prohibitive for the dozens of images per article).
+    """
+    async def _get(client_kwargs: dict, proxy: str | None) -> tuple[bytes, str] | None:
+        kwargs = {**client_kwargs}
+        if proxy:
+            kwargs["proxy"] = proxy
+        async with httpx.AsyncClient(**kwargs) as client:
             r = await client.get(url)
             r.raise_for_status()
             ct = r.headers.get("content-type", "image/jpeg")
             return r.content, ct
+
+    try:
+        return await _get(_HTTP_KWARGS, proxy=None)
     except Exception:
         pass
     if BRIGHTDATA_PROXY:
         try:
-            async with httpx.AsyncClient(proxy=BRIGHTDATA_PROXY, **_HTTP_KWARGS) as client:
-                r = await client.get(url)
-                r.raise_for_status()
-                ct = r.headers.get("content-type", "image/jpeg")
-                return r.content, ct
+            return await _get(_HTTP_KWARGS, proxy=BRIGHTDATA_PROXY)
         except Exception:
             pass
     return None

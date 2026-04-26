@@ -217,7 +217,7 @@ def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = Tr
 
         # Check 2: readability missed the beginning of the article
         first_chunk = text[:100].strip()
-        missed_start = bool(first_chunk) and first_chunk not in readability_text
+        missed_start = bool(first_chunk) and " ".join(first_chunk.split()) not in " ".join(readability_text.split())
 
         if too_short or missed_start:
             logger.info(

@@ -201,6 +201,13 @@ def _extract_by_xpath(html: str, xpath: str) -> str | None:
 def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = True) -> dict[str, Any] | None:
     cleaned = _clean_html(html, rules)
     text = extract(cleaned, url=url, include_comments=False, favor_precision=True, output_format="txt")
+    # Precision mode sometimes rejects the whole article body as boilerplate
+    # (e.g. en.globes.co.il where only the image caption survives). Retry in
+    # recall mode and prefer the longer result.
+    if not text or len(text) < 200:
+        recall = extract(cleaned, url=url, include_comments=False, favor_precision=False, output_format="txt")
+        if recall and len(recall) > len(text or ""):
+            text = recall
 
     content_xpath = rules.get("content_xpath")
     html_content = (
@@ -227,7 +234,7 @@ def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = Tr
             )
             traf_html = extract(
                 cleaned, url=url, include_comments=False,
-                favor_precision=True, output_format="html",
+                favor_precision=False, output_format="html",
                 include_images=True,
             )
             if traf_html:

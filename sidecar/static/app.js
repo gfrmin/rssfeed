@@ -8,6 +8,9 @@
   var html = document.documentElement;
   var body = document.body;
 
+  // We drive the history stack ourselves (see below), so turn off htmx's.
+  if (window.htmx) window.htmx.config.historyEnabled = false;
+
   /* ---------- theme ---------- */
   function applyTheme(t) { html.setAttribute('data-theme', t); localStorage.setItem('theme', t); }
   applyTheme(localStorage.getItem('theme') || 'dark');
@@ -192,7 +195,67 @@
     if (window.htmx) window.htmx.ajax('GET', '/triage', { target: '#overlay-slot', swap: 'innerHTML' });
   }
   function openPalette() { document.dispatchEvent(new CustomEvent('palette:open')); }
-  window.ReaderApp = { openTriage: openTriage, openPalette: openPalette, closeOverlay: closeOverlay };
+
+  /* ============================================================
+     MOBILE READING STATE + HISTORY-DRIVEN NAVIGATION
+     htmx's own history is disabled (above); we own push/pop so the Android
+     back gesture moves reader→list→view predictably and keeps list scroll.
+     ============================================================ */
+  function isMobile() { return body.classList.contains('is-mobile'); }
+  function enterReading() { if (isMobile()) body.classList.add('mobile-reading'); }
+  function exitReading() { body.classList.remove('mobile-reading'); }
+
+  window.ReaderApp = {
+    openTriage: openTriage, openPalette: openPalette, closeOverlay: closeOverlay,
+    isMobile: isMobile, enterReading: enterReading, exitReading: exitReading,
+  };
+
+  var navRestoring = false;
+  function curUrl() { return location.pathname + location.search; }
+  function restoreInto(target, url) {
+    navRestoring = true;
+    var p = window.htmx ? window.htmx.ajax('GET', url, { target: target, swap: 'innerHTML' }) : null;
+    return Promise.resolve(p).then(function () { navRestoring = false; }, function () { navRestoring = false; });
+  }
+
+  // Own the URL stack (replaces the now-disabled hx-push-url).
+  document.body.addEventListener('htmx:afterSettle', function (e) {
+    if (navRestoring) return;
+    var d = e.detail || {}, tgt = e.target; if (!tgt) return;
+    var id = tgt.id;
+    if (id !== 'list-col' && id !== 'reader-col') return;
+    var rc = d.requestConfig || {};
+    if (rc.verb && rc.verb.toLowerCase() !== 'get') return;               // only navigational GETs
+    var url = null;
+    if (d.xhr && d.xhr.responseURL) { try { var u = new URL(d.xhr.responseURL); url = u.pathname + u.search; } catch (_) {} }
+    if (!url) url = rc.path;
+    if (!url) return;
+    var elt = rc.elt;
+    var fromNav = elt && elt.closest && elt.closest('.rb-nav');           // prev/next or swipe
+    var fromSearch = elt && elt.id === 'list-search-input';
+    if (id === 'reader-col' && isMobile() && fromNav) history.replaceState({ p: id }, '', url);
+    else if (id === 'list-col' && fromSearch) history.replaceState({ p: id }, '', url);
+    else if (url !== curUrl()) history.pushState({ p: id }, '', url);
+  });
+
+  window.addEventListener('popstate', function () {
+    // An open mobile drawer swallows the first back press.
+    if (body.classList.contains('drawer-open')) { body.classList.remove('drawer-open'); return; }
+    var m = location.pathname.match(/^\/entries\/(\d+)$/);
+    if (m) {
+      if (isMobile()) enterReading();
+      var cur = document.querySelector('#reader-col [data-entry-id]');
+      if (cur && cur.getAttribute('data-entry-id') === m[1]) return;       // already shown
+      restoreInto('#reader-col', curUrl());
+    } else {
+      if (isMobile()) {
+        exitReading();
+        var lc = document.getElementById('list-col');
+        if (lc && lc.querySelector('.erow')) return;                       // list still here → instant, scroll kept
+      }
+      restoreInto('#list-col', curUrl());
+    }
+  });
 
   /* ============================================================
      GLOBAL KEYBOARD
@@ -295,9 +358,6 @@
   document.body.addEventListener('htmx:afterSwap', function (e) {
     var t = e.target;
     if (t && (t.id === 'list-col' || (t.closest && t.closest('#list-col')))) initList();
-    // On mobile the panes stack, so bring the freshly-loaded reader into view.
-    if (t && t.id === 'reader-col' && body.classList.contains('is-mobile')) {
-      t.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    if (t && t.id === 'reader-col' && isMobile()) enterReading();
   });
 })();

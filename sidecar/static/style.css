@@ -645,10 +645,18 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .is-mobile #list-col { flex:1; min-height:0; border-right:none; }
 .is-mobile #reader-col { flex:1; min-height:0; display:none; }
 .is-mobile.mobile-reading #list-col { display:none; }
-.is-mobile.mobile-reading #reader-col { display:block; }
+.is-mobile.mobile-reading #reader-col { display:block; position:relative; overflow:hidden; }
 .is-mobile.mobile-reading .mback { display:flex; }
 .is-mobile.drawer-open .drawer-scrim { display:block; }
+/* swipe-between-articles: JS translates .reader; pan-y leaves vertical scroll native */
+.is-mobile #reader-col .reader { touch-action:pan-y; will-change:transform; }
+.is-mobile .rb-nav { display:none; }   /* prev/next is the swipe gesture on mobile (buttons still drive it) */
 .mtop { display:none; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); background:var(--panel-2); }
+/* safe-area insets (notch / home indicator) */
+.is-mobile .mtop { padding-top:calc(11px + env(safe-area-inset-top)); }
+.is-mobile .sidebar { padding-top:env(safe-area-inset-top); }
+.is-mobile .reader-inner { padding-bottom:calc(80px + env(safe-area-inset-bottom)); }
+.is-mobile .list-scroll { padding-bottom:env(safe-area-inset-bottom); }
 .micon { width:34px; height:34px; display:flex; align-items:center; justify-content:center; background:none; border:1px solid var(--border);
   border-radius:8px; color:var(--text); font-size:17px; }
 .mtitle { flex:1; font-weight:600; font-size:14px; }

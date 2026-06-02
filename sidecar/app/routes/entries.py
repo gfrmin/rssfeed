@@ -431,6 +431,27 @@ async def entry_list(
     return templates.TemplateResponse(request, template, ctx)
 
 
+@router.get("/triage", response_class=HTMLResponse)
+async def triage(request: Request):
+    """Card-by-card walk through unread, ranked. The deck is snapshotted
+    server-side so marking-read doesn't shift it underfoot."""
+    now = datetime.now(timezone.utc)
+    data = await miniflux_client.get_entries(
+        status="unread", limit=200, direction="desc", order="published_at",
+    )
+    entries = data.get("entries", [])
+    async with get_conn() as conn:
+        await _enrich_entries(conn, entries, now)
+    entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
+    entries.sort(key=lambda e: (e.get("_priority", 2), -e.get("_rank", 0)))
+    entries = entries[:40]
+    for e in entries:
+        f = e.get("feed")
+        if f:
+            f["_health"] = _feed_health_state(f, now)
+    return templates.TemplateResponse(request, "_triage.html", {"queue": entries})
+
+
 @router.get("/entries/{entry_id}", response_class=HTMLResponse)
 async def entry_detail(request: Request, entry_id: int):
     entry = await miniflux_client.get_entry(entry_id)

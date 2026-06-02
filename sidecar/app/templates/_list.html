@@ -1,0 +1,99 @@
+{% from "_icons.html" import icon %}
+{% from "_macros.html" import tile, rank, tag as tagchip, health_dot %}
+{# Middle column: list header (filters) + scrollable rows. Consumes list ctx. #}
+<header class="list-head">
+  <form id="list-form" hx-get="/entries" hx-target="#list-col" hx-push-url="true"
+        hx-trigger="submit, change">
+    <input type="hidden" name="view" value="{{ view or '' }}">
+    {% if feed_id %}<input type="hidden" name="feed_id" value="{{ feed_id }}">{% endif %}
+    <input type="hidden" name="sort" value="{{ sort }}" id="list-sort">
+    <input type="hidden" name="group_by" value="{{ sidebar.group_by }}">
+
+    <div class="list-head-top">
+      <div class="list-title-wrap">
+        {% if feed %}{{ tile(feed, 18) }}{% endif %}
+        <h1 class="list-title">{{ title }}</h1>
+        <span class="list-count">{{ entries | length }}</span>
+      </div>
+      <button class="mark-all" type="button" {{ 'disabled' if not entries else '' }} title="Mark all visible read (r)">
+        {{ icon("check", 13) }} Mark all read
+      </button>
+    </div>
+
+    <div class="list-search">
+      {{ icon("search", 14, cls="search-ic") }}
+      <input id="list-search-input" class="search-input" name="search" value="{{ search }}"
+             placeholder="Search articles…  /" autocomplete="off"
+             hx-get="/entries" hx-target="#list-col" hx-push-url="true"
+             hx-trigger="keyup changed delay:350ms, search" hx-include="closest form">
+      {% if search %}<button class="search-clear" type="button"
+             hx-get="/entries?view={{ view or 'unread' }}{% if feed_id %}&feed_id={{ feed_id }}{% endif %}&sort={{ sort }}"
+             hx-target="#list-col" hx-push-url="true">{{ icon("x", 12) }}</button>{% endif %}
+    </div>
+
+    <div class="list-controls">
+      <div class="seg" id="density-seg">
+        <button type="button" class="seg-btn" data-density="compact">Compact</button>
+        <button type="button" class="seg-btn" data-density="normal">Normal</button>
+        <button type="button" class="seg-btn" data-density="expanded">Expanded</button>
+      </div>
+      <div class="seg">
+        <label class="seg-btn {{ 'on' if sort == 'newest' else '' }}">
+          <input type="radio" name="sort" value="newest" {{ 'checked' if sort == 'newest' else '' }} hidden>Newest
+        </label>
+        <label class="seg-btn {{ 'on' if sort == 'rank' else '' }}">
+          <input type="radio" name="sort" value="rank" {{ 'checked' if sort == 'rank' else '' }} hidden>{{ icon("bolt", 11) }} Rank
+        </label>
+      </div>
+      <button type="button" class="tagcloud-toggle {{ 'on' if tag else '' }}" id="tagcloud-toggle">
+        {{ icon("tag", 12) }} Tags{% if tag %} · {{ tag | length }}{% else %} {{ all_tags | length }}{% endif %}
+      </button>
+    </div>
+
+    <div class="tagcloud {{ '' if tag else 'hidden' }}" id="tagcloud">
+      <div class="tagcloud-list">
+        {% for t in all_tags %}
+        <label class="tag tag-act {{ 'tag-on' if t in tag else '' }}">
+          <input type="checkbox" name="tag" value="{{ t }}" {{ 'checked' if t in tag else '' }} hidden>{{ t }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+  </form>
+</header>
+
+<div class="list-scroll dens-normal" id="list-scroll">
+  {% if not entries %}
+  <div class="list-empty">{{ icon("check", 28) }}<p>Nothing here. You're all caught up.</p></div>
+  {% else %}
+  {% for e in entries %}
+  <div class="erow {{ 'read' if e.status == 'read' else 'unread' }}"
+       data-entry-id="{{ e.id }}" data-url="{{ e.url }}" data-href="/entries/{{ e.id }}"
+       hx-get="/entries/{{ e.id }}" hx-target="#reader-col" hx-trigger="reader:open" hx-push-url="/entries/{{ e.id }}">
+    <div class="erow-rail">
+      <button class="erow-star {{ 'on' if e.starred else '' }}" type="button" title="Star">{{ icon("star", 13) }}</button>
+      {% if e.status != 'read' %}<span class="erow-unread-dot"></span>{% endif %}
+    </div>
+    <div class="erow-body">
+      <div class="erow-title">{% if e._has_changes %}<span class="erow-changed" title="Content changed">&pm;</span>{% endif %}{{ e.title }}</div>
+      <div class="erow-excerpt">{{ e.content | excerpt }}</div>
+      <div class="erow-meta">
+        {% if e.feed %}{{ tile(e.feed, 13) }}<span class="erow-feed">{{ e.feed.title }}</span>{% endif %}
+        <span class="dot-sep">&middot;</span><span>{{ e.published_at | timeago }}</span>
+        <span class="dot-sep">&middot;</span><span>{{ e.content | reading_time }}</span>
+        {% if e._full %}<span class="dot-sep">&middot;</span><span class="erow-full" title="Full text extracted">FULL{% if e._full.count > 1 %} v{{ e._full.version }}{% endif %}</span>{% endif %}
+        {% if e._audio %}<span class="dot-sep">&middot;</span>{{ icon("play", 11) }}{% endif %}
+        <span class="erow-rank">{{ rank(e._rank) }}</span>
+      </div>
+      {% set real = e._mtags[:3] %}
+      {% if real or e._tags %}
+      <div class="erow-tags">
+        {% for t in real %}{{ tagchip(t) }}{% endfor %}
+        {% for t in e._tags[:(4 - (real | length))] %}{{ tagchip(t, "llm") }}{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>

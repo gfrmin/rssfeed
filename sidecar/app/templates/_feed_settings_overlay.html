@@ -1,0 +1,99 @@
+{% from "_icons.html" import icon %}
+{% set _err_buckets = ('http_404','not_a_feed','bot_blocked','server_5xx','auth','tls','unsupported_scheme','dns_fail','connect_fail','other') %}
+{% set erroring = feed._bucket in _err_buckets %}
+{% set stale = feed._bucket == 'stale' %}
+<div class="ov-scrim">
+  <div class="ov-panel ov-wide ov-side">
+    <header class="ov-head">
+      <div class="ov-head-title">{{ icon("settings", 16) }}<h2>{{ feed.title }}</h2><span class="ov-sub">{{ feed.site_url }}</span></div>
+      <button class="ov-close" type="button" data-close aria-label="Close">{{ icon("x", 16) }}</button>
+    </header>
+    <div class="ov-scroll">
+      {% if feed.disabled %}
+      <div class="fset-alert warn">{{ icon("warn", 15) }}
+        <div><strong>Polling paused</strong> — Miniflux is not fetching new items; existing entries remain.</div>
+        <form hx-post="/feeds/resume-polling" hx-swap="afterend"><input type="hidden" name="feed_ids" value="{{ feed.id }}"><button class="btn-ghost" type="submit">{{ icon("refresh", 12) }} Resume</button></form>
+      </div>
+      {% elif erroring or stale %}
+      <div class="fset-alert {{ 'err' if erroring else 'warn' }}">{{ icon("warn", 15) }}
+        <div>{% if feed._is_persistent %}<strong>Persistent errors</strong> — {{ feed._error_count }} consecutive failures. Miniflux may have stopped polling.{% elif erroring %}<strong>Recent error</strong> ({{ feed._error_count }}){% else %}<strong>Stale</strong> — not polled in over 24 hours.{% endif %}<span class="dim"> &middot; last checked {{ feed.checked_at | timeago }}</span></div>
+        <button class="btn-ghost" type="button" hx-put="/feeds/{{ feed.id }}/refresh" hx-swap="afterend">{{ icon("refresh", 12) }} Refresh now</button>
+      </div>
+      {% endif %}
+
+      <div class="fset-grid">
+        <div class="fset-label">Title</div>
+        <div class="fset-ctrl">
+          <form hx-post="/feeds/{{ feed.id }}/rename" hx-swap="afterend" style="display:flex;gap:8px;align-items:center;flex:1;min-width:0;">
+            <input class="ti" name="title" value="{{ feed.title }}">
+            <button class="btn-ghost" type="submit">Rename</button>
+          </form>
+        </div>
+
+        <div class="fset-label">Feed URL</div>
+        <div class="fset-ctrl col">
+          <form hx-post="/feeds/{{ feed.id }}/set-url" hx-target="#feed-discover-{{ feed.id }}" hx-swap="innerHTML" style="display:flex;gap:8px;align-items:center;">
+            <input class="ti mono" type="url" name="feed_url" value="{{ feed.feed_url }}" required>
+            <button class="btn-ghost" type="submit">Update</button>
+          </form>
+          <div id="feed-discover-{{ feed.id }}"></div>
+          <span class="fset-note">Paste a feed URL, or a page URL to discover feeds on it. Entries are preserved.</span>
+        </div>
+
+        <div class="fset-label">Priority</div>
+        <div class="fset-ctrl">
+          <select class="ti" name="priority" hx-post="/feeds/{{ feed.id }}/set-priority" hx-swap="outerHTML" style="width:auto;">
+            <option value="1" {{ 'selected' if priority == 1 else '' }}>Must read</option>
+            <option value="2" {{ 'selected' if priority == 2 else '' }}>Normal</option>
+            <option value="3" {{ 'selected' if priority == 3 else '' }}>Low</option>
+          </select>
+        </div>
+
+        <div class="fset-label">Fetch full content</div>
+        <div class="fset-ctrl">
+          <button class="fset-toggle {{ 'on' if fetch_full_content else 'off' }}" type="button" hx-post="/feeds/{{ feed.id }}/toggle-full-content" hx-swap="outerHTML">{{ 'ON' if fetch_full_content else 'OFF' }}</button>
+          <span class="fset-note">Run extraction automatically on every new item.</span>
+        </div>
+
+        <div class="fset-label">Fetch via BrightData proxy</div>
+        <div class="fset-ctrl">
+          <button class="fset-toggle {{ 'on' if feed.fetch_via_proxy else 'off' }}" type="button" hx-post="/feeds/{{ feed.id }}/toggle-proxy" hx-swap="outerHTML">{{ 'ON' if feed.fetch_via_proxy else 'OFF' }}</button>
+          <span class="fset-note">Routes polling through the proxy — helps with bot-blocking.{% if not has_proxy %} <span style="color:var(--danger);">BRIGHTDATA_PROXY not set.</span>{% endif %}</span>
+        </div>
+
+        <div class="fset-label">TLS verification</div>
+        <div class="fset-ctrl">
+          <button class="fset-toggle {{ 'on' if feed.allow_self_signed_certificates else 'off' }}" type="button" hx-post="/feeds/{{ feed.id }}/toggle-tls-verify" hx-swap="outerHTML">{{ 'SKIP' if feed.allow_self_signed_certificates else 'VERIFY' }}</button>
+          <span class="fset-note"><code>SKIP</code> disables all TLS checks. Use only for a known-misconfigured chain.</span>
+        </div>
+
+        <div class="fset-label">Extract rules <span class="dim">(JSON)</span></div>
+        <div class="fset-ctrl col">
+          <form hx-post="/feeds/{{ feed.id }}/set-extract-rules" hx-swap="afterend">
+            <textarea class="ti mono" name="extract_rules" rows="4">{{ extract_rules_json }}</textarea>
+            <button class="btn-ghost" type="submit" style="margin-top:6px;">Save rules</button>
+          </form>
+          <span class="fset-note">Keys: <code>unwrap_tags</code> &middot; <code>remove_tags</code> (glob) &middot; <code>content_xpath</code></span>
+        </div>
+
+        {% if url_history %}
+        <div class="fset-label">URL history</div>
+        <div class="fset-ctrl col">
+          <table class="hb-table">
+            <thead><tr><th class="th">When</th><th class="th">Previous URL</th><th class="th">Source</th></tr></thead>
+            <tbody>{% for h in url_history %}<tr><td class="td mono dim">{{ h.changed_at | timeago }}</td><td class="td mono" style="word-break:break-all;">{{ h.old_url }}</td><td class="td dim">{{ h.source or '—' }}</td></tr>{% endfor %}</tbody>
+          </table>
+          <span class="fset-note">Past URLs are kept so imported legacy posts can be matched back to this feed.</span>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="fset-foot">
+        <a class="btn-ghost" href="/entries?feed_id={{ feed.id }}" hx-get="/entries?feed_id={{ feed.id }}" hx-target="#list-col" hx-push-url="true" data-close>{{ icon("arrowLeft", 12) }} Entries</a>
+        {% if not feed.disabled %}
+        <form hx-post="/feeds/pause-polling" hx-swap="afterend"><input type="hidden" name="feed_ids" value="{{ feed.id }}"><button class="btn-ghost" type="submit">&#9208; Pause polling</button></form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>

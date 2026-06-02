@@ -67,18 +67,20 @@ async def reading_stats(request: Request):
 
     # Compute max for bar chart scaling
     max_daily = max((d["cnt"] for d in daily), default=1)
+    max_weekly = max((w["cnt"] for w in weekly), default=1)
     max_feed = max((f["count"] for f in top_feeds), default=1)
+    avg_week = round(sum(w["cnt"] for w in weekly) / len(weekly)) if weekly else 0
 
-    return templates.TemplateResponse(
-        request,
-        "stats.html",
-        {
-            "today_count": today_count,
-            "total": total,
-            "daily": daily,
-            "weekly": weekly,
-            "top_feeds": top_feeds,
-            "max_daily": max_daily,
-            "max_feed": max_feed,
-        },
-    )
+    ctx = {
+        "today_count": today_count,
+        "total": total,
+        "daily": daily,
+        "weekly": weekly,
+        "top_feeds": top_feeds,
+        "max_daily": max_daily,
+        "max_weekly": max_weekly,
+        "max_feed": max_feed,
+        "avg_week": avg_week,
+    }
+    template = "_stats_overlay.html" if request.headers.get("HX-Request") else "stats.html"
+    return templates.TemplateResponse(request, template, ctx)

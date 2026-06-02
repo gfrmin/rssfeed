@@ -1,0 +1,3 @@
+{# HTMX response: swaps into #list-col, refreshes the sidebar out-of-band. #}
+{% include "_list.html" %}
+<aside class="sidebar" id="sidebar" hx-swap-oob="true">{% include "_sidebar.html" %}</aside>

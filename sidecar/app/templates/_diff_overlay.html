@@ -1,0 +1,42 @@
+{% from "_icons.html" import icon %}
+{# Version-diff overlay. Both Unified and Split are rendered server-side; the
+   .seg toggle flips [data-diffmode] on the panel (app.js) to show one. #}
+<div class="ov-scrim">
+  <div class="ov-panel ov-wide ov-side" data-diffmode="unified">
+    <header class="ov-head">
+      <div class="ov-head-title">{{ icon("diff", 16) }}<h2>Content changes</h2><span class="ov-sub">{{ entry.title }}</span></div>
+      <button class="ov-close" type="button" data-close aria-label="Close">{{ icon("x", 16) }}</button>
+    </header>
+    <div class="ov-scroll">
+      {% if version_count < 2 %}
+      <p class="ov-lede">Only one version stored — no changes recorded yet. Every full-text fetch is hashed; a new version is written only when the content actually changes.</p>
+      {% else %}
+      <div class="diff-toolbar">
+        <p class="ov-lede diff-lede">{{ version_count }} versions stored &middot; every full-text fetch is hashed; a new version is written only when the content changes.</p>
+        <div class="seg diff-modeseg">
+          <button class="seg-btn on" type="button" data-diffmode="unified">Unified</button>
+          <button class="seg-btn" type="button" data-diffmode="split">Split</button>
+        </div>
+      </div>
+      <div class="dsplit-head">
+        <span class="dsplit-head-cell del-h">removed</span>
+        <span class="dsplit-head-cell add-h">added</span>
+      </div>
+      {% for ds in sets %}
+      <section class="diff-set">
+        <div class="diff-head">
+          <span class="diff-vs">v{{ ds['from'] }} {{ icon("chevron", 11) }} v{{ ds['to'] }}</span>
+          <span class="diff-when mono dim">{{ ds.when }}</span>
+        </div>
+        {% if not ds.lines %}
+        <p class="ov-lede" style="margin:0;">No text differences between these versions.</p>
+        {% else %}
+        <pre class="diff-block">{% for l in ds.lines %}<div class="diff-line {{ 'add' if l.t == '+' else 'del' if l.t == '-' else 'ctx' }}"><span class="diff-gutter">{{ l.t if l.t != ' ' else '' }}</span><span class="diff-text">{% if l.s %}{{ l.s }}{% else %}&#160;{% endif %}</span></div>{% endfor %}</pre>
+        <div class="diff-split">{% for r in ds.split_rows %}<div class="dsplit-row"><div class="dsplit-cell {{ 'ctx' if r.ctx else 'del' if r.left is not none else 'nil' }}"><span class="dsplit-gutter">{{ '' if r.ctx else ('&#8722;' | safe) if r.left is not none else '' }}</span><span class="dsplit-text">{% if r.left is not none %}{% if r.left %}{{ r.left }}{% else %}&#160;{% endif %}{% endif %}</span></div><div class="dsplit-cell {{ 'ctx' if r.ctx else 'add' if r.right is not none else 'nil' }}"><span class="dsplit-gutter">{{ '' if r.ctx else '+' if r.right is not none else '' }}</span><span class="dsplit-text">{% if r.right is not none %}{% if r.right %}{{ r.right }}{% else %}&#160;{% endif %}{% endif %}</span></div></div>{% endfor %}</div>
+        {% endif %}
+      </section>
+      {% endfor %}
+      {% endif %}
+    </div>
+  </div>
+</div>

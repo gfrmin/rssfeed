@@ -1,0 +1,29 @@
+{% from "_icons.html" import icon %}
+{# Extraction bar + article body. Rendered both in the reader and as the
+   #entry-content swap target for /fetch-full. Consumes `cb`. #}
+{%- set SOURCE_LABELS = {
+  "direct": "Direct", "static_proxy": "Static proxy",
+  "web_unlocker": "Web Unlocker", "wayback": "Wayback"
+} -%}
+{% if cb.has_full %}
+<div class="extract-bar full">
+  <div class="eb-left">
+    <span class="eb-badge full">Full article &middot; v{{ cb.version }}</span>
+    <span class="eb-meta">fetched {{ cb.fetched }}</span>
+    {% if cb.source %}<span class="dot-sep">&middot;</span><span class="eb-src src-{{ cb.source }}" title="extraction source">{{ icon("globe", 11) }} {{ SOURCE_LABELS.get(cb.source, cb.source) }}</span>{% endif %}
+    {% if cb.version_count > 1 %}<span class="dot-sep">&middot;</span><a class="eb-diff" href="/entries/{{ cb.entry_id }}/diff" hx-get="/entries/{{ cb.entry_id }}/diff" hx-target="#overlay-slot">{{ icon("diff", 12) }} {{ cb.version_count }} versions — view changes</a>{% endif %}
+    {% if cb.message %}<span class="dot-sep">&middot;</span><span class="eb-note">{{ cb.message }}</span>{% endif %}
+  </div>
+  <button class="eb-refetch" type="button" hx-post="/entries/{{ cb.entry_id }}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML" hx-indicator="#extract-indicator" title="Re-fetch">{{ icon("refresh", 13) }} Refetch</button>
+</div>
+{% else %}
+<div class="extract-bar rss">
+  <div class="eb-left">
+    <span class="eb-badge rss">RSS content only</span>
+    <span class="eb-note">Body truncated by the publisher’s feed.</span>
+  </div>
+  <button class="eb-fetch" type="button" hx-post="/entries/{{ cb.entry_id }}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML" hx-indicator="#extract-indicator">{{ icon("download", 13) }} Fetch full text</button>
+</div>
+{% endif %}
+<span id="extract-indicator" class="htmx-indicator mono" style="color:var(--accent);font-size:11px;margin-bottom:12px;gap:7px;align-items:center;"><span class="rung-spin"></span> Extracting full text — Direct → Static proxy → Web Unlocker → Wayback…</span>
+<div class="art-body">{{ cb.body_html | safe }}</div>

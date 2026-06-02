@@ -1,0 +1,32 @@
+{% from "_icons.html" import icon %}
+{% from "_macros.html" import bar %}
+<div class="ov-scrim">
+  <div class="ov-panel ov-wide">
+    <header class="ov-head">
+      <div class="ov-head-title">{{ icon("activity", 16) }}<h2>Reading Statistics</h2></div>
+      <button class="ov-close" type="button" data-close aria-label="Close">{{ icon("x", 16) }}</button>
+    </header>
+    <div class="ov-scroll">
+      <div class="stat-cards">
+        <div class="stat-card"><div class="stat-num">{{ today_count }}</div><div class="stat-cap">Read today</div></div>
+        <div class="stat-card"><div class="stat-num">{{ "{:,}".format(total) }}</div><div class="stat-cap">Total read</div></div>
+        <div class="stat-card"><div class="stat-num">{{ avg_week }}</div><div class="stat-cap">Avg / week</div></div>
+      </div>
+
+      <div class="mlabel ov-section">Last 7 days</div>
+      {% if daily %}
+      <div class="stat-bars">{% for d in daily %}{{ bar(d.day.strftime('%a %d'), d.cnt, max_daily, true) }}{% endfor %}</div>
+      {% else %}<p class="ov-lede">No reads in the last 7 days.</p>{% endif %}
+
+      <div class="mlabel ov-section">Weekly</div>
+      {% if weekly %}
+      <div class="stat-bars">{% for w in weekly %}{{ bar(w.week.strftime('%b %d'), w.cnt, max_weekly) }}{% endfor %}</div>
+      {% else %}<p class="ov-lede">No reads in the last 4 weeks.</p>{% endif %}
+
+      <div class="mlabel ov-section">Most read feeds &middot; 30 days</div>
+      {% if top_feeds %}
+      <div class="stat-bars">{% for f in top_feeds %}{{ bar(f.name, f.count, max_feed) }}{% endfor %}</div>
+      {% else %}<p class="ov-lede">No reads in the last 30 days.</p>{% endif %}
+    </div>
+  </div>
+</div>

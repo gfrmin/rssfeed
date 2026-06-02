@@ -1,0 +1,44 @@
+{% from "_icons.html" import icon %}
+{% set AUTO_LABELS = {"mark_read": "Mark read", "star": "Star"} %}
+<div class="ov-scrim">
+  <div class="ov-panel ov-wide ov-side">
+    <header class="ov-head">
+      <div class="ov-head-title">{{ icon("filter", 16) }}<h2>Saved Filters</h2><span class="ov-sub">auto-actions run at fetch time</span></div>
+      <button class="ov-close" type="button" data-close aria-label="Close">{{ icon("x", 16) }}</button>
+    </header>
+    <div class="ov-scroll">
+      {% if error %}<div class="fset-alert err">{{ icon("warn", 15) }}<div>{{ error }}</div></div>{% endif %}
+      <div class="filt-list">
+        {% for f in filters %}
+        <div class="filt-card">
+          <div class="filt-head">
+            <strong>{{ f.name }}</strong>
+            <span class="filt-auto {{ 'on' if f.auto_action else '' }}">{% if f.auto_action %}{{ icon("bolt", 11) }} {{ AUTO_LABELS.get(f.auto_action, f.auto_action) }}{% else %}view only{% endif %}</span>
+            <button class="filt-del" type="button" title="Delete this filter"
+                    hx-post="/filters/{{ f.id }}/delete?overlay=1" hx-target="#overlay-slot" hx-swap="innerHTML">{{ icon("x", 12) }}</button>
+          </div>
+          <pre class="filt-rules">{{ f.rules | tojson(indent=2) }}</pre>
+        </div>
+        {% else %}
+        <p class="ov-lede" style="margin:0;">No filters yet — create one below.</p>
+        {% endfor %}
+      </div>
+
+      <div class="mlabel ov-section">Create filter</div>
+      <form class="filt-form" hx-post="/filters" hx-target="#overlay-slot" hx-swap="innerHTML">
+        <input type="hidden" name="overlay" value="1">
+        <input class="ti" name="name" required placeholder="Name — e.g. Mute crypto spam" autocomplete="off">
+        <textarea class="ti mono" name="rules_json" rows="3" placeholder='[{"field": "title", "op": "contains", "value": "crypto"}]'></textarea>
+        <div class="filt-form-row">
+          <select class="ti" name="auto_action">
+            <option value="">None (filter view only)</option>
+            <option value="mark_read">Mark as read</option>
+            <option value="star">Star</option>
+          </select>
+          <button class="btn-primary" type="submit">Create filter</button>
+        </div>
+        <div class="filt-hint">Fields: <code>title</code> <code>content</code> <code>author</code> <code>url</code> <code>feed_title</code> &middot; Operators: <code>contains</code> <code>not_contains</code> <code>equals</code> <code>starts_with</code></div>
+      </form>
+    </div>
+  </div>
+</div>

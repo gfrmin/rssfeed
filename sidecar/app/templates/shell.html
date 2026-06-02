@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{# Three-pane app shell: sidebar | list | reader, with a docked status bar.
+   Pages fill {% block list %} and/or {% block reader %}. #}
+{% block body %}
+<div class="app" id="app">
+  <div class="app-main">
+    <div class="grid">
+      <aside class="sidebar" id="sidebar">{% include "_sidebar.html" %}</aside>
+      <section id="list-col" class="list-col">{% block list %}{% endblock %}</section>
+      <div id="reader-col" class="reader-wrap">{% block reader %}{% include "_reader_empty.html" %}{% endblock %}</div>
+    </div>
+  </div>
+  <div class="statusbar" id="statusbar">
+    <span class="sb-mode mode-NORMAL" id="sb-mode">NORMAL</span>
+    <span class="sb-seg"><span class="sb-udot"></span><span class="sb-view" id="sb-view">{{ sidebar.view_title if sidebar else "Unread" }}</span></span>
+    <span class="sb-seg"><span id="sb-unread">{{ sidebar.counts.unread if sidebar else "" }}</span>&nbsp;unread</span>
+    <span class="sb-title" id="sb-title"></span>
+    <span class="sb-spacer"></span>
+    <span class="sb-pos" id="sb-pos"></span>
+    <span class="sb-hints">
+      <b>j</b><b>k</b><i>move</i> <b>m</b><i>read</i> <b>s</b><i>star</i> <b>o</b><i>open</i> <b>q</b><i>triage</i> <b>?</b><i>help</i>
+    </span>
+  </div>
+</div>
+{% endblock %}

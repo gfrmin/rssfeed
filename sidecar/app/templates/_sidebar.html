@@ -1,0 +1,110 @@
+{% from "_icons.html" import icon %}
+{% from "_macros.html" import tile, health_dot %}
+{# Inner content of <aside class="sidebar" id="sidebar">. Consumes `sidebar` ctx. #}
+{%- set s = sidebar -%}
+<a class="brand" href="/entries?view=unread">
+  <span class="brand-mark">&#9626;</span>
+  <span class="brand-name">READER</span>
+  <span class="brand-sub">sidecar</span>
+  <span class="brand-unread">{{ s.counts.unread }}</span>
+</a>
+
+<button class="cmdk-trigger" data-act="palette" type="button">
+  {{ icon("search", 13) }} <span>Search &amp; commands</span><span class="cmdk-trigger-k">&#8984;K</span>
+</button>
+
+<nav class="nav-block">
+  <a class="nav-row {{ 'nav-on' if s.view == 'unread' else '' }}" href="/entries?view=unread"
+     hx-get="/entries?view=unread" hx-target="#list-col" hx-push-url="true">
+    {{ icon("inbox", 15) }}<span class="nav-label">Unread</span>
+    {% if s.counts.unread %}<span class="nav-count {{ 'nav-count-on' if s.view == 'unread' else '' }}">{{ s.counts.unread }}</span>{% endif %}
+  </a>
+  <a class="nav-row {{ 'nav-on' if s.view == 'all' else '' }}" href="/entries?view=all"
+     hx-get="/entries?view=all" hx-target="#list-col" hx-push-url="true">
+    {{ icon("layers", 15) }}<span class="nav-label">All</span>
+    {% if s.counts.all %}<span class="nav-count">{{ s.counts.all }}</span>{% endif %}
+  </a>
+  <a class="nav-row {{ 'nav-on' if s.view == 'starred' else '' }}" href="/entries?view=starred"
+     hx-get="/entries?view=starred" hx-target="#list-col" hx-push-url="true">
+    {{ icon("star", 15) }}<span class="nav-label">Starred</span>
+    {% if s.counts.starred %}<span class="nav-count">{{ s.counts.starred }}</span>{% endif %}
+  </a>
+  <a class="nav-row {{ 'nav-on' if s.view == 'ranked' else '' }}" href="/entries?view=ranked"
+     hx-get="/entries?view=ranked" hx-target="#list-col" hx-push-url="true">
+    {{ icon("bolt", 15) }}<span class="nav-label">Top ranked</span>
+  </a>
+  <a class="nav-row {{ 'nav-on' if s.view == 'changed' else '' }}" href="/entries?view=changed"
+     hx-get="/entries?view=changed" hx-target="#list-col" hx-push-url="true">
+    {{ icon("diff", 15) }}<span class="nav-label">Changed</span>
+    {% if s.counts.changed %}<span class="nav-count">{{ s.counts.changed }}</span>{% endif %}
+  </a>
+  <button class="nav-row nav-triage" type="button" data-act="triage" title="Walk unread one at a time (q)">
+    {{ icon("layers", 15) }}<span class="nav-label">Triage queue</span>
+    <span class="nav-triage-k">q</span>
+  </button>
+</nav>
+
+{% if s.searches %}
+<div class="nav-block">
+  <div class="block-head"><span>Searches</span></div>
+  {% for ss in s.searches %}
+  <a class="search-row {{ 'search-on' if s.view == 'search:' ~ ss.id else '' }}"
+     href="/entries?search={{ ss.query | urlencode }}{% for t in ss.tags %}&tag={{ t | urlencode }}{% endfor %}"
+     hx-get="/entries?search={{ ss.query | urlencode }}{% for t in ss.tags %}&tag={{ t | urlencode }}{% endfor %}"
+     hx-target="#list-col" hx-push-url="true" title="{{ ss.query or (ss.tags | join(' ')) }}">
+    {{ icon(ss.icon or "search", 14) }}<span class="search-name">{{ ss.name }}</span>
+    {% set c = s.search_counts.get(ss.id, 0) %}{% if c %}<span class="search-count">{{ c }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="nav-block">
+  <div class="block-head"><span>Time</span></div>
+  <div class="time-row">
+    {% for k, l in [("today", "Today"), ("24h", "24h"), ("week", "Week")] %}
+    <a class="time-btn {{ 'time-on' if s.view == 't:' ~ k else '' }}" href="/entries?view=t:{{ k }}"
+       hx-get="/entries?view=t:{{ k }}" hx-target="#list-col" hx-push-url="true">{{ l }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="nav-block feeds-block">
+  <div class="block-head">
+    <span>Feeds</span>
+    <a class="group-toggle" href="/entries?group_by={{ 'cat' if s.group_by == 'tier' else 'tier' }}"
+       hx-get="/entries?group_by={{ 'cat' if s.group_by == 'tier' else 'tier' }}" hx-target="#list-col" title="Group feeds by">
+      {{ 'by tier' if s.group_by == 'tier' else 'by category' }}
+    </a>
+  </div>
+  <div class="feeds-scroll">
+    {% for g in s.groups %}
+    <div class="feed-group">
+      <div class="mlabel feed-group-label">{{ g.label }}<span class="grp-n">{{ g['items'] | length }}</span></div>
+      {% for f in g['items'] %}
+      <a class="feed-row {{ 'feed-on' if s.feed_id == f.id else '' }}" href="/entries?feed_id={{ f.id }}"
+         hx-get="/entries?feed_id={{ f.id }}" hx-target="#list-col" hx-push-url="true" title="{{ f.feed_url }}">
+        {{ health_dot(f._health) }}
+        {{ tile(f, 16) }}
+        <span class="feed-title">{{ f.title }}</span>
+        {% if f._proxy %}<span class="feed-flag" title="Full-text fetch enabled">&#8644;</span>{% endif %}
+        {% if f._unread %}<span class="feed-count">{{ f._unread }}</span>{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="sidebar-foot">
+  <a class="tool-btn" href="/feeds/health" hx-get="/feeds/health" hx-target="#overlay-slot" title="Feed health">
+    {{ icon("health", 15) }}<span>Health</span>{% if s.health_alert %}<span class="tool-alert">{{ s.health_alert }}</span>{% endif %}
+  </a>
+  <a class="tool-btn" href="/stats" hx-get="/stats" hx-target="#overlay-slot" title="Reading stats">{{ icon("activity", 15) }}<span>Stats</span></a>
+  <a class="tool-btn" href="/filters" hx-get="/filters" hx-target="#overlay-slot" title="Saved filters">{{ icon("filter", 15) }}<span>Filters</span></a>
+  <div class="foot-spacer"></div>
+  <a class="icon-btn" href="/" title="Refresh feeds">{{ icon("refresh", 14) }}</a>
+  <button class="icon-btn" type="button" data-act="layout" title="Toggle layout">&#9636;</button>
+  <button class="icon-btn" type="button" data-act="theme" title="Toggle theme">{{ icon("sun", 15) }}</button>
+  <button class="icon-btn" type="button" title="Keyboard shortcuts (?)" hx-get="/help" hx-target="#overlay-slot">?</button>
+</div>

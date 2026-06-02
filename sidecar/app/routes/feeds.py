@@ -142,6 +142,15 @@ _BUCKET_LABELS = {
     "ok": "Healthy",
 }
 
+# Severity tier per bucket → drives the .hdot / .sev-* styling in the overlay.
+_BUCKET_SEV = {
+    "http_404": "error", "not_a_feed": "error", "bot_blocked": "error",
+    "auth": "error", "tls": "error", "unsupported_scheme": "error",
+    "dns_fail": "error", "connect_fail": "error", "other": "error",
+    "server_5xx": "warn", "stale": "warn",
+    "paused": "muted", "ok": "ok",
+}
+
 
 def _error_bucket(msg: str) -> str:
     m = msg or ""
@@ -216,6 +225,7 @@ async def feed_health(request: Request):
         {
             "key": b,
             "label": _BUCKET_LABELS.get(b, b),
+            "sev": _BUCKET_SEV.get(b, "error"),
             "feeds": groups[b],
             "count": len(groups[b]),
         }
@@ -223,13 +233,13 @@ async def feed_health(request: Request):
         if groups[b]
     ]
 
-    return templates.TemplateResponse(
-        request, "feed_health.html",
-        {
-            "bucket_sections": bucket_sections,
-            "has_proxy": bool(BRIGHTDATA_PROXY),
-        },
-    )
+    ctx = {
+        "bucket_sections": bucket_sections,
+        "has_proxy": bool(BRIGHTDATA_PROXY),
+        "total_feeds": len(feeds),
+    }
+    template = "_health_overlay.html" if request.headers.get("HX-Request") else "feed_health.html"
+    return templates.TemplateResponse(request, template, ctx)
 
 
 @router.get("/feeds/health/summary", response_class=HTMLResponse)
@@ -840,17 +850,16 @@ async def feed_settings(request: Request, feed_id: int):
             (feed_id,),
         )
         url_history = await cur.fetchall()
-    return templates.TemplateResponse(
-        request, "feed_settings.html",
-        {
-            "feed": feed,
-            "fetch_full_content": fetch_full,
-            "priority": priority,
-            "extract_rules_json": json.dumps(extract_rules or {}, indent=2),
-            "url_history": url_history,
-            "has_proxy": bool(BRIGHTDATA_PROXY),
-        },
-    )
+    ctx = {
+        "feed": feed,
+        "fetch_full_content": fetch_full,
+        "priority": priority,
+        "extract_rules_json": json.dumps(extract_rules or {}, indent=2),
+        "url_history": url_history,
+        "has_proxy": bool(BRIGHTDATA_PROXY),
+    }
+    template = "_feed_settings_overlay.html" if request.headers.get("HX-Request") else "feed_settings.html"
+    return templates.TemplateResponse(request, template, ctx)
 
 
 @router.get("/feeds/{feed_id}/icon")
@@ -960,7 +969,7 @@ async def set_priority(feed_id: int, priority: int = Form(2)):
         for v, l in labels.items()
     )
     return HTMLResponse(
-        f'<select name="priority" hx-post="/feeds/{feed_id}/set-priority" hx-swap="outerHTML">{options}</select>'
+        f'<select class="ti" name="priority" hx-post="/feeds/{feed_id}/set-priority" hx-swap="outerHTML" style="width:auto;">{options}</select>'
     )
 
 
@@ -1015,7 +1024,7 @@ async def toggle_proxy(feed_id: int):
     label = "ON" if new_val else "OFF"
     cls = "on" if new_val else "off"
     return HTMLResponse(
-        f'<button hx-post="/feeds/{feed_id}/toggle-proxy" hx-swap="outerHTML" class="toggle {cls}">{label}</button>'
+        f'<button hx-post="/feeds/{feed_id}/toggle-proxy" hx-swap="outerHTML" class="fset-toggle {cls}">{label}</button>'
     )
 
 
@@ -1034,7 +1043,7 @@ async def toggle_tls_verify(feed_id: int):
     label = "SKIP" if new_val else "VERIFY"
     cls = "on" if new_val else "off"
     return HTMLResponse(
-        f'<button hx-post="/feeds/{feed_id}/toggle-tls-verify" hx-swap="outerHTML" class="toggle {cls}">{label}</button>'
+        f'<button hx-post="/feeds/{feed_id}/toggle-tls-verify" hx-swap="outerHTML" class="fset-toggle {cls}">{label}</button>'
     )
 
 
@@ -1062,7 +1071,7 @@ async def toggle_full_content(feed_id: int):
     label = "ON" if new_val else "OFF"
     cls = "on" if new_val else "off"
     return HTMLResponse(
-        f'<button hx-post="/feeds/{feed_id}/toggle-full-content" hx-swap="outerHTML" class="toggle {cls}">{label}</button>'
+        f'<button hx-post="/feeds/{feed_id}/toggle-full-content" hx-swap="outerHTML" class="fset-toggle {cls}">{label}</button>'
     )
 
 

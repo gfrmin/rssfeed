@@ -20,6 +20,18 @@
   --color-success-bg: var(--success-bg);
   --color-error-bg: var(--error-bg);
 
+  /* New design-system tokens (ported prototype palette) */
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-raised: var(--raised);
+  --color-hover: var(--hover);
+  --color-border-2: var(--border-2);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-add: var(--add);
+  --color-del: var(--del);
+  --color-ctx: var(--ctx);
+
   /* Font families */
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;

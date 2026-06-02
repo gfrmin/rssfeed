@@ -6,3 +6,58 @@
 </span>
 {%- endif -%}
 {% endmacro %}
+
+{# ============ design-system primitives (ported from ui.jsx) ============ #}
+
+{# Favicon tile — shows the real feed favicon, falling back to a tinted letter. #}
+{%- macro tile(feed, size=16) -%}
+{%- set fid = feed.id if feed else 0 -%}
+{%- set letter = ((feed.title or "?")[0] | upper) if feed else "?" -%}
+<span class="tile" style="width:{{ size }}px;height:{{ size }}px;font-size:{{ (size * 0.52) | round(1) }}px;border-radius:{{ [3, (size * 0.22) | round(0, 'ceil')] | max }}px;position:relative;">
+  <span>{{ letter }}</span>
+  <img src="/feeds/{{ fid }}/icon" alt="" loading="lazy" onerror="this.remove()" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;">
+</span>
+{%- endmacro -%}
+
+{%- set HEALTH_META = {
+  "ok":          {"cls": "ok",    "label": "Healthy"},
+  "stale":       {"cls": "warn",  "label": "Stale — no items 24h+"},
+  "warn":        {"cls": "warn",  "label": "Warning"},
+  "error":       {"cls": "error", "label": "Broken — fetch error"},
+  "http_404":    {"cls": "error", "label": "404 / not found"},
+  "bot_blocked": {"cls": "error", "label": "Bot-blocked"},
+  "server_5xx":  {"cls": "warn",  "label": "Server error (5xx)"},
+  "paused":      {"cls": "muted", "label": "Polling paused"}
+} -%}
+{%- macro health_dot(state, size=7) -%}
+{%- set m = HEALTH_META.get(state, HEALTH_META["ok"]) -%}
+<span class="hdot {{ m.cls }}" title="{{ m.label }}" style="width:{{ size }}px;height:{{ size }}px;"></span>
+{%- endmacro -%}
+
+{# Tag chip. kind: "real" (solid) or "llm" (dashed, with spark). #}
+{%- macro tag(label, kind="real") -%}
+<span class="tag {{ 'tag-llm' if kind == 'llm' else '' }}">{% if kind == 'llm' %}<span class="tag-spark">&#9671;</span>{% endif %}{{ label }}</span>
+{%- endmacro -%}
+
+{# 5-bar ranking meter from a 0-100 score. #}
+{%- macro rank(score) -%}
+{%- set filled = ((score | float) / 100 * 5) | round(0, 'common') | int -%}
+<span class="rank" title="Rank score {{ score }}">{% for i in range(5) %}<span class="rank-b {{ 'on' if i < filled else '' }}"></span>{% endfor %}</span>
+{%- endmacro -%}
+
+{%- macro label(text) -%}<div class="mlabel">{{ text }}</div>{%- endmacro -%}
+
+{%- macro kbd(text) -%}<kbd class="kbd">{{ text }}</kbd>{%- endmacro -%}
+
+{# Horizontal stat bar (ported from the Bar primitive in overlays.jsx). #}
+{%- macro bar(label, value, max, accent=false) -%}
+{%- set pct = [2, (value / (max or 1) * 100)] | max -%}
+<div class="stat-bar-row">
+  <span class="stat-bar-label" title="{{ label }}">{{ label }}</span>
+  <div class="stat-bar-track">
+    <div class="stat-bar-fill {{ 'acc' if accent else '' }}" style="width:{{ pct | round(1) }}%;">
+      <span class="stat-bar-val">{{ value }}</span>
+    </div>
+  </div>
+</div>
+{%- endmacro -%}

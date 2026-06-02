@@ -11,6 +11,15 @@ from app.templating import templates
 router = APIRouter()
 
 
+async def _filters_overlay(request: Request, error: str | None = None) -> HTMLResponse:
+    async with get_conn() as conn:
+        cur = await conn.execute("SELECT * FROM saved_filters ORDER BY created_at DESC")
+        filters = await cur.fetchall()
+    return templates.TemplateResponse(
+        request, "_filters_overlay.html", {"filters": filters, "error": error}
+    )
+
+
 @router.get("/filters", response_class=HTMLResponse)
 async def filter_list(request: Request):
     async with get_conn() as conn:
@@ -18,28 +27,36 @@ async def filter_list(request: Request):
             "SELECT * FROM saved_filters ORDER BY created_at DESC"
         )
         filters = await cur.fetchall()
-    return templates.TemplateResponse(
-        request, "filters.html", {"filters": filters}
-    )
+    template = "_filters_overlay.html" if request.headers.get("HX-Request") else "filters.html"
+    return templates.TemplateResponse(request, template, {"filters": filters})
 
 
 @router.post("/filters")
 async def create_filter(
+    request: Request,
     name: str = Form(...),
     rules_json: str = Form("[]"),
     auto_action: str = Form(""),
+    overlay: str = Form(""),
 ):
+    error = None
     try:
         rules = json.loads(rules_json)
     except json.JSONDecodeError as e:
-        return HTMLResponse(f'<span class="error">Invalid JSON: {e}</span>', status_code=400)
+        error = f"Invalid JSON: {e}"
 
-    async with get_conn() as conn:
-        await conn.execute(
-            "INSERT INTO saved_filters (name, rules, auto_action) VALUES (%s, %s::jsonb, %s)",
-            (name, psycopg.types.json.Json(rules), auto_action or None),
-        )
-        await conn.commit()
+    if error is None:
+        async with get_conn() as conn:
+            await conn.execute(
+                "INSERT INTO saved_filters (name, rules, auto_action) VALUES (%s, %s::jsonb, %s)",
+                (name, psycopg.types.json.Json(rules), auto_action or None),
+            )
+            await conn.commit()
+
+    if overlay:
+        return await _filters_overlay(request, error=error)
+    if error:
+        return HTMLResponse(f'<span class="error">{error}</span>', status_code=400)
     return HTMLResponse(
         '<span class="success">Filter created</span>',
         headers={"HX-Redirect": "/filters"},
@@ -47,10 +64,12 @@ async def create_filter(
 
 
 @router.post("/filters/{filter_id}/delete")
-async def delete_filter(filter_id: int):
+async def delete_filter(request: Request, filter_id: int, overlay: str = ""):
     async with get_conn() as conn:
         await conn.execute("DELETE FROM saved_filters WHERE id = %s", (filter_id,))
         await conn.commit()
+    if overlay:
+        return await _filters_overlay(request)
     return HTMLResponse(
         '<span class="success">Deleted</span>',
         headers={"HX-Redirect": "/filters"},

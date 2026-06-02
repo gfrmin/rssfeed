@@ -1,25 +1,4 @@
 {% extends "base.html" %}
 {% block title %}Changes — {{ entry.title }}{% endblock %}
-{% block content %}
-<article class="max-w-[700px] mx-auto">
-  <header class="mb-8">
-    <h1 class="font-serif text-[1.75rem] leading-tight font-bold block">{{ entry.title }}</h1>
-    <p class="mt-2 text-body-sm"><a href="/entries/{{ entry.id }}" class="text-link no-underline hover:underline">&larr; Back to article</a> &middot; {{ version_count }} version{{ 's' if version_count != 1 else '' }}</p>
-  </header>
-
-  {% if not diffs %}
-    <p>No changes recorded yet — only one version exists.</p>
-  {% endif %}
-
-  {% for d in diffs %}
-  <section class="mb-8">
-    <h2 class="heading-section">v{{ d.from_version }} &rarr; v{{ d.to_version }}</h2>
-    {% if d.lines %}
-    <pre class="bg-surface p-4 overflow-x-auto text-detail leading-normal rounded-lg">{% for line in d.lines %}<span class="{% if line.startswith('+') %}text-[#4ade80]{% elif line.startswith('-') %}text-[#f87171]{% else %}text-[#94a3b8]{% endif %}">{{ line | e }}</span>{% endfor %}</pre>
-    {% else %}
-    <p>No text differences.</p>
-    {% endif %}
-  </section>
-  {% endfor %}
-</article>
-{% endblock %}
+{# Direct/no-JS hit: render the diff as an overlay over the legacy chrome. #}
+{% block overlays %}{% include "_diff_overlay.html" %}{% endblock %}

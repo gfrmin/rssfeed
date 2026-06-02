@@ -3,6 +3,7 @@ import difflib
 import logging
 import re
 from datetime import datetime, timezone, timedelta
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -450,6 +451,57 @@ async def triage(request: Request):
         if f:
             f["_health"] = _feed_health_state(f, now)
     return templates.TemplateResponse(request, "_triage.html", {"queue": entries})
+
+
+@router.get("/help", response_class=HTMLResponse)
+async def help_overlay(request: Request):
+    return templates.TemplateResponse(request, "_help_overlay.html", {})
+
+
+_PALETTE_VIEWS = [
+    ("Unread", "unread", "inbox"), ("All", "all", "layers"),
+    ("Starred", "starred", "star"), ("Top ranked", "ranked", "bolt"),
+    ("Changed", "changed", "diff"),
+]
+
+
+@router.get("/api/palette")
+async def palette(request: Request):
+    """Command-palette index: actions, views, saved searches, feeds, recent articles."""
+    feeds, counters, data = await asyncio.gather(
+        miniflux_client.get_feeds(),
+        miniflux_client.get_feed_counters(),
+        miniflux_client.get_entries(status="unread", limit=10, direction="desc", order="published_at"),
+    )
+    unreads = counters.get("unreads", {}) or {}
+    recents = data.get("entries", [])
+    async with get_conn() as conn:
+        cur = await conn.execute("SELECT id, name, icon, query, tags FROM saved_searches ORDER BY created_at")
+        searches = [dict(r) for r in await cur.fetchall()]
+
+    items: list[dict] = [
+        {"group": "Actions", "label": "Triage queue", "sub": "walk unread by rank", "icon": "bolt", "kbd": "q", "act": "triage"},
+        {"group": "Actions", "label": "Feed health", "icon": "health", "url": "/feeds/health", "target": "overlay-slot"},
+        {"group": "Actions", "label": "Reading stats", "icon": "activity", "url": "/stats", "target": "overlay-slot"},
+        {"group": "Actions", "label": "Saved filters", "icon": "filter", "url": "/filters", "target": "overlay-slot"},
+        {"group": "Actions", "label": "Toggle theme", "icon": "sun", "act": "theme"},
+        {"group": "Actions", "label": "Keyboard shortcuts", "icon": "cpu", "kbd": "?", "act": "help"},
+    ]
+    for label, vw, ic in _PALETTE_VIEWS:
+        items.append({"group": "Views", "label": label, "icon": ic, "url": f"/entries?view={vw}", "target": "list-col"})
+    for ss in searches:
+        url = "/entries?search=" + quote(ss["query"] or "")
+        for t in (ss["tags"] or []):
+            url += "&tag=" + quote(t)
+        items.append({"group": "Searches", "label": ss["name"], "icon": ss["icon"] or "search", "url": url, "target": "list-col"})
+    for f in feeds:
+        c = unreads.get(str(f["id"]), 0)
+        items.append({"group": "Feeds", "label": f.get("title", ""), "sub": (f"{c} unread" if c else ""),
+                      "icon": "dot", "url": f"/entries?feed_id={f['id']}", "target": "list-col"})
+    for e in recents:
+        items.append({"group": "Articles", "label": e.get("title", ""), "sub": (e.get("feed") or {}).get("title", ""),
+                      "icon": "chevron", "url": f"/entries/{e['id']}", "target": "reader-col"})
+    return JSONResponse({"items": items})
 
 
 @router.get("/entries/{entry_id}", response_class=HTMLResponse)

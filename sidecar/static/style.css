@@ -634,7 +634,15 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .mgrid { display:none; flex-direction:column; height:100%; }
 .is-mobile .mgrid { display:flex; max-width:880px; margin:0 auto; border-left:1px solid var(--border); border-right:1px solid var(--border); }
 .is-mobile .rb-back { display:none; }
-.is-mobile .grid { display:none; }
+/* Mobile fallback: the rich .mgrid drawer/swipe layout isn't built yet, so
+   degrade the desktop three-pane grid to a usable single-column stack. */
+.is-mobile .app { height:auto; }
+.is-mobile .grid { display:flex; flex-direction:column; height:auto; }
+.is-mobile .sidebar { border-right:none; border-bottom:1px solid var(--border); max-height:48vh; }
+.is-mobile .list-col { border-right:none; }
+.is-mobile .list-scroll, .is-mobile .reader-scroll { overflow:visible; }
+.is-mobile .reader-wrap, .is-mobile .reader { height:auto; }
+.is-mobile .statusbar { display:none; }
 .mtop { display:flex; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); background:var(--panel-2); }
 .micon { width:34px; height:34px; display:flex; align-items:center; justify-content:center; background:none; border:1px solid var(--border);
   border-radius:8px; color:var(--text); font-size:17px; }

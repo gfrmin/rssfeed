@@ -295,5 +295,9 @@
   document.body.addEventListener('htmx:afterSwap', function (e) {
     var t = e.target;
     if (t && (t.id === 'list-col' || (t.closest && t.closest('#list-col')))) initList();
+    // On mobile the panes stack, so bring the freshly-loaded reader into view.
+    if (t && t.id === 'reader-col' && body.classList.contains('is-mobile')) {
+      t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   });
 })();

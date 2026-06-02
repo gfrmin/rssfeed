@@ -57,6 +57,17 @@ CREATE TABLE IF NOT EXISTS saved_filters (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Saved searches (pinned sidebar query + tag filters)
+CREATE TABLE IF NOT EXISTS saved_searches (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    icon TEXT DEFAULT 'search',
+    query TEXT DEFAULT '',
+    tags JSONB NOT NULL DEFAULT '[]',
+    view TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Article tags (LLM-generated)
 CREATE TABLE IF NOT EXISTS article_tags (
     id BIGSERIAL PRIMARY KEY,

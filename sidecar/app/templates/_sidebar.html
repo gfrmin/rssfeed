@@ -48,13 +48,17 @@
 <div class="nav-block">
   <div class="block-head"><span>Searches</span></div>
   {% for ss in s.searches %}
-  <a class="search-row {{ 'search-on' if s.view == 'search:' ~ ss.id else '' }}"
-     href="/entries?search={{ ss.query | urlencode }}{% for t in ss.tags %}&tag={{ t | urlencode }}{% endfor %}"
-     hx-get="/entries?search={{ ss.query | urlencode }}{% for t in ss.tags %}&tag={{ t | urlencode }}{% endfor %}"
-     hx-target="#list-col" hx-push-url="true" title="{{ ss.query or (ss.tags | join(' ')) }}">
-    {{ icon(ss.icon or "search", 14) }}<span class="search-name">{{ ss.name }}</span>
-    {% set c = s.search_counts.get(ss.id, 0) %}{% if c %}<span class="search-count">{{ c }}</span>{% endif %}
-  </a>
+  <div class="search-row {{ 'search-on' if s.view == 'search:' ~ ss.id else '' }}">
+    <a class="search-link"
+       href="/entries?search={{ ss.query | urlencode }}{% for t in ss.tags %}&tag={{ t | urlencode }}{% endfor %}"
+       hx-get="/entries?search={{ ss.query | urlencode }}{% for t in ss.tags %}&tag={{ t | urlencode }}{% endfor %}"
+       hx-target="#list-col" hx-push-url="true" title="{{ ss.query or (ss.tags | join(' ')) }}">
+      {{ icon(ss.icon or "search", 14) }}<span class="search-name">{{ ss.name }}</span>
+      {% set c = s.search_counts.get(ss.id, 0) %}{% if c %}<span class="search-count">{{ c }}</span>{% endif %}
+    </a>
+    <button class="search-del" type="button" title="Delete saved search"
+            hx-post="/searches/{{ ss.id }}/delete" hx-include="#list-form" hx-swap="none">{{ icon("x", 11) }}</button>
+  </div>
   {% endfor %}
 </div>
 {% endif %}

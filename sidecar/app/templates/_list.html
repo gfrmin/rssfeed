@@ -60,6 +60,19 @@
       </div>
     </div>
   </form>
+  {% if search or tag %}
+  <div class="save-search-bar">
+    <button type="button" class="save-search-toggle"
+            onclick="var f=this.nextElementSibling;f.classList.toggle('hidden');if(!f.classList.contains('hidden'))f.querySelector('input').focus();">
+      {{ icon("star", 12) }} Save this search
+    </button>
+    <form class="save-search-form hidden" hx-post="/searches" hx-include="#list-form" hx-swap="none"
+          onsubmit="this.classList.add('hidden')">
+      <input class="ti" name="name" placeholder="Name this search…" value="{{ search }}" autocomplete="off">
+      <button class="btn-primary" type="submit">Save</button>
+    </form>
+  </div>
+  {% endif %}
 </header>
 
 <div class="list-scroll dens-normal" id="list-scroll">

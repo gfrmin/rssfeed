@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from app import miniflux_client
 from app.db import run_migrations
-from app.routes import cookies, entries, feeds, stats, filters, share, proxy, digest
+from app.routes import cookies, entries, feeds, stats, filters, share, proxy, digest, searches
 from app.worker import worker_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -47,6 +47,7 @@ app.include_router(feeds.router)
 app.include_router(entries.router)
 app.include_router(stats.router)
 app.include_router(filters.router)
+app.include_router(searches.router)
 app.include_router(share.router)
 app.include_router(proxy.router)
 app.include_router(digest.router)

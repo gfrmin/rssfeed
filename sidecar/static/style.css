@@ -676,9 +676,19 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .search-name { flex:1; font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .search-count { font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; color:var(--faint); }
 .search-on .search-count { color:var(--accent); }
-.search-del { background:none; border:none; color:var(--faint); display:none; padding:2px; }
+.search-link { display:flex; align-items:center; gap:9px; flex:1; min-width:0; text-decoration:none; color:inherit; }
+.search-del { background:none; border:none; color:var(--faint); display:none; padding:2px; cursor:pointer; flex:none; }
 .search-row:hover .search-del { display:flex; }
 .search-del:hover { color:var(--danger); }
+/* Save-search control in the list header */
+.save-search-bar { padding:10px 0 2px; }
+.save-search-toggle { display:inline-flex; align-items:center; gap:5px; background:none; border:1px dashed var(--border-2);
+  border-radius:7px; color:var(--muted); font-size:11.5px; padding:5px 10px; cursor:pointer; }
+.save-search-toggle svg { color:var(--faint); }
+.save-search-toggle:hover { border-color:var(--accent); color:var(--text); }
+.save-search-toggle:hover svg { color:var(--accent); }
+.save-search-form { display:flex; gap:7px; margin-top:8px; }
+.save-search-form .ti { flex:1; }
 
 /* ===================== SPLIT DIFF ===================== */
 .diff-toolbar { display:flex; align-items:flex-start; gap:14px; margin-bottom:15px; }

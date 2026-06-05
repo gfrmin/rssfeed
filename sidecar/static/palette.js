@@ -33,6 +33,7 @@
   function open() {
     var s = slot();
     if (!s || s.querySelector('.cmdk-scrim')) return;
+    var prevFocus = document.activeElement;
     s.innerHTML =
       '<div class="cmdk-scrim">' +
         '<div class="cmdk">' +
@@ -44,6 +45,10 @@
             '<span><span class="kbd-mini">↵</span> run</span><span><span class="kbd-mini">esc</span> close</span></div>' +
         '</div>' +
       '</div>';
+
+    var scrim = s.querySelector('.cmdk-scrim');
+    if (scrim) { scrim.setAttribute('role', 'dialog'); scrim.setAttribute('aria-modal', 'true'); }
+    document.body.classList.add('ov-lock');
 
     var input = document.getElementById('cmdk-input');
     var list = document.getElementById('cmdk-list');
@@ -93,7 +98,11 @@
       });
     }
     function move(d) { var ord = ordered(); if (!ord.length) return; sel = Math.max(0, Math.min(ord.length - 1, sel + d)); updateSel(); }
-    function close() { var sl = slot(); if (sl) sl.innerHTML = ''; }
+    function close() {
+      var sl = slot(); if (sl) sl.innerHTML = '';
+      document.body.classList.remove('ov-lock');
+      if (prevFocus && prevFocus.focus) { try { prevFocus.focus(); } catch (_) {} }
+    }
 
     function run(item) {
       close();

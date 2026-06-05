@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Not found{% endblock %}
+{% block content %}
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:64px 20px;color:var(--muted);">
+  <div style="color:var(--border-2);">{{ icon("globe", 40) }}</div>
+  <h1 class="heading-page" style="margin:0;">Page not found</h1>
+  <p style="margin:0;max-width:360px;line-height:1.6;">That URL doesn’t exist (or moved). Most things live in the reader.</p>
+  <a href="/entries?view=unread" class="btn-primary" style="text-decoration:none;margin-top:6px;">Back to reading</a>
+</div>
+{% endblock %}

@@ -180,7 +180,47 @@
      ============================================================ */
   function overlaySlot() { return document.getElementById('overlay-slot'); }
   function overlayOpen() { var s = overlaySlot(); return s && s.children.length > 0; }
-  function closeOverlay() { var s = overlaySlot(); if (s) s.innerHTML = ''; }
+
+  // Background scroll-lock while a drawer or overlay is up.
+  function syncScrollLock() {
+    body.classList.toggle('ov-lock', body.classList.contains('drawer-open') || overlayOpen());
+  }
+
+  // Focus management + dialog semantics for overlays (a11y).
+  var lastFocused = null;
+  function focusables(root) {
+    return Array.prototype.slice.call(root.querySelectorAll(
+      'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea,[tabindex]'
+    )).filter(function (el) { return el.tabIndex !== -1 && el.offsetParent !== null; });
+  }
+  function onTrapKeydown(e) {
+    if (e.key !== 'Tab') return;
+    var s = overlaySlot(); if (!s) return;
+    var f = focusables(s); if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+  function markOverlayA11y() {
+    var s = overlaySlot(); if (!s) return;
+    var scrim = s.querySelector('.ov-scrim, .tri-scrim, .cmdk-scrim');
+    if (!scrim || scrim.getAttribute('role') === 'dialog') return;
+    scrim.setAttribute('role', 'dialog');
+    scrim.setAttribute('aria-modal', 'true');
+    if (lastFocused === null) lastFocused = document.activeElement;
+    document.removeEventListener('keydown', onTrapKeydown, true);
+    document.addEventListener('keydown', onTrapKeydown, true);
+    var f = focusables(s);
+    if (f.length) f[0].focus();
+    syncScrollLock();
+  }
+  function closeOverlay() {
+    var s = overlaySlot(); if (s) s.innerHTML = '';
+    document.removeEventListener('keydown', onTrapKeydown, true);
+    syncScrollLock();
+    if (lastFocused && lastFocused.focus) { try { lastFocused.focus(); } catch (_) {} }
+    lastFocused = null;
+  }
 
   document.addEventListener('click', function (e) {
     var s = overlaySlot();
@@ -208,6 +248,7 @@
   window.ReaderApp = {
     openTriage: openTriage, openPalette: openPalette, closeOverlay: closeOverlay,
     isMobile: isMobile, enterReading: enterReading, exitReading: exitReading,
+    syncScrollLock: syncScrollLock, markOverlayA11y: markOverlayA11y,
   };
 
   var navRestoring = false;
@@ -240,7 +281,7 @@
 
   window.addEventListener('popstate', function () {
     // An open mobile drawer swallows the first back press.
-    if (body.classList.contains('drawer-open')) { body.classList.remove('drawer-open'); return; }
+    if (body.classList.contains('drawer-open')) { body.classList.remove('drawer-open'); syncScrollLock(); return; }
     var m = location.pathname.match(/^\/entries\/(\d+)$/);
     if (m) {
       if (isMobile()) enterReading();
@@ -347,8 +388,22 @@
     updateStatusPos(0, listRows().length);
   }
 
+  // Deep-link / redirect target: /entries?open=help|triage opens the overlay
+  // (and we strip the param so a refresh doesn't reopen it).
+  function openFromQuery() {
+    var sp = new URLSearchParams(location.search);
+    var op = sp.get('open');
+    if (!op) return;
+    sp.delete('open');
+    var qs = sp.toString();
+    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+    if (op === 'triage') openTriage();
+    else if (op === 'help' && window.htmx) window.htmx.ajax('GET', '/help', { target: '#overlay-slot', swap: 'innerHTML' });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     initList();
+    openFromQuery();
     pollUnread();
     setInterval(pollUnread, 60000);
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js').catch(function () {});
@@ -359,5 +414,6 @@
     var t = e.target;
     if (t && (t.id === 'list-col' || (t.closest && t.closest('#list-col')))) initList();
     if (t && t.id === 'reader-col' && isMobile()) enterReading();
+    if (t && t.id === 'overlay-slot') markOverlayA11y();
   });
 })();

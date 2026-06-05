@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app import miniflux_client
 from app.db import get_conn
@@ -436,6 +436,10 @@ async def entry_list(
 async def triage(request: Request):
     """Card-by-card walk through unread, ranked. The deck is snapshotted
     server-side so marking-read doesn't shift it underfoot."""
+    # Direct navigation (bookmark / typed URL) would render a bare, unstyled
+    # fragment — send it into the app with the overlay auto-opening instead.
+    if not request.headers.get("HX-Request"):
+        return RedirectResponse("/entries?open=triage")
     now = datetime.now(timezone.utc)
     data = await miniflux_client.get_entries(
         status="unread", limit=200, direction="desc", order="published_at",
@@ -455,6 +459,8 @@ async def triage(request: Request):
 
 @router.get("/help", response_class=HTMLResponse)
 async def help_overlay(request: Request):
+    if not request.headers.get("HX-Request"):
+        return RedirectResponse("/entries?open=help")
     return templates.TemplateResponse(request, "_help_overlay.html", {})
 
 

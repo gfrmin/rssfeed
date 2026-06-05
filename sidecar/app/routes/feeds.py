@@ -877,8 +877,16 @@ async def feed_icon(feed_id: int):
         )
         row = await cur.fetchone()
     if not row:
-        return Response(status_code=404)
-    return Response(content=bytes(row["content"]), media_type=row["mime_type"])
+        # No favicon stored. Return 204 (not a 4xx) so the <img onerror> still
+        # swaps in the letter-tile fallback WITHOUT logging a console error or
+        # re-requesting on every page load (this fired ~220 times per /entries
+        # load across all feeds). Cache the miss briefly; icons appear rarely.
+        return Response(status_code=204, headers={"Cache-Control": "public, max-age=3600"})
+    return Response(
+        content=bytes(row["content"]),
+        media_type=row["mime_type"],
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @router.post("/feeds/subscribe")

@@ -5,10 +5,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import miniflux_client
 from app.db import run_migrations
 from app.routes import cookies, entries, feeds, stats, filters, share, proxy, digest, searches
+from app.templating import templates
 from app.worker import worker_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -38,6 +41,16 @@ async def log_request_timing(request: Request, call_next):
     dur_ms = (time.perf_counter() - start) * 1000
     logger.info("%s %s %.0fms", request.method, request.url.path, dur_ms)
     return response
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Styled 404 for browser navigation; JSON for API / non-HTML clients."""
+    if exc.status_code == 404:
+        wants_html = "text/html" in request.headers.get("accept", "")
+        if wants_html and not request.url.path.startswith("/api"):
+            return templates.TemplateResponse(request, "404.html", {}, status_code=404)
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
 
 static_dir = Path(__file__).parent.parent / "static"

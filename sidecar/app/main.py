@@ -40,6 +40,11 @@ async def log_request_timing(request: Request, call_next):
     response = await call_next(request)
     dur_ms = (time.perf_counter() - start) * 1000
     logger.info("%s %s %.0fms", request.method, request.url.path, dur_ms)
+    # Let the service worker (served from /static/) claim root scope so it controls
+    # the whole app, not just /static/. Set here so it applies no matter which
+    # handler (StaticFiles mount) serves the file.
+    if request.url.path == "/static/sw.js":
+        response.headers["Service-Worker-Allowed"] = "/"
     return response
 
 

@@ -24,6 +24,11 @@
     {{ icon("layers", 15) }}<span class="nav-label">All</span>
     {% if s.counts.all %}<span class="nav-count">{{ s.counts.all }}</span>{% endif %}
   </a>
+  <a class="nav-row {{ 'nav-on' if s.view == 'read' else '' }}" href="/entries?view=read"
+     hx-get="/entries?view=read" hx-target="#list-col" hx-push-url="true">
+    {{ icon("check", 15) }}<span class="nav-label">Read</span>
+    {% if s.counts.read %}<span class="nav-count">{{ s.counts.read }}</span>{% endif %}
+  </a>
   <a class="nav-row {{ 'nav-on' if s.view == 'starred' else '' }}" href="/entries?view=starred"
      hx-get="/entries?view=starred" hx-target="#list-col" hx-push-url="true">
     {{ icon("star", 15) }}<span class="nav-label">Starred</span>

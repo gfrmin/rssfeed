@@ -255,7 +255,10 @@
   function curUrl() { return location.pathname + location.search; }
   function restoreInto(target, url) {
     navRestoring = true;
-    var p = window.htmx ? window.htmx.ajax('GET', url, { target: target, swap: 'innerHTML' }) : null;
+    // Send an explicit HX-Target so the server returns the correct styled pane
+    // fragment (the server now refuses to emit a bare fragment without it).
+    var ctx = { target: target, swap: 'innerHTML', headers: { 'HX-Target': target.replace(/^#/, '') } };
+    var p = window.htmx ? window.htmx.ajax('GET', url, ctx) : null;
     return Promise.resolve(p).then(function () { navRestoring = false; }, function () { navRestoring = false; });
   }
 
@@ -272,6 +275,13 @@
     if (!url) url = rc.path;
     if (!url) return;
     var elt = rc.elt;
+    // A programmatic backfill (hx-trigger="load", e.g. the list pane filled in
+    // on a deep-linked entry page) is NOT a user navigation and must never drive
+    // the URL stack — otherwise refreshing /entries/{id} gets its URL silently
+    // overwritten with the backfilled feed URL.
+    var fromLoad = (rc.triggeringEvent && rc.triggeringEvent.type === 'load') ||
+                   (elt && elt.id === 'entry-list-backfill');
+    if (fromLoad) return;
     var fromNav = elt && elt.closest && elt.closest('.rb-nav');           // prev/next or swipe
     var fromSearch = elt && elt.id === 'list-search-input';
     if (id === 'reader-col' && isMobile() && fromNav) history.replaceState({ p: id }, '', url);
@@ -371,6 +381,7 @@
      UNREAD POLLING (title badge)
      ============================================================ */
   function pollUnread() {
+    if (document.hidden) return;   // don't poll a backgrounded tab / installed PWA
     fetch('/api/new-count').then(function (r) { return r.json(); }).then(function (d) {
       var c = d.count || 0;
       var base = document.title.replace(/^\(\d+\)\s*/, '');
@@ -406,7 +417,17 @@
     openFromQuery();
     pollUnread();
     setInterval(pollUnread, 60000);
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/sw.js').catch(function () {});
+    // Refresh the badge immediately when the tab is brought back to the foreground.
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) pollUnread(); });
+    if ('serviceWorker' in navigator) {
+      // Register at root scope so the worker controls the whole app (it's served
+      // from /static/ but the server sends Service-Worker-Allowed:/). Drop any
+      // stale /static/-scoped registration left over from before this change.
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        regs.forEach(function (r) { if (/\/static\/$/.test(r.scope)) r.unregister(); });
+      }).catch(function () {});
+      navigator.serviceWorker.register('/static/sw.js', { scope: '/' }).catch(function () {});
+    }
   });
 
   // Re-bind whenever the list pane is swapped in by HTMX.

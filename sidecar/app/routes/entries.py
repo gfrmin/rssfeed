@@ -2,6 +2,7 @@ import asyncio
 import difflib
 import logging
 import re
+import time
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
 
@@ -124,7 +125,7 @@ def _time_filter_params(time_filter: str | None) -> dict[str, str]:
 TIERS = [(1, "Must read"), (2, "Normal"), (3, "Low priority")]
 
 VIEW_TITLES = {
-    "unread": "Unread", "all": "All articles", "starred": "Starred",
+    "unread": "Unread", "all": "All articles", "read": "Read", "starred": "Starred",
     "ranked": "Top ranked", "changed": "Changed",
     "t:today": "Today", "t:24h": "Last 24 hours", "t:week": "This week",
 }
@@ -226,9 +227,51 @@ def _active_view(*, feed_id, view, starred, changed, time_filter, sort, show_all
     return "unread"
 
 
+_SIDEBAR_CACHE: dict[str, tuple[float, dict]] = {}
+_SIDEBAR_CACHE_TTL = 10.0
+_SIDEBAR_CACHE_LOCK = asyncio.Lock()
+
+
+def _invalidate_sidebar_cache() -> None:
+    """Drop cached sidebar data so the next navigation recomputes counts/feeds.
+    Call after any action that changes unread/read/starred counts or saved searches."""
+    _SIDEBAR_CACHE.clear()
+
+
+async def _sidebar_data(group_by: str) -> dict:
+    """Cached view-independent sidebar data (TTL + double-checked lock), mirroring
+    the _FEEDS_CACHE pattern in miniflux_client. Collapses the 4 Miniflux calls + DB
+    queries to a warm-cache hit during rapid navigation."""
+    now_m = time.monotonic()
+    cached = _SIDEBAR_CACHE.get(group_by)
+    if cached and now_m - cached[0] < _SIDEBAR_CACHE_TTL:
+        return cached[1]
+    async with _SIDEBAR_CACHE_LOCK:
+        cached = _SIDEBAR_CACHE.get(group_by)
+        if cached and time.monotonic() - cached[0] < _SIDEBAR_CACHE_TTL:
+            return cached[1]
+        data = await _build_sidebar_data(group_by)
+        _SIDEBAR_CACHE[group_by] = (time.monotonic(), data)
+        return data
+
+
 async def build_sidebar(*, active_view: str | None, active_feed_id: int | None,
                         group_by: str = "tier") -> dict:
-    """Assemble the persistent left-rail context (feeds by tier, counts, health)."""
+    """Assemble the persistent left-rail context. The expensive, view-independent
+    part (feeds/counts/searches/health) is cached by _sidebar_data; only the active
+    view/feed highlighting is layered on per request."""
+    data = await _sidebar_data(group_by)
+    return {
+        **data,
+        "view": active_view,
+        "view_title": VIEW_TITLES.get(active_view, "Articles") if active_view else "Feed",
+        "feed_id": active_feed_id,
+    }
+
+
+async def _build_sidebar_data(group_by: str) -> dict:
+    """The expensive, view-independent part of the sidebar (feeds-by-group, counts,
+    saved searches, health). Hits Miniflux + DB; cached by _sidebar_data()."""
     now = datetime.now(timezone.utc)
     feeds, counters, categories, starred_data = await asyncio.gather(
         miniflux_client.get_feeds(),
@@ -275,6 +318,7 @@ async def build_sidebar(*, active_view: str | None, active_feed_id: int | None,
     counts = {
         "unread": unread_total,
         "all": all_total,
+        "read": sum(int(v) for v in reads.values()),
         "starred": starred_data.get("total", 0),
         "changed": len(changed_ids),
     }
@@ -283,9 +327,6 @@ async def build_sidebar(*, active_view: str | None, active_feed_id: int | None,
         "groups": groups,
         "group_by": group_by,
         "counts": counts,
-        "view": active_view,
-        "view_title": VIEW_TITLES.get(active_view, "Articles") if active_view else "Feed",
-        "feed_id": active_feed_id,
         "health_alert": health_alert,
         "searches": searches,
         "search_counts": search_counts,
@@ -313,9 +354,15 @@ async def _saved_searches_with_counts(conn, unreads) -> tuple[list[dict], dict]:
 
 
 def _wants_list_fragment(request: Request) -> bool:
-    """True when HTMX is swapping just the list pane (sidebar reloads out-of-band)."""
+    """True when HTMX is swapping just the list pane (sidebar reloads out-of-band).
+
+    Requires an *explicit* HX-Target of "list-col". A header-less HX request (which
+    can arise on some restore paths) must fall through to the full styled shell —
+    never a bare, style-less fragment that would render unstyled if it ever landed
+    at the document level.
+    """
     return request.headers.get("HX-Request") == "true" and \
-        request.headers.get("HX-Target") in ("list-col", None)
+        request.headers.get("HX-Target") == "list-col"
 
 
 @router.get("/entries", response_class=HTMLResponse)
@@ -347,6 +394,8 @@ async def entry_list(
         status = "unread"
     elif view == "all":
         status = "all"
+    elif view == "read":
+        status = "read"
     elif view and view.startswith("t:"):
         time_filter = view[2:]
     elif view == "unread":
@@ -370,8 +419,12 @@ async def entry_list(
         entries = data.get("entries", [])
         total = data.get("total", 0)
     else:
+        # Over-fetch only when client-side tag/changed filtering will prune the set
+        # below; otherwise fetch just the page we render (avoids a ~4× Miniflux +
+        # enrich cost on the common unread/all/read views).
+        fetch_limit = 200 if (tag or changed) else limit
         data = await miniflux_client.get_entries(
-            status=status, limit=200, offset=offset,
+            status=status, limit=fetch_limit, offset=offset,
             search=search, starred=starred, category_id=category_id,
             **time_params,
         )
@@ -466,6 +519,7 @@ async def help_overlay(request: Request):
 
 _PALETTE_VIEWS = [
     ("Unread", "unread", "inbox"), ("All", "all", "layers"),
+    ("Read", "read", "check"),
     ("Starred", "starred", "star"), ("Top ranked", "ranked", "bolt"),
     ("Changed", "changed", "diff"),
 ]
@@ -516,38 +570,61 @@ async def entry_detail(request: Request, entry_id: int):
     if entry.get("status") == "unread":
         await miniflux_client.update_entry_status([entry_id], "read")
         entry["status"] = "read"
-    async with get_conn() as conn:
-        snapshot = await _get_snapshot(conn, entry_id)
-        vc = await _version_count(conn, entry_id) if snapshot else 0
-        # Record read event
-        await conn.execute(
-            "INSERT INTO read_events (entry_id, feed_id) VALUES (%s, %s)",
-            (entry_id, entry.get("feed_id", 0)),
-        )
-        await conn.commit()
-    async with get_conn() as conn:
-        # Get tags
-        cur = await conn.execute(
-            "SELECT tag FROM article_tags WHERE entry_id = %s", (entry_id,)
-        )
-        llm_tags = [row["tag"] for row in await cur.fetchall()]
-        # Get summaries (keyed by prompt slug) and prompt library
-        summaries = _extract_summaries(snapshot.get("metadata") if snapshot else None)
-        prompts = await _list_prompts(conn)
-        prompt_names = {p["id"]: p["name"] for p in prompts}
-        # Check for similar articles via embeddings
-        similar = []
-        cur2 = await conn.execute(
-            "SELECT 1 FROM article_embeddings WHERE entry_id = %s", (entry_id,)
-        )
-        if await cur2.fetchone():
-            from app.llm import find_similar
-            cur3 = await conn.execute(
-                "SELECT embedding FROM article_embeddings WHERE entry_id = %s", (entry_id,)
+        _invalidate_sidebar_cache()  # unread→read flips counts
+
+    feed_id = entry.get("feed_id")
+    pub = entry.get("published_at", "")
+    pub_ts = None
+    if pub and feed_id:
+        try:
+            pub_ts = str(int(datetime.fromisoformat(pub.replace("Z", "+00:00")).timestamp()))
+        except Exception:
+            pub_ts = None
+
+    # The reader body only needs entry/snapshot/tags/summaries to paint; the read-event
+    # write, prompt list and prev/next nav are all independent, so run them concurrently
+    # instead of sequentially. Each get_conn() opens its own connection (db.py), so
+    # concurrent DB work is safe. The slow similar-articles vector search is loaded
+    # separately (lazy #similar-slot → /entries/{id}/similar) so it never blocks paint.
+    async def _snapshot_and_read_event():
+        async with get_conn() as conn:
+            snap = await _get_snapshot(conn, entry_id)
+            v = await _version_count(conn, entry_id) if snap else 0
+            await conn.execute(
+                "INSERT INTO read_events (entry_id, feed_id) VALUES (%s, %s)",
+                (entry_id, feed_id or 0),
             )
-            emb_row = await cur3.fetchone()
-            if emb_row:
-                similar = await find_similar(conn, entry_id, emb_row["embedding"])
+            await conn.commit()
+        return snap, v
+
+    async def _tags_and_prompts():
+        async with get_conn() as conn:
+            cur = await conn.execute(
+                "SELECT tag FROM article_tags WHERE entry_id = %s", (entry_id,)
+            )
+            tags = [row["tag"] for row in await cur.fetchall()]
+            pr = await _list_prompts(conn)
+        return tags, pr
+
+    async def _adjacent(direction: str):
+        if not pub_ts:
+            return None
+        kwargs = ({"after": pub_ts, "direction": "asc"} if direction == "prev"
+                  else {"before": pub_ts, "direction": "desc"})
+        data = await miniflux_client.get_entries(feed_id=feed_id, limit=1, **kwargs)
+        ents = data.get("entries") or []
+        return ents[0]["id"] if ents else None
+
+    (snapshot, vc), (llm_tags, prompts), prev_entry_id, next_entry_id = \
+        await asyncio.gather(
+            _snapshot_and_read_event(),
+            _tags_and_prompts(),
+            _adjacent("prev"),
+            _adjacent("next"),
+        )
+
+    summaries = _extract_summaries(snapshot.get("metadata") if snapshot else None)
+    prompt_names = {p["id"]: p["name"] for p in prompts}
 
     # Detect audio enclosures for podcast player
     enclosures = entry.get("enclosures") or []
@@ -555,26 +632,6 @@ async def entry_detail(request: Request, entry_id: int):
         (e for e in enclosures if (e.get("mime_type") or "").startswith("audio/")),
         None,
     )
-
-    # Determine prev/next entries in the same feed for swipe navigation
-    prev_entry_id = None
-    next_entry_id = None
-    pub = entry.get("published_at", "")
-    feed_id = entry.get("feed_id")
-    if pub and feed_id:
-        pub_ts = str(int(datetime.fromisoformat(pub.replace("Z", "+00:00")).timestamp()))
-        newer = await miniflux_client.get_entries(
-            feed_id=feed_id, after=pub_ts, direction="asc", limit=1,
-        )
-        older = await miniflux_client.get_entries(
-            feed_id=feed_id, before=pub_ts, direction="desc", limit=1,
-        )
-        prev_entries = newer.get("entries") or []
-        next_entries = older.get("entries") or []
-        if prev_entries:
-            prev_entry_id = prev_entries[0]["id"]
-        if next_entries:
-            next_entry_id = next_entries[0]["id"]
 
     content_block = _content_block_ctx(
         entry_id, snapshot, vc, rss_html=(entry.get("content") or ""),
@@ -588,7 +645,6 @@ async def entry_detail(request: Request, entry_id: int):
         "prompts": prompts,
         "prompt_names": prompt_names,
         "audio_enclosure": audio_enclosure,
-        "similar": similar,
         "prev_entry_id": prev_entry_id,
         "next_entry_id": next_entry_id,
         "content_block": content_block,
@@ -601,6 +657,22 @@ async def entry_detail(request: Request, entry_id: int):
         active_view=None, active_feed_id=entry.get("feed_id"),
     )
     return templates.TemplateResponse(request, "entry.html", ctx)
+
+
+@router.get("/entries/{entry_id}/similar", response_class=HTMLResponse)
+async def entry_similar(request: Request, entry_id: int):
+    """Lazy 'Similar articles' section — the embedding vector search is slow, so it
+    loads into #similar-slot after the reader has already painted."""
+    similar: list = []
+    async with get_conn() as conn:
+        cur = await conn.execute(
+            "SELECT embedding FROM article_embeddings WHERE entry_id = %s", (entry_id,)
+        )
+        row = await cur.fetchone()
+        if row:
+            from app.llm import find_similar
+            similar = await find_similar(conn, entry_id, row["embedding"])
+    return templates.TemplateResponse(request, "_similar.html", {"similar": similar})
 
 
 @router.post("/entries/{entry_id}/generate-summary")
@@ -913,6 +985,7 @@ async def entry_diff(request: Request, entry_id: int):
 @router.post("/entries/{entry_id}/mark-read")
 async def mark_read(entry_id: int):
     await miniflux_client.update_entry_status([entry_id], "read")
+    _invalidate_sidebar_cache()
     return HTMLResponse(
         f'<button hx-post="/entries/{entry_id}/mark-unread" hx-swap="outerHTML">Mark unread</button>'
     )
@@ -921,6 +994,7 @@ async def mark_read(entry_id: int):
 @router.post("/entries/{entry_id}/mark-unread")
 async def mark_unread(entry_id: int):
     await miniflux_client.update_entry_status([entry_id], "unread")
+    _invalidate_sidebar_cache()
     return HTMLResponse(
         f'<button hx-post="/entries/{entry_id}/mark-read" hx-swap="outerHTML">Mark read</button>'
     )
@@ -929,6 +1003,7 @@ async def mark_unread(entry_id: int):
 @router.post("/entries/{entry_id}/toggle-star")
 async def toggle_star(entry_id: int):
     await miniflux_client.toggle_bookmark(entry_id)
+    _invalidate_sidebar_cache()
     # Miniflux toggles, so we re-fetch to get current state
     entry = await miniflux_client.get_entry(entry_id)
     starred = entry.get("starred", False)
@@ -946,6 +1021,7 @@ async def mark_all_read(request: Request):
     entry_ids = body.get("entry_ids", [])
     if entry_ids:
         await miniflux_client.update_entry_status(entry_ids, "read")
+        _invalidate_sidebar_cache()
     return JSONResponse({"ok": True, "count": len(entry_ids)})
 
 

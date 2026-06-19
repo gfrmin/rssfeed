@@ -1,7 +1,7 @@
 {% extends "shell.html" %}
 {% block title %}{{ entry.title }}{% endblock %}
 {% block list %}
-<div class="list-empty" hx-get="/entries?view=unread" hx-trigger="load" hx-target="#list-col" hx-swap="innerHTML">
+<div class="list-empty" id="entry-list-backfill" hx-get="/entries?view=unread" hx-trigger="load" hx-target="#list-col" hx-swap="innerHTML" hx-headers='{"HX-Target":"list-col"}'>
   <span class="rung-spin"></span>
 </div>
 {% endblock %}

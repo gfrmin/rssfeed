@@ -10,13 +10,16 @@ import psycopg.types.json
 
 from app.db import get_conn
 from app.templating import templates
-from app.routes.entries import build_sidebar
+from app.routes.entries import build_sidebar, _invalidate_sidebar_cache
 
 router = APIRouter()
 
 
 async def _sidebar_oob(request: Request, active_view: str) -> HTMLResponse:
-    """Re-render the sidebar as an out-of-band swap (preserves the open reader)."""
+    """Re-render the sidebar as an out-of-band swap (preserves the open reader).
+    Called only after a saved-search mutation, so drop the sidebar cache first to
+    pick up the new/removed search row."""
+    _invalidate_sidebar_cache()
     sidebar = await build_sidebar(active_view=active_view or None, active_feed_id=None)
     return templates.TemplateResponse(request, "_sidebar_oob.html", {"sidebar": sidebar})
 

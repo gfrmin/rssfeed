@@ -83,6 +83,19 @@ CREATE TABLE IF NOT EXISTS engagement_events (
 );
 CREATE INDEX IF NOT EXISTS idx_engagement_entry ON engagement_events(entry_id);
 CREATE INDEX IF NOT EXISTS idx_engagement_created ON engagement_events(created_at);
+
+-- Learned ranker posterior (Part C). A single row holds the serialized weight
+-- beliefs (plain conjugate params as JSON, not credence's binary format) plus a
+-- high-water mark of the last engagement_events.id folded into the model. Python
+-- owns this table; the Julia runner is fed from / writes back to it.
+CREATE TABLE IF NOT EXISTS ranker_state (
+    id            SMALLINT PRIMARY KEY DEFAULT 1,
+    model_version TEXT NOT NULL,
+    state_blob    JSONB NOT NULL DEFAULT '{}'::jsonb,  -- {"weights":{name:[p,q]}, "obs_count":N}
+    last_event_id BIGINT NOT NULL DEFAULT 0,
+    updated_at    TIMESTAMPTZ DEFAULT NOW(),
+    CHECK (id = 1)
+);
 """
 
 

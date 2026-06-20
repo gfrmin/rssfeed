@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     run_migrations()
     await miniflux_client.startup()
+    # Push any persisted ranker posterior into the (separately-managed) runner.
+    # Best-effort: the reader works fine if the runner isn't up yet.
+    try:
+        from app import ranker_client
+        await ranker_client.load_state()
+    except Exception:
+        logger.exception("ranker load_state failed (continuing without ranking)")
     task = asyncio.create_task(worker_loop())
     try:
         yield

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from psycopg.types.json import Jsonb
 
-from app import miniflux_client
+from app import miniflux_client, ranker, ranker_client
 from app.db import get_conn
 from app.extractor import fetch_and_extract
 from app.routes.cookies import get_cookies_for_url
@@ -360,6 +360,7 @@ async def entry_list(
     starred: bool = False,
     time_filter: str | None = None,
     changed: bool = False,
+    order: str | None = None,
 ):
     limit = 50
     now = datetime.now(timezone.utc)
@@ -393,6 +394,8 @@ async def entry_list(
         status = "unread"
     time_params = _time_filter_params(time_filter)
 
+    smart_eligible = use_smart = ranked = False
+
     feed = None
     if feed_id:
         feed = await miniflux_client.get_feed(feed_id)
@@ -403,9 +406,15 @@ async def entry_list(
         entries = data.get("entries", [])
         total = data.get("total", 0)
     else:
-        # Over-fetch only when client-side "changed" filtering will prune the set
-        # below; otherwise fetch just the page we render.
-        fetch_limit = 200 if changed else limit
+        # The learned ranker applies to the plain cross-feed Unread/All lists.
+        smart_eligible = (
+            not starred and not changed and not search and not time_filter
+            and status in (None, "unread")
+        )
+        use_smart = smart_eligible and order != "new"
+        # Over-fetch a candidate pool when ranking (so the ranker can promote an
+        # older high-affinity item) or when client-side "changed" pruning will cut it.
+        fetch_limit = 200 if (changed or use_smart) else limit
         data = await miniflux_client.get_entries(
             status=status, limit=fetch_limit, offset=offset,
             search=search, starred=starred, **time_params,
@@ -426,19 +435,33 @@ async def entry_list(
             entries, feed_prefs["author_mutes"], feed_prefs["tag_mutes"]
         )
     else:
-        # Cross-feed: priority tier first (must-read bubbles up), newest within tier.
-        # Muted authors/tags (per their own feed) are demoted to the bottom — the
-        # "down-rank cross-feed" half of the per-feed mute. The learned ranker (Part C)
-        # later replaces this ordering; the demotion stays as a hard negative signal.
+        # Muted authors/tags (per their own feed) are always demoted to the bottom —
+        # the "down-rank cross-feed" half of the per-feed mute.
         async with get_conn() as conn:
             feed_mutes = await _all_feed_mutes(conn)
         for e in entries:
             m = feed_mutes.get(e.get("feed_id"))
-            e["_muted"] = bool(
-                m and _is_muted(e, m["author_mutes"], m["tag_mutes"])
+            e["_muted"] = bool(m and _is_muted(e, m["author_mutes"], m["tag_mutes"]))
+
+        scores = None
+        if use_smart:
+            priorities = {e.get("feed_id"): e.get("_priority", 2) for e in entries}
+            scores = await ranker_client.score(
+                ranker.build_articles(entries, priorities, now)
             )
-        entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
-        entries.sort(key=lambda e: (e.get("_muted", False), e.get("_priority", 2)))
+
+        if scores:
+            for e in entries:
+                e["_score"] = scores.get(e["id"], 0.0)
+            # Smart order: muted sink, then by learned score, newest as tiebreak.
+            entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
+            entries.sort(key=lambda e: (e.get("_muted", False), -e.get("_score", 0.0)))
+            ranked = True
+        else:
+            # Fallback (ranker off / cold / unreachable): priority tier, then newest.
+            entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
+            entries.sort(key=lambda e: (e.get("_muted", False), e.get("_priority", 2)))
+            ranked = False
         entries = entries[:limit]
 
     active_view = _active_view(
@@ -465,6 +488,9 @@ async def entry_list(
         "sidebar": sidebar,
         "feed_prefs": feed_prefs,
         "show_read": feed_prefs["show_read_default"] if feed_id else None,
+        "smart_eligible": smart_eligible,
+        "order": "new" if order == "new" else ("smart" if smart_eligible else None),
+        "ranked": ranked,
     }
     template = "entries_fragment.html" if _wants_list_fragment(request) else "entries.html"
     return templates.TemplateResponse(request, template, ctx)

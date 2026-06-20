@@ -156,4 +156,11 @@ async def worker_loop() -> None:
                 logger.info("Processed %d new entries", count)
         except Exception:
             logger.exception("Worker error")
+        try:
+            # Fold any newly-captured engagement signals into the ranker. No-op
+            # when the ranker is disabled or the runner is down (events are kept).
+            from app import ranker_client
+            await ranker_client.sync_observations()
+        except Exception:
+            logger.exception("Ranker sync error")
         await asyncio.sleep(WORKER_POLL_INTERVAL)

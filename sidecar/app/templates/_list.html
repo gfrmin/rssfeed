@@ -30,6 +30,18 @@
     </div>
   </form>
 
+  {% if smart_eligible and not feed_id %}
+  <div class="list-filters">
+    <span class="lf-seg">
+      <button class="lf-seg-btn {{ 'on' if order != 'new' else '' }}" type="button" title="Order by learned preference"
+              hx-get="/entries?view={{ view or 'unread' }}&order=smart" hx-target="#list-col" hx-push-url="true">Smart</button>
+      <button class="lf-seg-btn {{ 'on' if order == 'new' else '' }}" type="button" title="Plain reverse-chronological"
+              hx-get="/entries?view={{ view or 'unread' }}&order=new" hx-target="#list-col" hx-push-url="true">Newest</button>
+    </span>
+    {% if order != 'new' and not ranked %}<span class="lf-hint" title="The ranker is warming up or offline — showing newest for now.">learning…</span>{% endif %}
+  </div>
+  {% endif %}
+
   {% if feed_id %}
   <div class="list-filters">
     <button class="lf-toggle {{ 'on' if show_read else '' }}" type="button"

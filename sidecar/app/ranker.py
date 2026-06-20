@@ -50,9 +50,11 @@ def _recency(published_at, now: datetime) -> float:
     return 0.5 ** (age_h / RECENCY_HALFLIFE_HOURS)
 
 
-def entry_features(entry: dict, priority: int, now: datetime) -> list[list]:
+def entry_features(entry: dict, priority: int, now: datetime,
+                   embed_sim: float | None = None) -> list[list]:
     """The [name, value] feature vector for one entry. Binary one-hots for
-    feed/author/tag, continuous recency, and the manual priority tier as a scalar."""
+    feed/author/tag, continuous recency, the manual priority tier as a scalar, and
+    (when available) embed_sim — cosine to the taste centroid (Part C phase 2)."""
     feats: list[list] = []
     fid = entry.get("feed_id")
     if fid:
@@ -64,21 +66,27 @@ def entry_features(entry: dict, priority: int, now: datetime) -> list[list]:
         feats.append([feature_key("tag", t), 1.0])
     feats.append(["recency", round(_recency(entry.get("published_at"), now), 4)])
     feats.append(["priority", _PRIORITY_SCALAR.get(priority, 0.5)])
+    if embed_sim is not None:
+        feats.append(["embed_sim", round(float(embed_sim), 4)])
     return feats
 
 
-def feature_names(entry: dict, priority: int, now: datetime) -> list[str]:
+def feature_names(entry: dict, priority: int, now: datetime,
+                  embed_sim: float | None = None) -> list[str]:
     """The active feature names for an entry — the weights an observation updates."""
-    return [name for name, val in entry_features(entry, priority, now) if val > 0]
+    return [name for name, val in entry_features(entry, priority, now, embed_sim)
+            if val > 0]
 
 
-def build_articles(entries: list[dict], priorities: dict[int, int],
-                   now: datetime) -> list[dict]:
-    """Shape entries into the /score request payload."""
+def build_articles(entries: list[dict], priorities: dict[int, int], now: datetime,
+                   embed_sims: dict[int, float] | None = None) -> list[dict]:
+    """Shape entries into the score request payload (with embed_sim when known)."""
+    sims = embed_sims or {}
     return [
         {
             "entry_id": e["id"],
-            "features": entry_features(e, priorities.get(e.get("feed_id"), 2), now),
+            "features": entry_features(
+                e, priorities.get(e.get("feed_id"), 2), now, sims.get(e["id"])),
         }
         for e in entries
     ]
@@ -90,6 +98,8 @@ def feature_label(name: str, feed_title: str | None = None) -> str:
         return "freshness"
     if name == "priority":
         return "priority tier"
+    if name == "embed_sim":
+        return "similar to your taste"
     if name.startswith("feed:"):
         return feed_title or "this source"
     if name.startswith("author:"):
@@ -100,10 +110,11 @@ def feature_label(name: str, feed_title: str | None = None) -> str:
 
 
 def build_observation(entry: dict, signal: str, value: float,
-                      priority: int, now: datetime) -> dict:
-    """Shape one engagement event + its entry into a /observe event."""
+                      priority: int, now: datetime,
+                      embed_sim: float | None = None) -> dict:
+    """Shape one engagement event + its entry into an observe event."""
     return {
         "signal": signal,
         "value": value,
-        "features": feature_names(entry, priority, now),
+        "features": feature_names(entry, priority, now, embed_sim),
     }

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from psycopg.types.json import Jsonb
 
-from app import miniflux_client, ranker, ranker_client
+from app import embeddings, miniflux_client, ranker, ranker_client
 from app.db import get_conn
 from app.extractor import fetch_and_extract
 from app.routes.cookies import get_cookies_for_url
@@ -451,8 +451,10 @@ async def entry_list(
         scores = None
         if use_smart:
             priorities = {e.get("feed_id"): e.get("_priority", 2) for e in entries}
+            async with get_conn() as conn:
+                sims = await embeddings.embed_sims(conn, [e["id"] for e in entries])
             scores = await ranker_client.score(
-                ranker.build_articles(entries, priorities, now)
+                ranker.build_articles(entries, priorities, now, sims)
             )
 
         if scores:
@@ -896,8 +898,10 @@ async def why_ranked(entry_id: int, request: Request):
         if row and row["priority"] is not None:
             prio = row["priority"]
     now = datetime.now(timezone.utc)
+    async with get_conn() as conn:
+        sims = await embeddings.embed_sims(conn, [entry_id])
     article = {"entry_id": entry_id,
-               "features": ranker.entry_features(entry, prio, now)}
+               "features": ranker.entry_features(entry, prio, now, sims.get(entry_id))}
     reasons = await ranker_client.explain(article)
     items = [
         {"label": ranker.feature_label(r["name"], feed.get("title")), "dir": r["dir"]}

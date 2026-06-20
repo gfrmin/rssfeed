@@ -720,13 +720,18 @@ async def feed_settings(request: Request, feed_id: int):
     _annotate_health(feed, datetime.now(timezone.utc))
     async with get_conn() as conn:
         cur = await conn.execute(
-            "SELECT fetch_full_content, priority, extract_rules FROM feed_config WHERE feed_id = %s",
+            "SELECT fetch_full_content, priority, extract_rules, "
+            "show_read_default, author_mutes, tag_mutes "
+            "FROM feed_config WHERE feed_id = %s",
             (feed_id,),
         )
         row = await cur.fetchone()
         fetch_full = row["fetch_full_content"] if row else False
         priority = row["priority"] if row else 2
         extract_rules = row["extract_rules"] if row else {}
+        show_read_default = bool(row["show_read_default"]) if row else False
+        author_mutes = list(row["author_mutes"] or []) if row else []
+        tag_mutes = list(row["tag_mutes"] or []) if row else []
 
         cur = await conn.execute(
             "SELECT old_url, new_url, source, changed_at FROM feed_url_history "
@@ -741,6 +746,9 @@ async def feed_settings(request: Request, feed_id: int):
         "extract_rules_json": json.dumps(extract_rules or {}, indent=2),
         "url_history": url_history,
         "has_proxy": bool(BRIGHTDATA_PROXY),
+        "show_read_default": show_read_default,
+        "author_mutes": author_mutes,
+        "tag_mutes": tag_mutes,
     }
     template = "_feed_settings_overlay.html" if request.headers.get("HX-Request") else "feed_settings.html"
     return templates.TemplateResponse(request, template, ctx)

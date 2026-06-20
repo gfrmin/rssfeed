@@ -34,6 +34,13 @@ ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS priority INT DEFAULT 2;
 
 ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS extract_rules JSONB DEFAULT '{}'::jsonb;
 
+-- Per-feed reading preferences (Part A): default to showing read articles on the
+-- feed's own page, and per-feed author/tag mute lists (hidden on the feed page and
+-- down-ranked in cross-feed smart views).
+ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS show_read_default BOOLEAN DEFAULT FALSE;
+ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS author_mutes JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE feed_config ADD COLUMN IF NOT EXISTS tag_mutes JSONB DEFAULT '[]'::jsonb;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_entry_hash
   ON article_snapshots(entry_id, content_hash);
 

@@ -29,6 +29,30 @@
              hx-target="#list-col" hx-push-url="true">{{ icon("x", 12) }}</button>{% endif %}
     </div>
   </form>
+
+  {% if feed_id %}
+  <div class="list-filters">
+    <button class="lf-toggle {{ 'on' if show_read else '' }}" type="button"
+            title="Toggle read articles on this feed"
+            hx-post="/feeds/{{ feed_id }}/show-read" hx-target="#list-col">
+      {{ icon("check", 12) }} {{ 'Read + unread' if show_read else 'Unread only' }}
+    </button>
+    {% for a in feed_prefs.author_mutes %}
+    <span class="lf-mute" title="Author hidden on this feed">{{ a }}
+      <button type="button" aria-label="Unhide author"
+              hx-post="/feeds/{{ feed_id }}/unmute" hx-target="#list-col"
+              hx-vals='{"kind":"author","value":{{ a | tojson }}}'>{{ icon("x", 10) }}</button>
+    </span>
+    {% endfor %}
+    {% for t in feed_prefs.tag_mutes %}
+    <span class="lf-mute" title="Tag hidden on this feed">#{{ t }}
+      <button type="button" aria-label="Unhide tag"
+              hx-post="/feeds/{{ feed_id }}/unmute" hx-target="#list-col"
+              hx-vals='{"kind":"tag","value":{{ t | tojson }}}'>{{ icon("x", 10) }}</button>
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
 </header>
 
 <div class="list-scroll dens-normal" id="list-scroll">

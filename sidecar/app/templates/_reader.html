@@ -27,14 +27,18 @@
           {% if entry.feed %}{{ tile(entry.feed, 18) }}
           <a class="art-feed" href="/entries?feed_id={{ entry.feed.id }}" hx-get="/entries?feed_id={{ entry.feed.id }}" hx-target="#list-col" hx-push-url="true">{{ entry.feed.title }}</a>
           <a class="art-gear" href="/feeds/{{ entry.feed.id }}" hx-get="/feeds/{{ entry.feed.id }}" hx-target="#overlay-slot" title="Feed settings">{{ icon("settings", 12) }}</a>{% endif %}
-          {% if entry.author %}<span class="dot-sep">&middot;</span><span>{{ entry.author }}</span>{% endif %}
+          {% if entry.author %}<span class="dot-sep">&middot;</span><span class="art-author">{{ entry.author }}{% if entry.feed %}<button class="art-hide" type="button" title="Hide this author on {{ entry.feed.title }}"
+                  hx-post="/feeds/{{ entry.feed.id }}/mute" hx-target="#list-col"
+                  hx-vals='{"kind":"author","value":{{ entry.author | tojson }}}'>{{ icon("x", 10) }}</button>{% endif %}</span>{% endif %}
           <span class="dot-sep">&middot;</span><span>{{ entry.published_at[:10] if entry.published_at else '' }}</span>
           <span class="dot-sep">&middot;</span><span>{{ icon("clock", 11) }} {{ entry.content | reading_time }}</span>
         </div>
         {% set real_tags = (entry.tags or [])[:5] %}
         {% if real_tags %}
         <div class="art-tags">
-          {% for t in real_tags %}{{ tag(t) }}{% endfor %}
+          {% for t in real_tags %}<span class="art-tag-wrap">{{ tag(t) }}{% if entry.feed %}<button class="art-hide" type="button" title="Hide tag #{{ t }} on {{ entry.feed.title }}"
+                hx-post="/feeds/{{ entry.feed.id }}/mute" hx-target="#list-col"
+                hx-vals='{"kind":"tag","value":{{ t | tojson }}}'>{{ icon("x", 10) }}</button>{% endif %}</span>{% endfor %}
         </div>
         {% endif %}
       </header>

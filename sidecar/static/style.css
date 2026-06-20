@@ -176,6 +176,27 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .search-clear { position:absolute; right:7px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--faint); padding:3px; display:flex; }
 .search-clear:hover { color:var(--text); }
 
+/* Feed-page filter strip: show-read toggle + active author/tag mutes (Part A). */
+.list-filters { display:flex; align-items:center; gap:6px; padding-bottom:10px; flex-wrap:wrap; }
+.lf-toggle { display:inline-flex; align-items:center; gap:5px; background:var(--panel-2); border:1px solid var(--border);
+  border-radius:6px; padding:3px 9px; color:var(--muted); font-size:11px; font-family:"Geist Mono",ui-monospace,monospace;
+  letter-spacing:.01em; white-space:nowrap; transition:.1s; }
+.lf-toggle:hover { color:var(--text); border-color:var(--accent); }
+.lf-toggle.on { background:var(--accent); color:#0c0c0e; border-color:var(--accent); }
+.lf-mute { display:inline-flex; align-items:center; gap:4px; background:var(--panel-2); border:1px dashed var(--border);
+  border-radius:6px; padding:2px 4px 2px 8px; font-size:10.5px; color:var(--muted); }
+.lf-mute button { display:inline-flex; background:none; border:none; color:var(--faint); padding:1px; cursor:pointer; border-radius:3px; }
+.lf-mute button:hover { color:var(--danger); }
+.fset-mutes { display:flex; flex-wrap:wrap; gap:6px; }
+
+/* Reader inline "hide author / hide tag" affordances (Part A). */
+.art-author { display:inline-flex; align-items:center; gap:4px; }
+.art-tag-wrap { display:inline-flex; align-items:center; gap:2px; }
+.art-hide { display:inline-flex; opacity:0; background:none; border:none; color:var(--faint); padding:1px; cursor:pointer;
+  border-radius:3px; transition:.1s; }
+.art-author:hover .art-hide, .art-tag-wrap:hover .art-hide { opacity:.7; }
+.art-hide:hover { opacity:1; color:var(--danger); }
+
 .list-controls { display:flex; align-items:center; gap:7px; padding-bottom:11px; flex-wrap:wrap; }
 .seg { display:inline-flex; background:var(--panel-2); border:1px solid var(--border); border-radius:7px; padding:2px; }
 .seg-btn { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; background:none; border:none; border-radius:5px;

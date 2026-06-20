@@ -16,44 +16,18 @@
   applyTheme(localStorage.getItem('theme') || 'dark');
   function toggleTheme() { applyTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); }
 
-  /* ---------- layout (triptych / stacked) ---------- */
-  function applyLayout(l) {
-    var app = document.getElementById('app');
-    if (app) app.classList.toggle('layout-stacked', l === 'stacked');
-    localStorage.setItem('layout', l);
-  }
-  applyLayout(localStorage.getItem('layout') || 'triptych');
-  function toggleLayout() { applyLayout(localStorage.getItem('layout') === 'stacked' ? 'triptych' : 'stacked'); }
-
   /* ---------- mobile detection ---------- */
   function syncMobile() { body.classList.toggle('is-mobile', window.innerWidth < 880); }
   syncMobile();
   window.addEventListener('resize', syncMobile);
 
-  /* ---------- footer tool buttons + density + tag cloud (delegated) ---------- */
-  function applyDensity(d) {
-    var sc = document.getElementById('list-scroll');
-    if (sc) { sc.classList.remove('dens-compact', 'dens-normal', 'dens-expanded'); sc.classList.add('dens-' + d); }
-    document.querySelectorAll('#density-seg .seg-btn').forEach(function (b) {
-      b.classList.toggle('on', b.dataset.density === d);
-    });
-    localStorage.setItem('density', d);
-  }
-
+  /* ---------- delegated controls ---------- */
   document.addEventListener('click', function (e) {
     var act = e.target.closest('[data-act]');
     if (act) {
-      var a = act.dataset.act;
-      if (a === 'theme') toggleTheme();
-      else if (a === 'layout') toggleLayout();
-      else if (a === 'triage') openTriage();
-      else if (a === 'palette') openPalette();
+      if (act.dataset.act === 'theme') toggleTheme();
       return;
     }
-    var dens = e.target.closest('[data-density]');
-    if (dens) { applyDensity(dens.dataset.density); return; }
-    var tc = e.target.closest('#tagcloud-toggle');
-    if (tc) { var cloud = document.getElementById('tagcloud'); if (cloud) cloud.classList.toggle('hidden'); }
     // Diff overlay: Unified/Split toggle (both rendered server-side).
     var dm = e.target.closest('.diff-modeseg .seg-btn');
     if (dm) {
@@ -175,8 +149,7 @@
   }
 
   /* ============================================================
-     OVERLAYS (health/stats/filters/feed-settings/diff/help/triage)
-     loaded as fragments into #overlay-slot.
+     OVERLAYS (feed-settings / diff) loaded as fragments into #overlay-slot.
      ============================================================ */
   function overlaySlot() { return document.getElementById('overlay-slot'); }
   function overlayOpen() { var s = overlaySlot(); return s && s.children.length > 0; }
@@ -203,7 +176,7 @@
   }
   function markOverlayA11y() {
     var s = overlaySlot(); if (!s) return;
-    var scrim = s.querySelector('.ov-scrim, .tri-scrim, .cmdk-scrim');
+    var scrim = s.querySelector('.ov-scrim');
     if (!scrim || scrim.getAttribute('role') === 'dialog') return;
     scrim.setAttribute('role', 'dialog');
     scrim.setAttribute('aria-modal', 'true');
@@ -225,16 +198,10 @@
   document.addEventListener('click', function (e) {
     var s = overlaySlot();
     if (!s || !s.children.length) return;
-    if (e.target.classList.contains('ov-scrim') || e.target.classList.contains('tri-scrim') ||
-        e.target.classList.contains('cmdk-scrim') || e.target.closest('[data-close]')) {
+    if (e.target.classList.contains('ov-scrim') || e.target.closest('[data-close]')) {
       closeOverlay();
     }
   });
-
-  function openTriage() {
-    if (window.htmx) window.htmx.ajax('GET', '/triage', { target: '#overlay-slot', swap: 'innerHTML' });
-  }
-  function openPalette() { document.dispatchEvent(new CustomEvent('palette:open')); }
 
   /* ============================================================
      MOBILE READING STATE + HISTORY-DRIVEN NAVIGATION
@@ -246,7 +213,7 @@
   function exitReading() { body.classList.remove('mobile-reading'); }
 
   window.ReaderApp = {
-    openTriage: openTriage, openPalette: openPalette, closeOverlay: closeOverlay,
+    closeOverlay: closeOverlay,
     isMobile: isMobile, enterReading: enterReading, exitReading: exitReading,
     syncScrollLock: syncScrollLock, markOverlayA11y: markOverlayA11y,
   };
@@ -317,16 +284,8 @@
       if (e.key === 'Escape') e.target.blur();
       return;
     }
-    if (e.metaKey || e.ctrlKey || e.altKey) {
-      if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) { e.preventDefault(); openPalette(); }
-      return;
-    }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-    // Triage owns its own keyboard while open; the global handler steps back.
-    if (document.querySelector('.tri-scrim')) {
-      if (e.key === 'Escape') closeOverlay();
-      return;
-    }
     if (overlayOpen()) {
       if (e.key === 'Escape') { e.preventDefault(); closeOverlay(); }
       return;
@@ -343,9 +302,7 @@
       case 'm': if (row) { e.preventDefault(); toggleRead(row); } break;
       case 's': if (row) { e.preventDefault(); toggleStar(row); } break;
       case 'r': e.preventDefault(); markAllVisible(); break;
-      case 'q': e.preventDefault(); openTriage(); break;
       case '/': e.preventDefault(); { var si = document.getElementById('list-search-input'); if (si) si.focus(); } break;
-      case '?': e.preventDefault(); if (window.htmx) window.htmx.ajax('GET', '/help', { target: '#overlay-slot', swap: 'innerHTML' }); break;
       case 'Escape': rows.forEach(function (r) { r.classList.remove('sel'); }); selectedIdx = -1; break;
     }
   });
@@ -394,27 +351,12 @@
      ============================================================ */
   function initList() {
     selectedIdx = -1;
-    applyDensity(localStorage.getItem('density') || 'normal');
     bindSwipe();
     updateStatusPos(0, listRows().length);
   }
 
-  // Deep-link / redirect target: /entries?open=help|triage opens the overlay
-  // (and we strip the param so a refresh doesn't reopen it).
-  function openFromQuery() {
-    var sp = new URLSearchParams(location.search);
-    var op = sp.get('open');
-    if (!op) return;
-    sp.delete('open');
-    var qs = sp.toString();
-    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
-    if (op === 'triage') openTriage();
-    else if (op === 'help' && window.htmx) window.htmx.ajax('GET', '/help', { target: '#overlay-slot', swap: 'innerHTML' });
-  }
-
   document.addEventListener('DOMContentLoaded', function () {
     initList();
-    openFromQuery();
     pollUnread();
     setInterval(pollUnread, 60000);
     // Refresh the badge immediately when the tab is brought back to the foreground.

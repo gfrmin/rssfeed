@@ -1,13 +1,11 @@
 import asyncio
 import difflib
 import logging
-import re
 import time
 from datetime import datetime, timezone, timedelta
-from urllib.parse import quote
 
-from fastapi import APIRouter, Form, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from app import miniflux_client
 from app.db import get_conn
@@ -42,58 +40,6 @@ async def _feed_priorities(conn) -> dict[int, int]:
     return {row["feed_id"]: row["priority"] for row in await cur.fetchall()}
 
 
-async def _entry_tags(conn, entry_ids: list[int]) -> dict[int, list[str]]:
-    """Get LLM-generated tags for a list of entries."""
-    if not entry_ids:
-        return {}
-    cur = await conn.execute(
-        "SELECT entry_id, tag FROM article_tags WHERE entry_id = ANY(%s)",
-        (entry_ids,),
-    )
-    result: dict[int, list[str]] = {}
-    for row in await cur.fetchall():
-        result.setdefault(row["entry_id"], []).append(row["tag"])
-    return result
-
-
-async def _list_prompts(conn) -> list[dict]:
-    """Return all saved summary prompts (built-ins first, then custom by name)."""
-    cur = await conn.execute(
-        "SELECT id, name, system_prompt, is_builtin FROM summary_prompts "
-        "ORDER BY is_builtin DESC, name ASC"
-    )
-    return [dict(row) for row in await cur.fetchall()]
-
-
-def _extract_summaries(metadata: dict | None) -> dict[str, str]:
-    """Read summaries dict, falling back to legacy single-summary field under the 'default' key."""
-    if not metadata:
-        return {}
-    out = dict(metadata.get("summaries") or {})
-    legacy = metadata.get("summary")
-    if legacy and "default" not in out:
-        out["default"] = legacy
-    return out
-
-
-def _slugify(name: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-    return s[:50] or "custom"
-
-
-async def _unique_slug(conn, base: str) -> str:
-    slug = base
-    suffix = 2
-    while True:
-        cur = await conn.execute(
-            "SELECT 1 FROM summary_prompts WHERE id = %s", (slug,),
-        )
-        if await cur.fetchone() is None:
-            return slug
-        slug = f"{base}_{suffix}"
-        suffix += 1
-
-
 async def _entries_with_changes(conn) -> set[int]:
     """Get entry IDs that have more than one snapshot version."""
     cur = await conn.execute(
@@ -126,7 +72,7 @@ TIERS = [(1, "Must read"), (2, "Normal"), (3, "Low priority")]
 
 VIEW_TITLES = {
     "unread": "Unread", "all": "All articles", "read": "Read", "starred": "Starred",
-    "ranked": "Top ranked", "changed": "Changed",
+    "changed": "Changed",
     "t:today": "Today", "t:24h": "Last 24 hours", "t:week": "This week",
 }
 
@@ -150,29 +96,6 @@ def _feed_health_state(feed: dict, now: datetime) -> str:
     return "ok"
 
 
-def _rank_score(entry: dict, now: datetime) -> int:
-    """Derived relevance score (0-100) from priority tier + recency + signals.
-    No stored score exists; this gives the rank meter a sortable value."""
-    score = {1: 84, 2: 56, 3: 30}.get(entry.get("_priority", 2), 50)
-    pub = entry.get("published_at") or ""
-    try:
-        dt = datetime.fromisoformat(pub.replace("Z", "+00:00"))
-        hrs = (now - dt).total_seconds() / 3600
-        if hrs < 24:
-            score += 12
-        elif hrs < 72:
-            score += 7
-        elif hrs < 168:
-            score += 3
-    except Exception:
-        pass
-    if entry.get("_has_changes"):
-        score += 5
-    if entry.get("starred"):
-        score += 4
-    return max(0, min(100, score))
-
-
 async def _snapshot_versions(conn, entry_ids: list[int]) -> dict[int, dict]:
     """Map entry_id -> {version, count} for entries that have full-text snapshots."""
     if not entry_ids:
@@ -193,23 +116,19 @@ def _audio_enclosure(entry: dict) -> dict | None:
 
 
 async def _enrich_entries(conn, entries: list[dict], now: datetime) -> None:
-    """Attach _tags, _has_changes, _rank, _full, _audio to each entry in place."""
+    """Attach _has_changes, _priority, _full, _audio to each entry in place."""
     entry_ids = [e["id"] for e in entries]
-    tags_map = await _entry_tags(conn, entry_ids)
     changed_ids = await _entries_with_changes(conn)
     snaps = await _snapshot_versions(conn, entry_ids)
     priorities = await _feed_priorities(conn)
     for e in entries:
-        e["_tags"] = tags_map.get(e["id"], [])
-        e["_mtags"] = e.get("tags") or []
         e["_has_changes"] = e["id"] in changed_ids
         e["_priority"] = priorities.get(e.get("feed_id"), 2)
         e["_full"] = snaps.get(e["id"])
         e["_audio"] = _audio_enclosure(e)
-        e["_rank"] = _rank_score(e, now)
 
 
-def _active_view(*, feed_id, view, starred, changed, time_filter, sort, show_all) -> str | None:
+def _active_view(*, feed_id, view, starred, changed, time_filter, show_all) -> str | None:
     if feed_id:
         return None
     if view in VIEW_TITLES:
@@ -220,8 +139,6 @@ def _active_view(*, feed_id, view, starred, changed, time_filter, sort, show_all
         return "changed"
     if time_filter in ("today", "24h", "week"):
         return "t:" + time_filter
-    if sort == "rank" and not show_all:
-        return "ranked"
     if show_all:
         return "all"
     return "unread"
@@ -230,37 +147,36 @@ def _active_view(*, feed_id, view, starred, changed, time_filter, sort, show_all
 _SIDEBAR_CACHE: dict[str, tuple[float, dict]] = {}
 _SIDEBAR_CACHE_TTL = 10.0
 _SIDEBAR_CACHE_LOCK = asyncio.Lock()
+_SIDEBAR_KEY = "tier"
 
 
 def _invalidate_sidebar_cache() -> None:
     """Drop cached sidebar data so the next navigation recomputes counts/feeds.
-    Call after any action that changes unread/read/starred counts or saved searches."""
+    Call after any action that changes unread/read/starred counts."""
     _SIDEBAR_CACHE.clear()
 
 
-async def _sidebar_data(group_by: str) -> dict:
-    """Cached view-independent sidebar data (TTL + double-checked lock), mirroring
-    the _FEEDS_CACHE pattern in miniflux_client. Collapses the 4 Miniflux calls + DB
-    queries to a warm-cache hit during rapid navigation."""
+async def _sidebar_data() -> dict:
+    """Cached view-independent sidebar data (TTL + double-checked lock). Collapses the
+    Miniflux calls + DB queries to a warm-cache hit during rapid navigation."""
     now_m = time.monotonic()
-    cached = _SIDEBAR_CACHE.get(group_by)
+    cached = _SIDEBAR_CACHE.get(_SIDEBAR_KEY)
     if cached and now_m - cached[0] < _SIDEBAR_CACHE_TTL:
         return cached[1]
     async with _SIDEBAR_CACHE_LOCK:
-        cached = _SIDEBAR_CACHE.get(group_by)
+        cached = _SIDEBAR_CACHE.get(_SIDEBAR_KEY)
         if cached and time.monotonic() - cached[0] < _SIDEBAR_CACHE_TTL:
             return cached[1]
-        data = await _build_sidebar_data(group_by)
-        _SIDEBAR_CACHE[group_by] = (time.monotonic(), data)
+        data = await _build_sidebar_data()
+        _SIDEBAR_CACHE[_SIDEBAR_KEY] = (time.monotonic(), data)
         return data
 
 
-async def build_sidebar(*, active_view: str | None, active_feed_id: int | None,
-                        group_by: str = "tier") -> dict:
+async def build_sidebar(*, active_view: str | None, active_feed_id: int | None) -> dict:
     """Assemble the persistent left-rail context. The expensive, view-independent
-    part (feeds/counts/searches/health) is cached by _sidebar_data; only the active
-    view/feed highlighting is layered on per request."""
-    data = await _sidebar_data(group_by)
+    part (feeds/counts) is cached by _sidebar_data; only the active view/feed
+    highlighting is layered on per request."""
+    data = await _sidebar_data()
     return {
         **data,
         "view": active_view,
@@ -269,14 +185,13 @@ async def build_sidebar(*, active_view: str | None, active_feed_id: int | None,
     }
 
 
-async def _build_sidebar_data(group_by: str) -> dict:
-    """The expensive, view-independent part of the sidebar (feeds-by-group, counts,
-    saved searches, health). Hits Miniflux + DB; cached by _sidebar_data()."""
+async def _build_sidebar_data() -> dict:
+    """The expensive, view-independent part of the sidebar (feeds-by-tier, counts).
+    Hits Miniflux + DB; cached by _sidebar_data()."""
     now = datetime.now(timezone.utc)
-    feeds, counters, categories, starred_data = await asyncio.gather(
+    feeds, counters, starred_data = await asyncio.gather(
         miniflux_client.get_feeds(),
         miniflux_client.get_feed_counters(),
-        miniflux_client.get_categories(),
         miniflux_client.get_entries(starred=True, limit=1),
     )
     unreads = counters.get("unreads", {}) or {}
@@ -285,32 +200,20 @@ async def _build_sidebar_data(group_by: str) -> dict:
     async with get_conn() as conn:
         configs = await _feed_configs_full(conn)
         changed_ids = await _entries_with_changes(conn)
-        searches, search_counts = await _saved_searches_with_counts(conn, unreads)
 
-    health_alert = 0
     for f in feeds:
         cfg = configs.get(f["id"], {})
         f["_priority"] = cfg.get("priority", 2)
         f["_proxy"] = bool(cfg.get("fetch_full_content"))
         f["_health"] = _feed_health_state(f, now)
         f["_unread"] = unreads.get(str(f["id"]), 0)
-        f["_cat"] = (f.get("category") or {}).get("id")
-        if f["_health"] == "error":
-            health_alert += 1
 
-    if group_by == "cat":
-        groups = [
-            {"key": c["id"], "label": c.get("title", "—"),
-             "items": [f for f in feeds if f["_cat"] == c["id"]]}
-            for c in categories
-        ]
-    else:
-        groups = [
-            {"key": p, "label": label,
-             "items": sorted([f for f in feeds if f["_priority"] == p],
-                             key=lambda f: f.get("title", "").lower())}
-            for p, label in TIERS
-        ]
+    groups = [
+        {"key": p, "label": label,
+         "items": sorted([f for f in feeds if f["_priority"] == p],
+                         key=lambda f: f.get("title", "").lower())}
+        for p, label in TIERS
+    ]
     groups = [g for g in groups if g["items"]]
 
     unread_total = sum(int(v) for v in unreads.values())
@@ -323,14 +226,7 @@ async def _build_sidebar_data(group_by: str) -> dict:
         "changed": len(changed_ids),
     }
 
-    return {
-        "groups": groups,
-        "group_by": group_by,
-        "counts": counts,
-        "health_alert": health_alert,
-        "searches": searches,
-        "search_counts": search_counts,
-    }
+    return {"groups": groups, "counts": counts}
 
 
 async def _feed_configs_full(conn) -> dict[int, dict]:
@@ -338,19 +234,6 @@ async def _feed_configs_full(conn) -> dict[int, dict]:
         "SELECT feed_id, fetch_full_content, priority FROM feed_config"
     )
     return {row["feed_id"]: row for row in await cur.fetchall()}
-
-
-async def _saved_searches_with_counts(conn, unreads) -> tuple[list[dict], dict]:
-    """Saved searches + live unread counts. Returns ([], {}) until Phase 4 adds the table."""
-    try:
-        cur = await conn.execute(
-            "SELECT id, name, icon, query, tags, view FROM saved_searches ORDER BY created_at"
-        )
-        rows = [dict(r) for r in await cur.fetchall()]
-    except Exception:
-        return [], {}
-    # Counts are computed in Phase 4 (match_search over the unread set); 0 for now.
-    return rows, {r["id"]: 0 for r in rows}
 
 
 def _wants_list_fragment(request: Request) -> bool:
@@ -374,12 +257,8 @@ async def entry_list(
     offset: int = 0,
     search: str | None = None,
     starred: bool = False,
-    category_id: int | None = None,
     time_filter: str | None = None,
-    sort: str | None = None,
-    tag: list[str] = Query(default=[]),
     changed: bool = False,
-    group_by: str = "tier",
 ):
     limit = 50
     now = datetime.now(timezone.utc)
@@ -389,9 +268,6 @@ async def entry_list(
         starred = True
     elif view == "changed":
         changed = True
-    elif view == "ranked":
-        sort = "rank"
-        status = "unread"
     elif view == "all":
         status = "all"
     elif view == "read":
@@ -406,7 +282,6 @@ async def entry_list(
         status = None
     elif status is None and not starred:
         status = "unread"
-    sort = sort or "rank"
     time_params = _time_filter_params(time_filter)
 
     feed = None
@@ -419,14 +294,12 @@ async def entry_list(
         entries = data.get("entries", [])
         total = data.get("total", 0)
     else:
-        # Over-fetch only when client-side tag/changed filtering will prune the set
-        # below; otherwise fetch just the page we render (avoids a ~4× Miniflux +
-        # enrich cost on the common unread/all/read views).
-        fetch_limit = 200 if (tag or changed) else limit
+        # Over-fetch only when client-side "changed" filtering will prune the set
+        # below; otherwise fetch just the page we render.
+        fetch_limit = 200 if changed else limit
         data = await miniflux_client.get_entries(
             status=status, limit=fetch_limit, offset=offset,
-            search=search, starred=starred, category_id=category_id,
-            **time_params,
+            search=search, starred=starred, **time_params,
         )
         entries = data.get("entries", [])
         total = data.get("total", 0)
@@ -434,31 +307,20 @@ async def entry_list(
     async with get_conn() as conn:
         await _enrich_entries(conn, entries, now)
 
-    # Tag filter (client-side, against LLM + manual tags)
-    if tag:
-        tag_set = set(tag)
-        entries = [e for e in entries if tag_set & (set(e["_tags"]) | set(e["_mtags"]))]
     if changed:
         entries = [e for e in entries if e["_has_changes"]]
 
-    # Ordering
-    if sort == "newest":
-        entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
-    else:  # rank: priority tier then recency
-        entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
-        entries.sort(key=lambda e: (e.get("_priority", 2), -e.get("_rank", 0)))
+    # Priority tier first (must-read feeds bubble up), then newest within tier.
+    entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
+    entries.sort(key=lambda e: e.get("_priority", 2))
     if not feed_id:
         entries = entries[:limit]
 
-    all_tags = sorted({t for e in entries for t in (e["_tags"] + e["_mtags"])})
-
     active_view = _active_view(
         feed_id=feed_id, view=view, starred=starred, changed=changed,
-        time_filter=time_filter, sort=sort, show_all=show_all,
+        time_filter=time_filter, show_all=show_all,
     )
-    sidebar = await build_sidebar(
-        active_view=active_view, active_feed_id=feed_id, group_by=group_by,
-    )
+    sidebar = await build_sidebar(active_view=active_view, active_feed_id=feed_id)
 
     ctx = {
         "entries": entries,
@@ -472,96 +334,13 @@ async def entry_list(
         "total": total,
         "search": search or "",
         "starred": starred,
-        "category_id": category_id,
         "time_filter": time_filter or "",
-        "sort": sort,
-        "tag": tag,
         "changed": changed,
-        "all_tags": all_tags,
         "title": (feed.get("title") if feed else VIEW_TITLES.get(active_view, "Articles")),
         "sidebar": sidebar,
     }
     template = "entries_fragment.html" if _wants_list_fragment(request) else "entries.html"
     return templates.TemplateResponse(request, template, ctx)
-
-
-@router.get("/triage", response_class=HTMLResponse)
-async def triage(request: Request):
-    """Card-by-card walk through unread, ranked. The deck is snapshotted
-    server-side so marking-read doesn't shift it underfoot."""
-    # Direct navigation (bookmark / typed URL) would render a bare, unstyled
-    # fragment — send it into the app with the overlay auto-opening instead.
-    if not request.headers.get("HX-Request"):
-        return RedirectResponse("/entries?open=triage")
-    now = datetime.now(timezone.utc)
-    data = await miniflux_client.get_entries(
-        status="unread", limit=200, direction="desc", order="published_at",
-    )
-    entries = data.get("entries", [])
-    async with get_conn() as conn:
-        await _enrich_entries(conn, entries, now)
-    entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
-    entries.sort(key=lambda e: (e.get("_priority", 2), -e.get("_rank", 0)))
-    entries = entries[:40]
-    for e in entries:
-        f = e.get("feed")
-        if f:
-            f["_health"] = _feed_health_state(f, now)
-    return templates.TemplateResponse(request, "_triage.html", {"queue": entries})
-
-
-@router.get("/help", response_class=HTMLResponse)
-async def help_overlay(request: Request):
-    if not request.headers.get("HX-Request"):
-        return RedirectResponse("/entries?open=help")
-    return templates.TemplateResponse(request, "_help_overlay.html", {})
-
-
-_PALETTE_VIEWS = [
-    ("Unread", "unread", "inbox"), ("All", "all", "layers"),
-    ("Read", "read", "check"),
-    ("Starred", "starred", "star"), ("Top ranked", "ranked", "bolt"),
-    ("Changed", "changed", "diff"),
-]
-
-
-@router.get("/api/palette")
-async def palette(request: Request):
-    """Command-palette index: actions, views, saved searches, feeds, recent articles."""
-    feeds, counters, data = await asyncio.gather(
-        miniflux_client.get_feeds(),
-        miniflux_client.get_feed_counters(),
-        miniflux_client.get_entries(status="unread", limit=10, direction="desc", order="published_at"),
-    )
-    unreads = counters.get("unreads", {}) or {}
-    recents = data.get("entries", [])
-    async with get_conn() as conn:
-        cur = await conn.execute("SELECT id, name, icon, query, tags FROM saved_searches ORDER BY created_at")
-        searches = [dict(r) for r in await cur.fetchall()]
-
-    items: list[dict] = [
-        {"group": "Actions", "label": "Triage queue", "sub": "walk unread by rank", "icon": "bolt", "kbd": "q", "act": "triage"},
-        {"group": "Actions", "label": "Feed health", "icon": "health", "url": "/feeds/health", "target": "overlay-slot"},
-        {"group": "Actions", "label": "Reading stats", "icon": "activity", "url": "/stats", "target": "overlay-slot"},
-        {"group": "Actions", "label": "Saved filters", "icon": "filter", "url": "/filters", "target": "overlay-slot"},
-        {"group": "Actions", "label": "Toggle theme", "icon": "sun", "act": "theme"},
-        {"group": "Actions", "label": "Keyboard shortcuts", "icon": "cpu", "kbd": "?", "act": "help"},
-    ]
-    for label, vw, ic in _PALETTE_VIEWS:
-        items.append({"group": "Views", "label": label, "icon": ic, "url": f"/entries?view={vw}", "target": "list-col"})
-    for ss in searches:
-        url = "/entries?search=" + quote(ss["query"] or "")
-        for t in (ss["tags"] or []):
-            url += "&tag=" + quote(t)
-        items.append({"group": "Searches", "label": ss["name"], "icon": ss["icon"] or "search", "url": url, "target": "list-col"})
-    for f in feeds:
-        c = unreads.get(str(f["id"]), 0)
-        items.append({"group": "Feeds", "label": f.get("title", ""), "sub": (f"{c} unread" if c else ""),
-                      "icon": "dot", "url": f"/entries?feed_id={f['id']}", "target": "list-col"})
-    for e in recents:
-        items.append({"group": "Articles", "label": e.get("title", ""), "sub": (e.get("feed") or {}).get("title", ""),
-                      "icon": "chevron", "url": f"/entries/{e['id']}", "target": "reader-col"})
-    return JSONResponse({"items": items})
 
 
 @router.get("/entries/{entry_id}", response_class=HTMLResponse)
@@ -581,30 +360,13 @@ async def entry_detail(request: Request, entry_id: int):
         except Exception:
             pub_ts = None
 
-    # The reader body only needs entry/snapshot/tags/summaries to paint; the read-event
-    # write, prompt list and prev/next nav are all independent, so run them concurrently
-    # instead of sequentially. Each get_conn() opens its own connection (db.py), so
-    # concurrent DB work is safe. The slow similar-articles vector search is loaded
-    # separately (lazy #similar-slot → /entries/{id}/similar) so it never blocks paint.
-    async def _snapshot_and_read_event():
+    # The reader body needs the snapshot to paint; prev/next nav is independent, so
+    # run them concurrently. Each get_conn() opens its own connection (db.py).
+    async def _snapshot_and_count():
         async with get_conn() as conn:
             snap = await _get_snapshot(conn, entry_id)
             v = await _version_count(conn, entry_id) if snap else 0
-            await conn.execute(
-                "INSERT INTO read_events (entry_id, feed_id) VALUES (%s, %s)",
-                (entry_id, feed_id or 0),
-            )
-            await conn.commit()
         return snap, v
-
-    async def _tags_and_prompts():
-        async with get_conn() as conn:
-            cur = await conn.execute(
-                "SELECT tag FROM article_tags WHERE entry_id = %s", (entry_id,)
-            )
-            tags = [row["tag"] for row in await cur.fetchall()]
-            pr = await _list_prompts(conn)
-        return tags, pr
 
     async def _adjacent(direction: str):
         if not pub_ts:
@@ -615,16 +377,11 @@ async def entry_detail(request: Request, entry_id: int):
         ents = data.get("entries") or []
         return ents[0]["id"] if ents else None
 
-    (snapshot, vc), (llm_tags, prompts), prev_entry_id, next_entry_id = \
-        await asyncio.gather(
-            _snapshot_and_read_event(),
-            _tags_and_prompts(),
-            _adjacent("prev"),
-            _adjacent("next"),
-        )
-
-    summaries = _extract_summaries(snapshot.get("metadata") if snapshot else None)
-    prompt_names = {p["id"]: p["name"] for p in prompts}
+    (snapshot, vc), prev_entry_id, next_entry_id = await asyncio.gather(
+        _snapshot_and_count(),
+        _adjacent("prev"),
+        _adjacent("next"),
+    )
 
     # Detect audio enclosures for podcast player
     enclosures = entry.get("enclosures") or []
@@ -640,10 +397,6 @@ async def entry_detail(request: Request, entry_id: int):
         "entry": entry,
         "snapshot": snapshot,
         "version_count": vc,
-        "llm_tags": llm_tags,
-        "summaries": summaries,
-        "prompts": prompts,
-        "prompt_names": prompt_names,
         "audio_enclosure": audio_enclosure,
         "prev_entry_id": prev_entry_id,
         "next_entry_id": next_entry_id,
@@ -657,167 +410,6 @@ async def entry_detail(request: Request, entry_id: int):
         active_view=None, active_feed_id=entry.get("feed_id"),
     )
     return templates.TemplateResponse(request, "entry.html", ctx)
-
-
-@router.get("/entries/{entry_id}/similar", response_class=HTMLResponse)
-async def entry_similar(request: Request, entry_id: int):
-    """Lazy 'Similar articles' section — the embedding vector search is slow, so it
-    loads into #similar-slot after the reader has already painted."""
-    similar: list = []
-    async with get_conn() as conn:
-        cur = await conn.execute(
-            "SELECT embedding FROM article_embeddings WHERE entry_id = %s", (entry_id,)
-        )
-        row = await cur.fetchone()
-        if row:
-            from app.llm import find_similar
-            similar = await find_similar(conn, entry_id, row["embedding"])
-    return templates.TemplateResponse(request, "_similar.html", {"similar": similar})
-
-
-@router.post("/entries/{entry_id}/generate-summary")
-async def generate_summary(
-    request: Request,
-    entry_id: int,
-    prompt_id: str = Form(""),
-    inline_prompt: str = Form(""),
-    save_as: str = Form(""),
-):
-    """Kick off streaming summarisation.
-
-    Form accepts either `prompt_id` (use a saved prompt) OR `inline_prompt` (ad-hoc text).
-    If `save_as` is set alongside `inline_prompt`, the prompt is persisted to the library first.
-    """
-    async with get_conn() as conn:
-        snapshot = await _get_snapshot(conn, entry_id)
-        if not snapshot:
-            return HTMLResponse('<span class="text-danger">No full-text content available</span>')
-        text = snapshot.get("content_text") or ""
-        if not text:
-            return HTMLResponse('<span class="text-danger">No text content to summarize</span>')
-
-        resolved_prompt_id: str | None = None
-        prompt_label = "AI Summary"
-
-        if prompt_id:
-            cur = await conn.execute(
-                "SELECT id, name FROM summary_prompts WHERE id = %s", (prompt_id,),
-            )
-            row = await cur.fetchone()
-            if row is None:
-                return HTMLResponse('<span class="text-danger">Unknown prompt</span>')
-            resolved_prompt_id = row["id"]
-            prompt_label = row["name"]
-        elif inline_prompt.strip():
-            if save_as.strip():
-                slug = await _unique_slug(conn, _slugify(save_as))
-                await conn.execute(
-                    "INSERT INTO summary_prompts (id, name, system_prompt, is_builtin) "
-                    "VALUES (%s, %s, %s, FALSE)",
-                    (slug, save_as.strip(), inline_prompt.strip()),
-                )
-                await conn.commit()
-                resolved_prompt_id = slug
-                prompt_label = save_as.strip()
-            else:
-                prompt_label = "Custom (one-off)"
-        else:
-            return HTMLResponse('<span class="text-danger">Pick a prompt or write a custom one</span>')
-
-    return templates.TemplateResponse(
-        request,
-        "summary_stream.html",
-        {
-            "entry_id": entry_id,
-            "prompt_id": resolved_prompt_id or "",
-            "inline_prompt": "" if resolved_prompt_id else inline_prompt,
-            "prompt_label": prompt_label,
-        },
-    )
-
-
-@router.get("/entries/{entry_id}/summary-stream")
-async def summary_stream(
-    entry_id: int,
-    prompt_id: str = "",
-    inline_prompt: str = "",
-):
-    """SSE endpoint that generates and streams summary tokens for one prompt."""
-    from html import escape
-    from fastapi.responses import StreamingResponse
-    from app.llm import _ollama_generate_stream
-
-    async with get_conn() as conn:
-        snapshot = await _get_snapshot(conn, entry_id)
-        if not snapshot:
-            return HTMLResponse("")
-        text = snapshot.get("content_text") or ""
-        if not text:
-            return HTMLResponse("")
-        version = snapshot["version"]
-
-        prompt_label = "AI Summary"
-        if prompt_id:
-            cur = await conn.execute(
-                "SELECT name, system_prompt FROM summary_prompts WHERE id = %s", (prompt_id,),
-            )
-            row = await cur.fetchone()
-            if row is None:
-                return HTMLResponse("")
-            system_prompt = row["system_prompt"]
-            prompt_label = row["name"]
-        elif inline_prompt.strip():
-            system_prompt = inline_prompt.strip()
-            prompt_label = "Custom (one-off)"
-        else:
-            return HTMLResponse("")
-
-    truncated = " ".join(text.split()[:4000])
-
-    async def sse():
-        full = []
-        try:
-            async for token in _ollama_generate_stream(truncated, system_prompt):
-                full.append(token)
-                yield f"event: token\ndata: <span>{escape(token)}</span>\n\n"
-        except Exception as exc:
-            logger.exception("Summary stream failed for entry %s", entry_id)
-            msg = escape(f"Summarization failed: {exc}")
-            yield f'event: done\ndata: <span class="text-danger">{msg}</span>\n\n'
-            return
-
-        summary_text = "".join(full).strip()
-        if summary_text and prompt_id:
-            import psycopg.types.json
-            async with get_conn() as conn:
-                await conn.execute(
-                    "UPDATE article_snapshots "
-                    "SET metadata = jsonb_set("
-                    "  COALESCE(metadata, '{}'::jsonb), "
-                    "  '{summaries}', "
-                    "  COALESCE(metadata->'summaries', '{}'::jsonb) || %s::jsonb, "
-                    "  true"
-                    ") "
-                    "WHERE entry_id = %s AND version = %s",
-                    (psycopg.types.json.Json({prompt_id: summary_text}), entry_id, version),
-                )
-                await conn.commit()
-
-        from app.templating import _md
-        rendered = str(_md(summary_text)).replace("\n", "")
-        done_html = (
-            '<details class="summary-card" open>'
-            f'<summary><span class="sum-name">{escape(prompt_label)}</span><span class="sum-tag">Ollama</span></summary>'
-            f'<div class="summary-body">{rendered}</div>'
-            '</details>'
-        )
-        yield f"event: done\ndata: {done_html}\n\n"
-
-    return StreamingResponse(
-        sse(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
 
 
 def _content_block_ctx(entry_id: int, snapshot: dict | None, version_count: int,
@@ -924,9 +516,8 @@ def _structured_diff_lines(prev_text: str, curr_text: str) -> list[dict]:
 def to_split_rows(lines: list[dict]) -> list[dict]:
     """Pair a unified line list into side-by-side rows for the split view.
 
-    Faithful port of the prototype's ``toSplitRows`` (overlays.jsx): consecutive
-    removed/added lines pair by index (``left``/``right`` go ``None`` when one
-    side runs out → a ``.nil`` filler); context lines mirror to both sides.
+    Consecutive removed/added lines pair by index (``left``/``right`` go ``None``
+    when one side runs out → a ``.nil`` filler); context lines mirror to both sides.
     """
     rows: list[dict] = []
     dels: list[str] = []
@@ -1025,52 +616,8 @@ async def mark_all_read(request: Request):
     return JSONResponse({"ok": True, "count": len(entry_ids)})
 
 
-@router.get("/entries/{entry_id}/export-md")
-async def export_markdown(entry_id: int):
-    """Export entry as Markdown file with YAML frontmatter."""
-    from markdownify import markdownify as md
-
-    entry = await miniflux_client.get_entry(entry_id)
-    async with get_conn() as conn:
-        snapshot = await _get_snapshot(conn, entry_id)
-        cur = await conn.execute(
-            "SELECT tag FROM article_tags WHERE entry_id = %s", (entry_id,)
-        )
-        tags = [row["tag"] for row in await cur.fetchall()]
-
-    content_html = (snapshot["content_html"] if snapshot else entry.get("content", ""))
-    content_md = md(content_html, heading_style="ATX", strip=["script", "style"])
-
-    feed_title = entry.get("feed", {}).get("title", "")
-    published = (entry.get("published_at") or "")[:10]
-    title = entry.get("title", "Untitled")
-
-    frontmatter = f"""---
-title: "{title.replace('"', '\\"')}"
-author: "{entry.get('author', '')}"
-url: "{entry.get('url', '')}"
-feed: "{feed_title}"
-date: "{published}"
-tags: [{', '.join(tags)}]
----
-
-"""
-    filename = "".join(c if c.isalnum() or c in " -_" else "" for c in title)[:80] + ".md"
-
-    return HTMLResponse(
-        content=frontmatter + content_md,
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Type": "text/markdown; charset=utf-8",
-        },
-    )
-
-
 @router.get("/api/new-count")
 async def new_count(since: int = 0):
-    """Return count of unread entries, optionally since a timestamp."""
-    params = {"status": "unread", "limit": 0}
-    if since:
-        params["after"] = str(since)
+    """Return count of unread entries."""
     data = await miniflux_client.get_entries(status="unread", limit=1)
     return JSONResponse({"count": data.get("total", 0)})

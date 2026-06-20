@@ -12,9 +12,6 @@ dependencies = [
     "readability-lxml>=0.8",
     "python-multipart>=0.0.18",
     "humanize>=4.0",
-    "markdownify>=0.14",
-    "ollama>=0.4",
-    "markdown>=3.10.2",
 ]
 
 [tool.hatch.build.targets.wheel]

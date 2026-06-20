@@ -4,7 +4,7 @@ import logging
 
 import psycopg
 
-from app import miniflux_client, llm
+from app import miniflux_client
 from app.config import WORKER_POLL_INTERVAL
 from app.db import get_conn
 from app.extractor import fetch_and_extract
@@ -64,57 +64,6 @@ async def _store_snapshot(
         ),
     )
     await conn.commit()
-
-
-async def _run_llm_tasks(conn: psycopg.AsyncConnection, entry_id: int, text: str) -> dict:
-    """Run LLM tagging and embedding for an entry. Summarisation is on-demand from the UI."""
-    metadata_updates: dict = {}
-
-    # Auto-tag
-    if text:
-        tags = await llm.classify(text)
-        for tag in tags:
-            await conn.execute(
-                "INSERT INTO article_tags (entry_id, tag) VALUES (%s, %s) "
-                "ON CONFLICT DO NOTHING",
-                (entry_id, tag),
-            )
-
-    # Generate embedding
-    if text:
-        embedding = await llm.embed(text)
-        if embedding:
-            await conn.execute(
-                "INSERT INTO article_embeddings (entry_id, embedding) VALUES (%s, %s) "
-                "ON CONFLICT (entry_id) DO UPDATE SET embedding = %s",
-                (entry_id, embedding, embedding),
-            )
-
-    await conn.commit()
-    return metadata_updates
-
-
-async def _apply_filters(conn: psycopg.AsyncConnection, entry: dict) -> None:
-    """Apply saved filter rules to an entry."""
-    from app.routes.filters import matches_rules
-
-    cur = await conn.execute("SELECT * FROM saved_filters")
-    filters = await cur.fetchall()
-
-    for f in filters:
-        rules = f.get("rules", [])
-        action = f.get("auto_action", "")
-        if not rules or not action:
-            continue
-
-        if matches_rules(entry, rules):
-            entry_id = entry["id"]
-            if action == "mark_read":
-                await miniflux_client.update_entry_status([entry_id], "read")
-                logger.info("Filter '%s' marked entry %d as read", f["name"], entry_id)
-            elif action == "star":
-                await miniflux_client.toggle_bookmark(entry_id)
-                logger.info("Filter '%s' starred entry %d", f["name"], entry_id)
 
 
 async def process_new_entries() -> int:
@@ -193,19 +142,6 @@ async def process_new_entries() -> int:
 
                 await _store_snapshot(conn, entry_id, feed_id, url, extracted, source_hash, next_version)
                 processed += 1
-
-                # Run LLM tasks (non-blocking — failures are logged, not raised)
-                try:
-                    await _run_llm_tasks(conn, entry_id, extracted["content_text"])
-                except Exception:
-                    logger.exception("LLM tasks failed for entry %d", entry_id)
-
-                # Apply filter rules (only for new entries, not re-fetches)
-                if not exists:
-                    try:
-                        await _apply_filters(conn, entry)
-                    except Exception:
-                        logger.exception("Filter application failed for entry %d", entry_id)
 
     return processed
 

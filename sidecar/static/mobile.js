@@ -29,7 +29,7 @@
     if (e.target.closest('#mback')) { e.preventDefault(); history.back(); return; }
     if (!isMobile()) return;
     if (e.target.closest('#list-col .erow')) enterReading();
-    if (e.target.closest('#sidebar a, #sidebar .nav-row, #sidebar .search-link, #sidebar .time-btn')) closeDrawer();
+    if (e.target.closest('#sidebar a, #sidebar .nav-row')) closeDrawer();
   });
 
   /* ---- Top-bar title ---- */

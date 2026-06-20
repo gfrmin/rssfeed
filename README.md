@@ -1,53 +1,39 @@
 # RSS Sidecar
 
-A self-hosted, single-user RSS reader that runs as a sidecar alongside [Miniflux](https://miniflux.app). It adds features Miniflux intentionally excludes: full-text extraction, article versioning with content diffing, LLM-powered summaries, and a rich reading experience.
+A self-hosted, single-user RSS reader that runs as a sidecar alongside [Miniflux](https://miniflux.app). It does one thing Miniflux intentionally leaves out, and does it reliably: **show you the actual full article** — full-text extraction with versioning — wrapped in a fast, distraction-free reader.
 
 ## Features
 
 **Reading experience**
-- Keyboard shortcuts (`j`/`k` navigate, `m` mark read, `s` star, `o` open, `?` help)
+- Three-pane reader on desktop; single list-then-article view on mobile
+- Keyboard shortcuts (`j`/`k` navigate, `o`/`Enter` open, `m` mark read, `s` star, `r` mark all read, `v` open original, `/` search)
 - Dark/light theme toggle
-- Compact, normal, and expanded view modes
 - Estimated reading time
 - Podcast/audio player for feed enclosures
-- Mobile swipe gestures (left = mark read, right = star)
+- Mobile swipe between articles
+
+**Content extraction (the core)**
+- Full-text article fetching with [trafilatura](https://github.com/adbar/trafilatura) + [readability-lxml](https://github.com/buriy/python-readability)
+- Multi-tier fetch: direct → BrightData static proxy → Web Unlocker → Wayback Machine
+- Per-domain cookies for paywalled sites
+- Per-feed extract rules (XPath selectors, tag manipulation)
+- Image proxying (avoids tracking pixels and broken hotlinks)
+- Article versioning with unified/split diff view — track how articles change over time (the "Changed" view)
 
 **Feed management**
-- Feed priority tiers (Must Read / Normal / Low)
-- Category view with unread counts
-- Feed favicons
-- Feed health dashboard (stale/broken feed detection)
+- Feed priority tiers (Must Read / Normal / Low) — must-read feeds bubble to the top
+- Feed favicons + at-a-glance health dots
+- Auto-discovery / URL repair for moved or broken feeds
 - OPML import/export
-- Per-feed extract rules (XPath selectors, tag manipulation)
+- Per-feed full-text, proxy, and TLS-verification toggles
 
-**Content extraction**
-- Full-text article fetching with [trafilatura](https://github.com/adbar/trafilatura) + [readability-lxml](https://github.com/buriy/python-readability)
-- Brightdata proxy fallback for paywalled/blocked sites
-- Wayback Machine fallback as last resort
-- Image proxying (avoids tracking pixels and broken hotlinks)
-- Article versioning with unified diff view — track how articles change over time
-
-**Search and filtering**
+**Browsing**
+- Views: Unread / All / Read / Starred / Changed, plus per-feed lists
 - Full-text search (via Miniflux API)
-- Time-filtered views (today, last 24h, this week)
-- Saved filter rules with auto-actions (mark read, star)
-- LLM-generated topic tags with tag cloud filtering
-
-**LLM integration (Ollama)**
-- Article summarization (2-3 sentence summaries)
-- Auto-tagging/classification
-- Embedding-based duplicate and similarity detection
-- Per-feed toggle for LLM features
-
-**Sharing and export**
-- Export articles to Markdown with YAML frontmatter (Obsidian-compatible)
-- Time-limited public share links
-- Reading statistics (daily/weekly charts, most-read feeds)
 
 **Self-hosted friendly**
 - All assets bundled locally (no CDN dependencies)
 - PWA with service worker for offline reading
-- Browser notifications for new articles
 - Single Docker Compose stack
 
 ## Architecture
@@ -56,25 +42,18 @@ A self-hosted, single-user RSS reader that runs as a sidecar alongside [Miniflux
 ┌──────────┐     ┌──────────┐     ┌────────────┐
 │ Miniflux │◄───►│ Postgres │◄───►│  Sidecar   │
 │ :9144    │     │          │     │  :9145     │
-└──────────┘     └──────────┘     └──────┬─────┘
-                                         │
-                                    ┌────▼─────┐
-                                    │  Ollama  │
-                                    │ (host)   │
-                                    └──────────┘
+└──────────┘     └──────────┘     └────────────┘
 ```
 
 The sidecar is a FastAPI + htmx application that:
 - Uses Miniflux's API for feed/entry management
-- Stores its own data (snapshots, tags, filters, stats) in the shared PostgreSQL database
-- Runs a background worker that auto-extracts articles and runs LLM tasks
-- Connects to Ollama on the host for summarization, tagging, and embeddings
+- Stores its own data (article snapshots, feed config, cookies, URL history) in the shared PostgreSQL database
+- Runs a background worker that auto-extracts full-text for feeds with extraction enabled
 
 ## Setup
 
 ### Prerequisites
 - Docker and Docker Compose
-- [Ollama](https://ollama.ai) running on the host (optional, for LLM features)
 
 ### Quick start
 
@@ -99,21 +78,6 @@ docker compose up -d
 # 5. Open the sidecar at http://localhost:9145
 ```
 
-### Ollama setup (optional)
-
-For LLM summarization, tagging, and similarity detection:
-
-```bash
-# Install Ollama: https://ollama.ai
-ollama pull llama3.2          # for summarization and tagging
-ollama pull nomic-embed-text  # for embeddings
-
-# The sidecar connects to Ollama via host.docker.internal:11434 by default
-# Customize with OLLAMA_URL, OLLAMA_MODEL, OLLAMA_EMBED_MODEL in .env
-```
-
-Then enable per-feed in the sidecar: go to a feed's settings page and toggle "LLM Summarization" on.
-
 ## Configuration
 
 All configuration is via environment variables in `.env`:
@@ -124,10 +88,9 @@ All configuration is via environment variables in `.env`:
 | `MINIFLUX_ADMIN_USER` | `admin` | Miniflux admin username |
 | `MINIFLUX_ADMIN_PASSWORD` | `changeme` | Miniflux admin password |
 | `MINIFLUX_API_KEY` | (required) | Miniflux API key |
-| `BRIGHTDATA_PROXY` | | HTTP proxy URL for fetching blocked content |
-| `OLLAMA_URL` | `http://host.docker.internal:11434` | Ollama API URL |
-| `OLLAMA_MODEL` | `llama3.2` | Ollama model for summarization/tagging |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Ollama model for embeddings |
+| `BRIGHTDATA_PROXY` | | HTTP proxy URL (static) for fetching blocked content |
+| `BRIGHTDATA_UNLOCKER_PROXY` | | Web Unlocker proxy URL for anti-bot sites |
+| `WORKER_POLL_INTERVAL` | `60` | Seconds between background extraction polls |
 
 ## Per-feed extract rules
 
@@ -151,7 +114,6 @@ For sites where automatic extraction doesn't work well, you can set custom rules
 - **Frontend**: htmx, vanilla JS, CSS custom properties
 - **Database**: PostgreSQL 17 (shared with Miniflux)
 - **Extraction**: trafilatura, readability-lxml, lxml
-- **LLM**: Ollama (local, self-hosted)
 - **Containerization**: Docker Compose
 
 ## License

@@ -170,6 +170,9 @@
 
   /* row click → select; HTMX handles the reader load via the row's own trigger */
   document.addEventListener('click', function (e) {
+    // Inline hide (✕ on a feed-page author/tag): htmx posts the mute on the button
+    // itself; swallow the click here so it doesn't also open the row's reader.
+    if (e.target.closest('.erow-hide')) { e.stopImmediatePropagation(); return; }
     var star = e.target.closest('.erow-star');
     if (star) {
       e.preventDefault(); e.stopPropagation();

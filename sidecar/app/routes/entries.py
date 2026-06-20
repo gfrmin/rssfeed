@@ -395,6 +395,7 @@ async def entry_list(
     time_params = _time_filter_params(time_filter)
 
     smart_eligible = use_smart = ranked = False
+    ranker_signals = 0   # quality-signal count, surfaced as the cross-feed warmth meter
 
     feed = None
     if feed_id:
@@ -439,6 +440,10 @@ async def entry_list(
         # the "down-rank cross-feed" half of the per-feed mute.
         async with get_conn() as conn:
             feed_mutes = await _all_feed_mutes(conn)
+            if smart_eligible:
+                cur = await conn.execute("SELECT count(*) AS n FROM engagement_events")
+                row = await cur.fetchone()
+                ranker_signals = int(row["n"]) if row else 0
         for e in entries:
             m = feed_mutes.get(e.get("feed_id"))
             e["_muted"] = bool(m and _is_muted(e, m["author_mutes"], m["tag_mutes"]))
@@ -491,6 +496,7 @@ async def entry_list(
         "smart_eligible": smart_eligible,
         "order": "new" if order == "new" else ("smart" if smart_eligible else None),
         "ranked": ranked,
+        "ranker_signals": ranker_signals,
     }
     template = "entries_fragment.html" if _wants_list_fragment(request) else "entries.html"
     return templates.TemplateResponse(request, template, ctx)

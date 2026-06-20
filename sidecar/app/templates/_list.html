@@ -101,10 +101,12 @@
         <span class="dot-sep">&middot;</span><span>{{ e.content | reading_time }}</span>
         {% if e._full %}<span class="dot-sep">&middot;</span><span class="erow-full" title="Full text extracted">FULL{% if e._full.count > 1 %} v{{ e._full.version }}{% endif %}</span>{% endif %}
         {% if e._audio %}<span class="dot-sep">&middot;</span>{{ icon("play", 11) }}{% endif %}
+        {% if smart_eligible and ranked and not feed_id %}<span class="dot-sep">&middot;</span>{% if e._muted %}<span class="why muted-why" title="A muted author/tag sinks this in smart views">{{ icon('chevronDown', 11) }} ranked lower &middot; muted</span>{% else %}<button class="why" type="button" hx-get="/entries/{{ e.id }}/why" hx-target="#why-{{ e.id }}" hx-swap="innerHTML" title="Why this ranked where it did">{{ icon('activity', 11) }} why</button>{% endif %}{% endif %}
         {% if feed_id and e.tags %}{% for t in e.tags[:3] %}<span class="erow-tagwrap"><span class="erow-tag">#{{ t }}</span><button class="erow-hide" type="button" title="Hide #{{ t }} on this feed"
                 hx-post="/feeds/{{ feed_id }}/mute" hx-target="#list-col"
                 hx-vals='{"kind":"tag","value":{{ t | tojson }}}'>{{ icon("x", 10) }}</button></span>{% endfor %}{% endif %}
       </div>
+      {% if smart_eligible and ranked and not feed_id %}<div class="why-detail" id="why-{{ e.id }}"></div>{% endif %}
     </div>
   </div>
   {% endfor %}

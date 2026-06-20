@@ -84,6 +84,21 @@ def build_articles(entries: list[dict], priorities: dict[int, int],
     ]
 
 
+def feature_label(name: str, feed_title: str | None = None) -> str:
+    """Human-readable label for a feature key, for the 'why ranked' explanation."""
+    if name == "recency":
+        return "freshness"
+    if name == "priority":
+        return "priority tier"
+    if name.startswith("feed:"):
+        return feed_title or "this source"
+    if name.startswith("author:"):
+        return "author " + name[len("author:"):].replace("_", " ").strip().title()
+    if name.startswith("tag:"):
+        return "#" + name[len("tag:"):].replace("_", "")
+    return name
+
+
 def build_observation(entry: dict, signal: str, value: float,
                       priority: int, now: datetime) -> dict:
     """Shape one engagement event + its entry into a /observe event."""

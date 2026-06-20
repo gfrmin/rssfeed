@@ -50,3 +50,11 @@
 (define score-batch
   (lambda (weights articles)
     (map (lambda (a) (score weights a)) articles)))
+
+; ── per-feature contributions for ONE article (transparency / "why ranked") ──
+; Returns the vector [mean(wᵢ)·featureᵢ] — the score is its sum. The host maps the
+; positions back to feature names and surfaces the largest ± contributors.
+(define contributions
+  (lambda (weights features)
+    (map (lambda (i) (* (mean (nth weights i)) (nth features i)))
+         (range (length weights)))))

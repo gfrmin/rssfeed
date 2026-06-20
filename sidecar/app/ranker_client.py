@@ -226,6 +226,31 @@ async def score(articles: list[dict]) -> dict[int, float] | None:
         return None
 
 
+async def explain(article: dict, top: int = 4) -> list[dict] | None:
+    """The largest ± per-feature contributions to one article's score (the "why
+    ranked"). `article` is one ranker.build_articles() entry. Returns
+    [{name, value, dir}] sorted by |contribution|, or None if unavailable. The
+    contribution math (mean(wᵢ)·featureᵢ) runs in the model, never in Python."""
+    feats = article.get("features", [])
+    if not feats:
+        return None
+    try:
+        weights = _weights_of(await read_state())
+        names = [n for n, _v in feats]
+        weight_list = [_weight(weights, n) for n in names]
+        values = [float(v) for _n, v in feats]
+        res = await _call("contributions", [weight_list, values])
+        if res is None or len(res) != len(names):
+            return None
+        pairs = [(n, float(c)) for n, c in zip(names, res) if abs(float(c)) > 1e-6]
+        pairs.sort(key=lambda p: abs(p[1]), reverse=True)
+        return [{"name": n, "value": c, "dir": "up" if c > 0 else "down"}
+                for n, c in pairs[:top]]
+    except Exception as exc:
+        logger.debug("explain failed open: %s", exc)
+        return None
+
+
 async def observe(events: list[dict], base_weights: dict | None = None) -> dict | None:
     """Fold a batch of observations into the weights. `events` is
     ranker.build_observation() output — [{signal, value, features:[name,...]}, ...].

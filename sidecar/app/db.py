@@ -96,6 +96,24 @@ CREATE TABLE IF NOT EXISTS ranker_state (
     updated_at    TIMESTAMPTZ DEFAULT NOW(),
     CHECK (id = 1)
 );
+
+-- Article embeddings + taste centroid (Part C phase 2). The worker embeds article
+-- text via Ollama; embed_sim = cosine(article, centroid) is one more ranker feature.
+CREATE TABLE IF NOT EXISTS entry_embeddings (
+    entry_id   BIGINT PRIMARY KEY,
+    model      TEXT NOT NULL,
+    vec        JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- The taste centroid: mean embedding of positively-engaged articles.
+CREATE TABLE IF NOT EXISTS ranker_taste (
+    id         SMALLINT PRIMARY KEY DEFAULT 1,
+    centroid   JSONB,
+    n          INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CHECK (id = 1)
+);
 """
 
 

@@ -27,3 +27,10 @@ CREDENCE_SKIN_PROJECT = os.environ.get(
 _skin_cmd = os.environ.get("CREDENCE_SKIN_COMMAND", "").strip()
 CREDENCE_SKIN_COMMAND = json.loads(_skin_cmd) if _skin_cmd else None
 
+# Embedding-similarity feature (Part C phase 2). The worker embeds article text via
+# Ollama (nomic-embed-text) and ranks partly by cosine to a taste centroid. Optional:
+# if Ollama is down, embed_sim is simply absent and the structured ranker is unaffected.
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
+EMBED_ENABLED = os.environ.get("EMBED_ENABLED", "1") not in ("0", "false", "")
+

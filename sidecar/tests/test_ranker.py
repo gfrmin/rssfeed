@@ -77,6 +77,15 @@ def test_tag_objects_tolerated():
     assert feats.get("tag:ops") == 1.0
 
 
+def test_entry_features_embed_sim_optional():
+    e = {"id": 1, "feed_id": 9, "published_at": NOW.isoformat()}
+    base = dict(ranker.entry_features(e, 2, NOW))
+    assert "embed_sim" not in base                      # absent by default
+    with_sim = dict(ranker.entry_features(e, 2, NOW, embed_sim=0.73))
+    assert with_sim["embed_sim"] == 0.73
+    assert ranker.feature_label("embed_sim") == "similar to your taste"
+
+
 def test_feature_label_humanizes():
     assert ranker.feature_label("recency") == "freshness"
     assert ranker.feature_label("priority") == "priority tier"

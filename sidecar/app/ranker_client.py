@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 MODEL_PATH = Path(__file__).resolve().parent.parent / "ranker" / "model.bdsl"
 # Prior for an unseen feature: a signed weight with no opinion yet.
 _PRIOR = {"type": "gaussian", "mu": 0.0, "sigma": 1.0}
+# Per-feature prior overrides. embed_sim (taste-centroid cosine, Part C phase 2) is
+# seeded positive so taste-similar articles get a lift before the weight has learned.
+_SEED_PRIORS = {"embed_sim": {"type": "gaussian", "mu": 0.5, "sigma": 0.5}}
 
 # signal → signed evidence scalar. NOT probability math — just how strongly each
 # quality signal counts as evidence; the model does the Bayesian update. Plain
@@ -147,7 +150,9 @@ def _weights_of(row: dict | None) -> dict:
 
 def _weight(weights: dict, name: str) -> dict:
     spec = weights.get(name)
-    return dict(spec) if spec else dict(_PRIOR)
+    if spec:
+        return dict(spec)
+    return dict(_SEED_PRIORS.get(name, _PRIOR))
 
 
 async def _persist_state(weights: dict, obs_count, last_event_id: int) -> None:
@@ -303,6 +308,12 @@ async def sync_observations(limit: int = 200) -> int:
     if not rows:
         return 0
 
+    # embed_sim for the touched entries (empty if no taste centroid yet) so the
+    # embedding feature learns alongside the structured ones.
+    from app import embeddings
+    async with get_conn() as conn:
+        sims = await embeddings.embed_sims(conn, list({r["entry_id"] for r in rows}))
+
     now = datetime.now(timezone.utc)
     entry_cache: dict[int, dict] = {}
     events, max_id = [], last_id
@@ -316,7 +327,8 @@ async def sync_observations(limit: int = 200) -> int:
                 entry_cache[eid] = {}
         entry = entry_cache[eid]
         prio = priorities.get(entry.get("feed_id"), 2)
-        events.append(ranker.build_observation(entry, r["signal"], r["value"] or 1.0, prio, now))
+        events.append(ranker.build_observation(
+            entry, r["signal"], r["value"] or 1.0, prio, now, sims.get(eid)))
 
     res = await observe(events, base_weights=base_weights)
     if res is None:

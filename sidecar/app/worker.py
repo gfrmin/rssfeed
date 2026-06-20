@@ -157,8 +157,16 @@ async def worker_loop() -> None:
         except Exception:
             logger.exception("Worker error")
         try:
+            # Embed pending articles + refresh the taste centroid (Part C phase 2).
+            # No-op / fail-open when Ollama is disabled or unreachable.
+            from app import embeddings
+            await embeddings.embed_pending()
+            await embeddings.recompute_centroid()
+        except Exception:
+            logger.exception("Embedding pass error")
+        try:
             # Fold any newly-captured engagement signals into the ranker. No-op
-            # when the ranker is disabled or the runner is down (events are kept).
+            # when the ranker is disabled or the engine is down (events are kept).
             from app import ranker_client
             await ranker_client.sync_observations()
         except Exception:

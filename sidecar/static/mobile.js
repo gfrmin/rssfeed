@@ -13,6 +13,21 @@
   function enterReading() { if (isMobile()) body.classList.add('mobile-reading'); }
   function exitReading() { body.classList.remove('mobile-reading'); }
 
+  // True once the reader was opened from the list this session — i.e. there's an
+  // in-app list entry to go Back to. On a deep-linked/refreshed article it stays
+  // false, so "Back to list" navigates to the list instead of leaving the app.
+  var cameFromList = false;
+  function goToList() {
+    var r = document.querySelector('#reader-col .reader[data-feed-id]');
+    var fid = r && r.getAttribute('data-feed-id');
+    var url = fid ? '/entries?feed_id=' + fid : '/entries?view=unread';
+    exitReading();
+    if (window.htmx) {
+      window.htmx.ajax('GET', url, { target: '#list-col', swap: 'innerHTML',
+                                     headers: { 'HX-Target': 'list-col' } });
+    } else { window.location.href = url; }
+  }
+
   /* ---- Drawer (sidebar) — a history entry so the back gesture closes it ---- */
   function openDrawer() {
     if (body.classList.contains('drawer-open')) return;
@@ -26,9 +41,14 @@
   document.addEventListener('click', function (e) {
     if (e.target.closest('#mtop-menu')) { e.preventDefault(); toggleDrawer(); return; }
     if (e.target.closest('#drawer-scrim')) { closeDrawer(); return; }
-    if (e.target.closest('#mback')) { e.preventDefault(); history.back(); return; }
+    if (e.target.closest('#mback')) {
+      e.preventDefault();
+      if (cameFromList && history.length > 1) history.back();  // restores list scroll
+      else goToList();                                         // deep-link: nothing to go back to
+      return;
+    }
     if (!isMobile()) return;
-    if (e.target.closest('#list-col .erow')) enterReading();
+    if (e.target.closest('#list-col .erow')) { cameFromList = true; enterReading(); }
     if (e.target.closest('#sidebar a, #sidebar .nav-row')) closeDrawer();
   });
 
@@ -92,7 +112,13 @@
   /* ---- React to pane swaps ---- */
   document.body.addEventListener('htmx:afterSwap', function (e) {
     var t = e.target; if (!t) return;
-    if (t.id === 'list-col') { if (isMobile()) exitReading(); syncTitleFromList(); }
+    // Leave reading mode only on a genuine nav to the list — NOT the background
+    // list-backfill that fills the pane while we're deep-linked on /entries/{id}
+    // (that swap would otherwise clobber the reader on a mobile refresh).
+    if (t.id === 'list-col') {
+      if (isMobile() && !/^\/entries\/\d+$/.test(location.pathname)) exitReading();
+      syncTitleFromList();
+    }
     if (t.id === 'reader-col' && isMobile()) { ensureHints(); syncTitleFromReader(); }
   });
 

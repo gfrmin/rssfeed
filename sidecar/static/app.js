@@ -17,7 +17,16 @@
   function toggleTheme() { applyTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); }
 
   /* ---------- mobile detection ---------- */
-  function syncMobile() { body.classList.toggle('is-mobile', window.innerWidth < 880); }
+  function onEntryUrl() { return /^\/entries\/\d+$/.test(location.pathname); }
+  function syncMobile() {
+    var mobile = window.innerWidth < 880;
+    body.classList.toggle('is-mobile', mobile);
+    // A direct load / refresh of /entries/{id} renders the full three-pane shell;
+    // on mobile we must show the reader pane, not the list. Done here (not just at
+    // DOMContentLoaded) because is-mobile can flip in via a post-load resize, and
+    // this self-corrects then too.
+    if (mobile && onEntryUrl()) body.classList.add('mobile-reading');
+  }
   syncMobile();
   window.addEventListener('resize', syncMobile);
 

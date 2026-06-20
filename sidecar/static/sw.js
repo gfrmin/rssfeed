@@ -11,7 +11,7 @@
 // "no CSS when reopened later/offline": previously the worker either didn't run on
 // app pages or cache-missed on the ?v= query and the styles failed with the network.
 
-const CACHE_NAME = 'rss-sidecar-v5';
+const CACHE_NAME = 'rss-sidecar-v9';
 
 // Everything base.html loads under /static/.
 const STATIC_ASSETS = [

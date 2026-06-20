@@ -17,7 +17,7 @@ requirements handed to the credence developer at
 | method + path | request | response |
 |---|---|---|
 | `POST /load` | `{model_version, weights:{name:[p,q]}}` | `{loaded:n}` |
-| `POST /observe` | `{events:[{signal, features:[name,…], value}]}` | `{weights:{name:[p,q]}, obs_count}` |
+| `POST /observe` | `{events:[{id, signal, features:[name,…], value}]}` | `{weights:{name:[p,q]}, obs_count}` |
 | `POST /score` | `{articles:[{entry_id, features:[[name,value],…]}]}` | `{scores:[[entry_id, score],…]}` |
 | `GET /health` | — | `{status, obs_count, n_weights}` |
 
@@ -28,6 +28,10 @@ requirements handed to the credence developer at
   sidecar persists these as JSON in the `ranker_state` Postgres row and replays them via
   `/load` when the runner restarts. **Do not** use credence's binary `save_state`.
 - `signal` ∈ `star | unstar | thumb_up | thumb_down | open_original | dwell`.
+- `id` — the `engagement_events.id` of the event. The sidecar advances its high-water
+  mark atomically with weight persistence, so events are never lost; but if a batch is
+  ever retried (sidecar crash after the runner folded it), a **stateful** runner should
+  use `id` to dedupe and avoid double-counting.
 
 ## Files
 

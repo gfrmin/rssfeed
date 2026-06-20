@@ -522,6 +522,8 @@ async def toggle_show_read(request: Request, feed_id: int):
 async def add_mute(request: Request, feed_id: int,
                    kind: str = Form(...), value: str = Form(...)):
     """Hide an author or tag on this feed (and down-rank it cross-feed)."""
+    if kind not in ("author", "tag"):
+        return JSONResponse({"ok": False, "error": "bad kind"}, status_code=400)
     col = "author_mutes" if kind == "author" else "tag_mutes"
     value = value.strip()
     async with get_conn() as conn:
@@ -538,6 +540,8 @@ async def add_mute(request: Request, feed_id: int,
 @router.post("/feeds/{feed_id}/unmute", response_class=HTMLResponse)
 async def remove_mute(request: Request, feed_id: int,
                       kind: str = Form(...), value: str = Form(...)):
+    if kind not in ("author", "tag"):
+        return JSONResponse({"ok": False, "error": "bad kind"}, status_code=400)
     col = "author_mutes" if kind == "author" else "tag_mutes"
     async with get_conn() as conn:
         prefs = await _feed_prefs(conn, feed_id)

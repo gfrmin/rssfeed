@@ -57,10 +57,7 @@ async def observe(events: list[dict]) -> dict | None:
     """Condition the model on a batch of observations; persist returned weights."""
     if not events:
         return None
-    res = await _request("POST", "/observe", {"events": events})
-    if res and "weights" in res:
-        await persist_weights(res["weights"], res.get("obs_count"))
-    return res
+    return await _request("POST", "/observe", {"events": events})
 
 
 # ---- ranker_state persistence (Python owns the durable copy) ----
@@ -77,7 +74,8 @@ async def load_state() -> bool:
     """Push the persisted posterior into a freshly-started runner. Called on app
     startup. Returns True if a /load round-trip succeeded."""
     row = await read_state()
-    weights = (row or {}).get("state_blob", {}).get("weights", {}) if row else {}
+    # state_blob may be SQL/JSON null on a partially-written row — coalesce.
+    weights = ((row or {}).get("state_blob") or {}).get("weights", {})
     res = await _request("POST", "/load", {
         "model_version": (row or {}).get("model_version", RANKER_MODEL_VERSION),
         "weights": weights,
@@ -85,34 +83,23 @@ async def load_state() -> bool:
     return res is not None
 
 
-async def persist_weights(weights: dict, obs_count) -> None:
+async def _persist_state(weights: dict, obs_count, last_event_id: int) -> None:
+    """Persist the updated weights AND advance the high-water mark in a SINGLE
+    transaction, so a crash can't leave the mark behind the folded weights (which
+    would re-fold the same events and skew the model)."""
     blob = {"weights": weights, "obs_count": obs_count}
     async with get_conn() as conn:
         await conn.execute(
             """
-            INSERT INTO ranker_state (id, model_version, state_blob, updated_at)
-            VALUES (1, %s, %s, NOW())
+            INSERT INTO ranker_state (id, model_version, state_blob, last_event_id, updated_at)
+            VALUES (1, %s, %s, %s, NOW())
             ON CONFLICT (id) DO UPDATE
               SET model_version = EXCLUDED.model_version,
                   state_blob = EXCLUDED.state_blob,
+                  last_event_id = GREATEST(ranker_state.last_event_id, EXCLUDED.last_event_id),
                   updated_at = NOW()
             """,
-            (RANKER_MODEL_VERSION, Jsonb(blob)),
-        )
-        await conn.commit()
-
-
-async def advance_high_water(last_event_id: int) -> None:
-    async with get_conn() as conn:
-        await conn.execute(
-            """
-            INSERT INTO ranker_state (id, model_version, last_event_id, updated_at)
-            VALUES (1, %s, %s, NOW())
-            ON CONFLICT (id) DO UPDATE
-              SET last_event_id = GREATEST(ranker_state.last_event_id, EXCLUDED.last_event_id),
-                  updated_at = NOW()
-            """,
-            (RANKER_MODEL_VERSION, last_event_id),
+            (RANKER_MODEL_VERSION, Jsonb(blob), last_event_id),
         )
         await conn.commit()
 
@@ -151,13 +138,14 @@ async def sync_observations(limit: int = 200) -> int:
                 entry_cache[eid] = {}
         entry = entry_cache[eid]
         prio = priorities.get(entry.get("feed_id"), 2)
-        events.append(
-            ranker.build_observation(entry, r["signal"], r["value"] or 1.0, prio, now)
-        )
+        ev = ranker.build_observation(entry, r["signal"], r["value"] or 1.0, prio, now)
+        ev["id"] = r["id"]  # lets a stateful runner dedupe if a batch is retried
+        events.append(ev)
 
     res = await observe(events)
     if res is None:
         return 0  # runner down — leave the high-water mark so we retry next tick
-    await advance_high_water(max_id)
+    # Persist returned weights and advance the mark together (atomic).
+    await _persist_state(res.get("weights", {}), res.get("obs_count"), max_id)
     logger.info("ranker folded %d engagement events (through id %d)", len(events), max_id)
     return len(events)

@@ -188,6 +188,13 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .lf-mute button { display:inline-flex; background:none; border:none; color:var(--faint); padding:1px; cursor:pointer; border-radius:3px; }
 .lf-mute button:hover { color:var(--danger); }
 .fset-mutes { display:flex; flex-wrap:wrap; gap:6px; }
+/* Smart/Newest segmented toggle on cross-feed views (Part C). */
+.lf-seg { display:inline-flex; background:var(--panel-2); border:1px solid var(--border); border-radius:7px; padding:2px; }
+.lf-seg-btn { padding:3px 11px; background:none; border:none; border-radius:5px; color:var(--muted);
+  font-size:11px; font-family:"Geist Mono",ui-monospace,monospace; letter-spacing:.01em; transition:.1s; }
+.lf-seg-btn:hover { color:var(--text); }
+.lf-seg-btn.on { background:var(--accent); color:#0c0c0e; }
+.lf-hint { font-size:10.5px; color:var(--faint); font-family:"Geist Mono",ui-monospace,monospace; }
 
 /* Reader inline "hide author / hide tag" affordances (Part A). */
 .art-author { display:inline-flex; align-items:center; gap:4px; }

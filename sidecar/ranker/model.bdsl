@@ -1,0 +1,52 @@
+; ============================================================
+; model.bdsl — parametric MAUT preference model (STARTER / Beta-only)
+;
+; A reference for the ranker runner. Each FEATURE has a WEIGHT modelled as a
+; Beta belief on [0,1] (P(engage | feature present)). Each engagement SIGNAL is a
+; kernel that conditions the active weights. An article's score is the weighted
+; sum of its features: Σ mean(wᵢ)·featureᵢ.
+;
+; Runs on stock credence (Beta-Bernoulli, :family bernoulli). To "graduate" to
+; signed weights + graded dwell, swap the Beta weights for Gaussian once credence
+; exposes :family normal (see ~/git/credence/docs/rssfeed-ranker-requirements.md),
+; or use a discrete signed grid as in examples/coin.bdsl.
+;
+; NOTE: BDSL has no dict, so the host (run.jl) generates ONE weight belief per
+; known feature name as a (list …) + a name→index map, exactly like
+; examples/credence_agent.bdsl uses (nth measures i). This file shows the SHAPE
+; for a couple of features; the runner injects the full set.
+; ============================================================
+
+(let U (space :finite 0 1)                         ; observation space {not-engaged, engaged}
+
+  ; ---- per-feature weight beliefs (host generates the full list) ----
+  ; Prior Beta(1,1) = "no opinion yet".
+  (let w-recency  (measure (space :interval 0 1) :beta 1.0 1.0)
+  (let w-priority (measure (space :interval 0 1) :beta 1.0 1.0)
+  ; … one (measure … :beta 1 1) per feed:<id>, author:<slug>, tag:<slug> …
+
+    ; ---- one kernel per signal ----
+    ; Positive signals condition with obs=1; thumb_down with obs=0 (negative).
+    ; Stronger signals = sharper likelihood. Beta-Bernoulli conjugate update.
+    (let pos-kernel (kernel (space :interval 0 1) U
+                      (lambda (w) (lambda (obs)
+                        (if (= obs 1) (log w) (log (- 1.0 w))))))
+
+      ; observe-star / observe-thumb-up / observe-open : (condition w pos-kernel 1)
+      ; observe-thumb-down                              : (condition w pos-kernel 0)
+      ; observe-dwell (graded)                          : condition repeatedly, count
+      ;   scaled by how long the dwell was (short/med/long → 1/2/3 positives).
+
+      ; ---- scoring: Σ mean(wᵢ)·featureᵢ over an article's (weight value) pairs ----
+      ; feature-pairs = (list (list w-recency 0.84) (list w-priority 1.0) …)
+      (let score-article (lambda (feature-pairs)
+                           (fold + 0.0
+                             (map (lambda (p) (* (mean (nth p 0)) (nth p 1)))
+                                  feature-pairs)))
+
+        ; score-batch maps over articles → (list (entry-id score) …); host sorts.
+        (let score-batch (lambda (articles)
+                           (map (lambda (a)
+                                  (list (nth a 0) (score-article (nth a 1))))
+                                articles))
+          score-batch)))))))

@@ -4,8 +4,9 @@ import logging
 import time
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from psycopg.types.json import Jsonb
 
 from app import miniflux_client
 from app.db import get_conn
@@ -38,6 +39,89 @@ async def _version_count(conn, entry_id: int) -> int:
 async def _feed_priorities(conn) -> dict[int, int]:
     cur = await conn.execute("SELECT feed_id, priority FROM feed_config")
     return {row["feed_id"]: row["priority"] for row in await cur.fetchall()}
+
+
+DEFAULT_FEED_PREFS = {"show_read_default": False, "author_mutes": [], "tag_mutes": []}
+
+
+async def _feed_prefs(conn, feed_id: int) -> dict:
+    """Per-feed reading prefs: show-read default + author/tag mute lists (Part A)."""
+    cur = await conn.execute(
+        "SELECT show_read_default, author_mutes, tag_mutes "
+        "FROM feed_config WHERE feed_id = %s",
+        (feed_id,),
+    )
+    row = await cur.fetchone()
+    if not row:
+        return {k: (list(v) if isinstance(v, list) else v)
+                for k, v in DEFAULT_FEED_PREFS.items()}
+    return {
+        "show_read_default": bool(row["show_read_default"]),
+        "author_mutes": list(row["author_mutes"] or []),
+        "tag_mutes": list(row["tag_mutes"] or []),
+    }
+
+
+async def _all_feed_mutes(conn) -> dict[int, dict]:
+    """feed_id -> {author_mutes, tag_mutes} for every feed that has any mute.
+    Used to down-rank muted authors/tags in cross-feed views."""
+    cur = await conn.execute(
+        "SELECT feed_id, author_mutes, tag_mutes FROM feed_config "
+        "WHERE author_mutes <> '[]'::jsonb OR tag_mutes <> '[]'::jsonb"
+    )
+    return {
+        row["feed_id"]: {
+            "author_mutes": list(row["author_mutes"] or []),
+            "tag_mutes": list(row["tag_mutes"] or []),
+        }
+        for row in await cur.fetchall()
+    }
+
+
+def _entry_tag_names(entry: dict) -> list[str]:
+    """Miniflux entry tags are strings, but tolerate {title|name} objects too."""
+    out = []
+    for t in entry.get("tags") or []:
+        if isinstance(t, str):
+            out.append(t)
+        elif isinstance(t, dict):
+            name = t.get("title") or t.get("name")
+            if name:
+                out.append(name)
+    return out
+
+
+def _is_muted(entry: dict, author_mutes, tag_mutes) -> bool:
+    author = (entry.get("author") or "").strip().casefold()
+    if author and author in {a.strip().casefold() for a in author_mutes}:
+        return True
+    if tag_mutes:
+        tset = {t.casefold() for t in tag_mutes}
+        if any(t.casefold() in tset for t in _entry_tag_names(entry)):
+            return True
+    return False
+
+
+def _apply_mutes(entries: list[dict], author_mutes, tag_mutes) -> list[dict]:
+    if not author_mutes and not tag_mutes:
+        return entries
+    return [e for e in entries if not _is_muted(e, author_mutes, tag_mutes)]
+
+
+async def _upsert_feed_config(conn, feed_id: int, col: str, val) -> None:
+    """Upsert a single feed_config column. `col` is a fixed internal name, never
+    user input, so interpolation is safe."""
+    cur = await conn.execute("SELECT 1 FROM feed_config WHERE feed_id = %s", (feed_id,))
+    if await cur.fetchone():
+        await conn.execute(
+            f"UPDATE feed_config SET {col} = %s, updated_at = NOW() WHERE feed_id = %s",
+            (val, feed_id),
+        )
+    else:
+        await conn.execute(
+            f"INSERT INTO feed_config (feed_id, {col}) VALUES (%s, %s)",
+            (feed_id, val),
+        )
 
 
 async def _entries_with_changes(conn) -> set[int]:
@@ -277,6 +361,14 @@ async def entry_list(
     elif view == "unread":
         status = "unread"
 
+    # Per-feed reading prefs drive the default show-read state on a feed page.
+    feed_prefs = dict(DEFAULT_FEED_PREFS)
+    if feed_id:
+        async with get_conn() as conn:
+            feed_prefs = await _feed_prefs(conn, feed_id)
+        if status is None and view is None and not starred and not changed:
+            status = "all" if feed_prefs["show_read_default"] else "unread"
+
     show_all = status == "all"
     if show_all:
         status = None
@@ -310,10 +402,26 @@ async def entry_list(
     if changed:
         entries = [e for e in entries if e["_has_changes"]]
 
-    # Priority tier first (must-read feeds bubble up), then newest within tier.
-    entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
-    entries.sort(key=lambda e: e.get("_priority", 2))
-    if not feed_id:
+    if feed_id:
+        # Feed page: plain reverse-chronological, with this feed's mutes hard-applied.
+        entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
+        entries = _apply_mutes(
+            entries, feed_prefs["author_mutes"], feed_prefs["tag_mutes"]
+        )
+    else:
+        # Cross-feed: priority tier first (must-read bubbles up), newest within tier.
+        # Muted authors/tags (per their own feed) are demoted to the bottom — the
+        # "down-rank cross-feed" half of the per-feed mute. The learned ranker (Part C)
+        # later replaces this ordering; the demotion stays as a hard negative signal.
+        async with get_conn() as conn:
+            feed_mutes = await _all_feed_mutes(conn)
+        for e in entries:
+            m = feed_mutes.get(e.get("feed_id"))
+            e["_muted"] = bool(
+                m and _is_muted(e, m["author_mutes"], m["tag_mutes"])
+            )
+        entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
+        entries.sort(key=lambda e: (e.get("_muted", False), e.get("_priority", 2)))
         entries = entries[:limit]
 
     active_view = _active_view(
@@ -338,9 +446,64 @@ async def entry_list(
         "changed": changed,
         "title": (feed.get("title") if feed else VIEW_TITLES.get(active_view, "Articles")),
         "sidebar": sidebar,
+        "feed_prefs": feed_prefs,
+        "show_read": feed_prefs["show_read_default"] if feed_id else None,
     }
     template = "entries_fragment.html" if _wants_list_fragment(request) else "entries.html"
     return templates.TemplateResponse(request, template, ctx)
+
+
+async def _render_after_pref_change(request: Request, feed_id: int):
+    """Re-render whichever surface triggered a per-feed pref change: the list pane
+    (chips on the feed page / reader) or the feed-settings overlay."""
+    if request.headers.get("HX-Target") == "overlay-slot":
+        from app.routes import feeds as feeds_routes
+        return await feeds_routes.feed_settings(request, feed_id)
+    return await entry_list(request, feed_id=feed_id)
+
+
+@router.post("/feeds/{feed_id}/show-read", response_class=HTMLResponse)
+async def toggle_show_read(request: Request, feed_id: int):
+    """Flip whether read articles show on this feed's page, persist as its default,
+    and re-render the triggering surface."""
+    async with get_conn() as conn:
+        prefs = await _feed_prefs(conn, feed_id)
+        await _upsert_feed_config(
+            conn, feed_id, "show_read_default", not prefs["show_read_default"]
+        )
+        await conn.commit()
+    return await _render_after_pref_change(request, feed_id)
+
+
+@router.post("/feeds/{feed_id}/mute", response_class=HTMLResponse)
+async def add_mute(request: Request, feed_id: int,
+                   kind: str = Form(...), value: str = Form(...)):
+    """Hide an author or tag on this feed (and down-rank it cross-feed)."""
+    col = "author_mutes" if kind == "author" else "tag_mutes"
+    value = value.strip()
+    async with get_conn() as conn:
+        prefs = await _feed_prefs(conn, feed_id)
+        cur_list = prefs["author_mutes" if kind == "author" else "tag_mutes"]
+        if value and value not in cur_list:
+            cur_list.append(value)
+        await _upsert_feed_config(conn, feed_id, col, Jsonb(cur_list))
+        await conn.commit()
+    _invalidate_sidebar_cache()
+    return await _render_after_pref_change(request, feed_id)
+
+
+@router.post("/feeds/{feed_id}/unmute", response_class=HTMLResponse)
+async def remove_mute(request: Request, feed_id: int,
+                      kind: str = Form(...), value: str = Form(...)):
+    col = "author_mutes" if kind == "author" else "tag_mutes"
+    async with get_conn() as conn:
+        prefs = await _feed_prefs(conn, feed_id)
+        cur_list = [v for v in prefs["author_mutes" if kind == "author" else "tag_mutes"]
+                    if v != value]
+        await _upsert_feed_config(conn, feed_id, col, Jsonb(cur_list))
+        await conn.commit()
+    _invalidate_sidebar_cache()
+    return await _render_after_pref_change(request, feed_id)
 
 
 @router.get("/entries/{entry_id}", response_class=HTMLResponse)

@@ -49,6 +49,31 @@
           </select>
         </div>
 
+        <div class="fset-label">Show read by default</div>
+        <div class="fset-ctrl">
+          <button class="fset-toggle {{ 'on' if show_read_default else 'off' }}" type="button" hx-post="/feeds/{{ feed.id }}/show-read" hx-target="#overlay-slot">{{ 'ON' if show_read_default else 'OFF' }}</button>
+          <span class="fset-note">When you open this feed, show read articles too (not just unread).</span>
+        </div>
+
+        {% if author_mutes or tag_mutes %}
+        <div class="fset-label">Hidden here</div>
+        <div class="fset-ctrl col">
+          <div class="fset-mutes">
+            {% for a in author_mutes %}
+            <span class="lf-mute">{{ a }}
+              <button type="button" aria-label="Unhide author" hx-post="/feeds/{{ feed.id }}/unmute" hx-target="#overlay-slot" hx-vals='{"kind":"author","value":{{ a | tojson }}}'>{{ icon("x", 10) }}</button>
+            </span>
+            {% endfor %}
+            {% for t in tag_mutes %}
+            <span class="lf-mute">#{{ t }}
+              <button type="button" aria-label="Unhide tag" hx-post="/feeds/{{ feed.id }}/unmute" hx-target="#overlay-slot" hx-vals='{"kind":"tag","value":{{ t | tojson }}}'>{{ icon("x", 10) }}</button>
+            </span>
+            {% endfor %}
+          </div>
+          <span class="fset-note">Authors and tags hidden on this feed (and down-ranked in smart views). Add more from an article's author/tags.</span>
+        </div>
+        {% endif %}
+
         <div class="fset-label">Fetch full content</div>
         <div class="fset-ctrl">
           <button class="fset-toggle {{ 'on' if fetch_full_content else 'off' }}" type="button" hx-post="/feeds/{{ feed.id }}/toggle-full-content" hx-swap="outerHTML">{{ 'ON' if fetch_full_content else 'OFF' }}</button>

@@ -12,7 +12,15 @@ dependencies = [
     "readability-lxml>=0.8",
     "python-multipart>=0.0.18",
     "humanize>=4.0",
+    "credence-skin-client",
 ]
+
+# The thin JSON-RPC wire client for the Credence skin engine (Part C). Pure stdlib,
+# zero transitive deps; the wire is the ONLY surface (no juliacall). Sourced from
+# the sibling credence checkout; set CREDENCE_SKIN_COMMAND to use the pinned image
+# instead at runtime. Not yet on PyPI.
+[tool.uv.sources]
+credence-skin-client = { path = "../../credence/apps/skin/clients/python" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

@@ -23,8 +23,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     run_migrations()
     await miniflux_client.startup()
-    # Push any persisted ranker posterior into the (separately-managed) runner.
-    # Best-effort: the reader works fine if the runner isn't up yet.
+    # Warm the Credence skin (loads the model program) so the first cross-feed
+    # request isn't blocked on Julia cold-start. Best-effort: the reader works
+    # fine — falling back to priority+recency — if the engine isn't up.
     try:
         from app import ranker_client
         await ranker_client.load_state()
@@ -36,6 +37,11 @@ async def lifespan(app: FastAPI):
     finally:
         task.cancel()
         await miniflux_client.shutdown()
+        try:
+            from app import ranker_client
+            await ranker_client.shutdown()
+        except Exception:
+            logger.exception("ranker shutdown failed")
 
 
 app = FastAPI(title="RSS Sidecar", lifespan=lifespan)

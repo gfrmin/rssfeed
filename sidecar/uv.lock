@@ -187,6 +187,18 @@ wheels = [
 ]
 
 [[package]]
+name = "credence-skin-client"
+version = "0.1.0"
+source = { directory = "../../credence/apps/skin/clients/python" }
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4" },
+    { name = "ruff", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "cssselect"
 version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -898,6 +910,7 @@ name = "rssfeed-sidecar"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
+    { name = "credence-skin-client" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "humanize" },
@@ -916,6 +929,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "credence-skin-client", directory = "../../credence/apps/skin/clients/python" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "humanize", specifier = ">=4.0" },

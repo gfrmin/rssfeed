@@ -269,6 +269,11 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .rb-act:hover { background:var(--hover); color:var(--text); border-color:var(--border); }
 .rb-act.on { color:var(--accent); }
 .rb-act.on svg { fill:var(--accent); }
+/* Thumbs (Part B): "more like this" (heart) and an inverted "less like this". */
+.rb-thumb { padding:4px 7px; }
+.rb-thumb-down svg { transform:rotate(180deg); }
+.rb-thumb-down.on { color:var(--danger); }
+.rb-thumb-down.on svg { fill:var(--danger); }
 .rb-div { width:1px; height:18px; background:var(--border); margin:0 3px; }
 .rb-nav { width:28px; height:26px; display:flex; align-items:center; justify-content:center; background:var(--panel);
   border:1px solid var(--border); border-radius:6px; color:var(--muted); transition:.1s; text-decoration:none; }

@@ -62,6 +62,7 @@
   {% for e in entries %}
   <div class="erow {{ 'read' if e.status == 'read' else 'unread' }}"
        data-entry-id="{{ e.id }}" data-url="{{ e.url }}" data-href="/entries/{{ e.id }}"
+       data-feed-id="{{ e.feed.id if e.feed else '' }}"
        hx-get="/entries/{{ e.id }}" hx-target="#reader-col" hx-trigger="reader:open" hx-push-url="/entries/{{ e.id }}">
     <div class="erow-rail">
       <button class="erow-star {{ 'on' if e.starred else '' }}" type="button" title="Star">{{ icon("star", 13) }}</button>

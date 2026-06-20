@@ -66,6 +66,23 @@ CREATE TABLE IF NOT EXISTS feed_url_history (
 );
 CREATE INDEX IF NOT EXISTS idx_feed_url_history_feed ON feed_url_history(feed_id);
 CREATE INDEX IF NOT EXISTS idx_feed_url_history_old_url ON feed_url_history(old_url);
+
+-- Engagement signals (Part B): quality-of-attention events that feed the
+-- learning ranker (Part C). Deliberately NOT the deleted read_events table —
+-- plain reads from swiping or "mark all read" are never recorded here; only
+-- signals that distinguish interest (star, thumbs, opening the original,
+-- dwelling on an article) are.
+CREATE TABLE IF NOT EXISTS engagement_events (
+    id BIGSERIAL PRIMARY KEY,
+    entry_id BIGINT NOT NULL,
+    feed_id BIGINT,
+    signal TEXT NOT NULL,          -- star | unstar | thumb_up | thumb_down
+                                   -- | open_original | dwell
+    value DOUBLE PRECISION,        -- dwell seconds; +/-1 for thumbs; 1 otherwise
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_engagement_entry ON engagement_events(entry_id);
+CREATE INDEX IF NOT EXISTS idx_engagement_created ON engagement_events(created_at);
 """
 
 

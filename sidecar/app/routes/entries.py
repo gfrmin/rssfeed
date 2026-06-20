@@ -124,6 +124,23 @@ async def _upsert_feed_config(conn, feed_id: int, col: str, val) -> None:
         )
 
 
+# Quality-of-attention signals for the learning ranker (Part B). Deliberately
+# excludes plain reads — see the engagement_events table comment.
+async def _log_engagement(entry_id: int, signal: str, value: float = 1.0,
+                          feed_id: int | None = None) -> None:
+    """Best-effort insert of an engagement event. Never raises into the request."""
+    try:
+        async with get_conn() as conn:
+            await conn.execute(
+                "INSERT INTO engagement_events (entry_id, feed_id, signal, value) "
+                "VALUES (%s, %s, %s, %s)",
+                (entry_id, feed_id, signal, value),
+            )
+            await conn.commit()
+    except Exception:
+        logger.exception("failed to log engagement %s for entry %s", signal, entry_id)
+
+
 async def _entries_with_changes(conn) -> set[int]:
     """Get entry IDs that have more than one snapshot version."""
     cur = await conn.execute(
@@ -761,11 +778,69 @@ async def toggle_star(entry_id: int):
     # Miniflux toggles, so we re-fetch to get current state
     entry = await miniflux_client.get_entry(entry_id)
     starred = entry.get("starred", False)
+    # Starring is a strong interest signal; un-starring a (mild) reversal.
+    await _log_engagement(
+        entry_id, "star" if starred else "unstar", 1.0, entry.get("feed_id")
+    )
     cls = "starred" if starred else ""
     label = "&#9733; Starred" if starred else "&#9734; Star"
     return HTMLResponse(
         f'<button hx-post="/entries/{entry_id}/toggle-star" hx-swap="outerHTML" class="star-btn {cls}">{label}</button>'
     )
+
+
+# Signals reported directly by the client. Star is logged in toggle_star;
+# thumbs go through /thumb. Dwell below the threshold is dropped (a swipe-past,
+# not a deliberate read).
+_CLIENT_SIGNALS = {"open_original", "dwell"}
+_DWELL_MIN_SECONDS = 4.0
+_DWELL_MAX_SECONDS = 3600.0
+
+
+def _coerce_feed_id(raw) -> int | None:
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+@router.post("/entries/{entry_id}/event")
+async def log_event(entry_id: int, request: Request):
+    """Record a client-reported engagement signal (open-original, dwell)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    signal = (body.get("signal") or "").strip()
+    if signal not in _CLIENT_SIGNALS:
+        return JSONResponse({"ok": False, "error": "bad signal"}, status_code=400)
+    try:
+        value = float(body.get("value")) if body.get("value") is not None else 1.0
+    except (TypeError, ValueError):
+        value = 1.0
+    if signal == "dwell":
+        if value < _DWELL_MIN_SECONDS:
+            return JSONResponse({"ok": True, "skipped": True})  # swipe-past, not interest
+        value = min(value, _DWELL_MAX_SECONDS)
+    await _log_engagement(entry_id, signal, value, _coerce_feed_id(body.get("feed_id")))
+    return JSONResponse({"ok": True})
+
+
+@router.post("/entries/{entry_id}/thumb")
+async def thumb(entry_id: int, request: Request):
+    """Explicit 'more/less like this' feedback."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    direction = (body.get("dir") or "").strip()
+    if direction not in ("up", "down"):
+        return JSONResponse({"ok": False, "error": "bad direction"}, status_code=400)
+    await _log_engagement(
+        entry_id, "thumb_" + direction, 1.0 if direction == "up" else -1.0,
+        _coerce_feed_id(body.get("feed_id")),
+    )
+    return JSONResponse({"ok": True})
 
 
 @router.post("/entries/mark-all-read")

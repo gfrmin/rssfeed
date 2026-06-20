@@ -82,6 +82,51 @@
     return fetch('/entries/' + id + '/' + action, { method: 'POST' }).catch(function () {});
   }
 
+  /* ---------- engagement signals (Part B) ----------
+     Quality-of-attention only. Plain reads (swipe / mark-all) are NEVER sent. */
+  function sendEvent(id, payload) {
+    if (!id) return;
+    var url = '/entries/' + id + '/event';
+    var body = JSON.stringify(payload);
+    // sendBeacon survives navigation/unload — important for dwell flushes.
+    if (navigator.sendBeacon) {
+      try { navigator.sendBeacon(url, new Blob([body], { type: 'application/json' })); return; } catch (_) {}
+    }
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () {});
+  }
+  function logOpenOriginal(id, feedId) {
+    sendEvent(id, { signal: 'open_original', value: 1, feed_id: feedId || null });
+  }
+  function postThumb(id, dir, feedId) {
+    if (!id) return;
+    fetch('/entries/' + id + '/thumb', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir: dir, feed_id: feedId || null }),
+    }).catch(function () {});
+  }
+
+  /* Dwell: how long a reader pane stays open before moving on. A deliberate
+     read lingers (>= threshold, logged); a swipe-past is brief (dropped). */
+  var DWELL_MIN = 4;                      // seconds; server re-checks this too
+  var dwell = { id: null, feedId: null, since: 0 };
+  function flushDwell() {
+    if (!dwell.id) return;
+    var secs = (Date.now() - dwell.since) / 1000;
+    var id = dwell.id, feedId = dwell.feedId;
+    dwell = { id: null, feedId: null, since: 0 };
+    if (secs >= DWELL_MIN) sendEvent(id, { signal: 'dwell', value: secs, feed_id: feedId || null });
+  }
+  function startDwell(id, feedId) {
+    flushDwell();
+    if (!id) return;
+    dwell = { id: id, feedId: feedId || null, since: Date.now() };
+  }
+  function startDwellFromReader() {
+    var r = document.querySelector('#reader-col .reader[data-entry-id]') ||
+            document.querySelector('#reader-col [data-entry-id]');
+    if (r) startDwell(r.getAttribute('data-entry-id'), r.getAttribute('data-feed-id'));
+  }
+
   function toggleRead(row) {
     if (!row) return;
     var id = row.dataset.entryId;
@@ -126,7 +171,15 @@
     var markAll = e.target.closest('.mark-all');
     if (markAll) { e.preventDefault(); markAllVisible(); }
 
-    // reader-bar mark read / star (no HTML swap; toggle in place)
+    // reader-bar "Original" link → log open-original (lets the link proceed).
+    var orig = e.target.closest('.rb-original');
+    if (orig) {
+      var rsec = orig.closest('.reader');
+      logOpenOriginal(orig.dataset.entryId, rsec && rsec.getAttribute('data-feed-id'));
+      return;
+    }
+
+    // reader-bar mark read / star / thumb (no HTML swap; toggle in place)
     var rb = e.target.closest('.rb-act[data-raction]');
     if (rb) {
       e.preventDefault();
@@ -139,6 +192,12 @@
       } else if (rb.dataset.raction === 'star') {
         postAction(id, 'toggle-star');
         rb.classList.toggle('on');
+      } else if (rb.dataset.raction === 'thumb') {
+        var rsec2 = rb.closest('.reader');
+        postThumb(id, rb.dataset.dir, rsec2 && rsec2.getAttribute('data-feed-id'));
+        // Visual: the two thumbs are mutually exclusive within this session.
+        var bar = rb.closest('.rb-actions');
+        if (bar) Array.prototype.forEach.call(bar.querySelectorAll('.rb-thumb'), function (b) { b.classList.toggle('on', b === rb); });
       }
     }
   });
@@ -266,6 +325,7 @@
       if (cur && cur.getAttribute('data-entry-id') === m[1]) return;       // already shown
       restoreInto('#reader-col', curUrl());
     } else {
+      flushDwell();                                                        // leaving the reader for the list ends dwell
       if (isMobile()) {
         exitReading();
         var lc = document.getElementById('list-col');
@@ -298,7 +358,7 @@
       case 'k': e.preventDefault(); selectRow(selectedIdx - 1); break;
       case 'o':
       case 'Enter': if (row) { e.preventDefault(); openRow(row); } break;
-      case 'v': if (row && row.dataset.url) window.open(row.dataset.url, '_blank'); break;
+      case 'v': if (row && row.dataset.url) { window.open(row.dataset.url, '_blank'); logOpenOriginal(row.dataset.entryId, row.dataset.feedId); } break;
       case 'm': if (row) { e.preventDefault(); toggleRead(row); } break;
       case 's': if (row) { e.preventDefault(); toggleStar(row); } break;
       case 'r': e.preventDefault(); markAllVisible(); break;
@@ -357,10 +417,14 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     initList();
+    startDwellFromReader();   // deep-linked /entries/{id} starts the dwell clock
     pollUnread();
     setInterval(pollUnread, 60000);
-    // Refresh the badge immediately when the tab is brought back to the foreground.
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) pollUnread(); });
+    // Refresh the badge when foregrounded; flush dwell when backgrounded.
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) flushDwell(); else pollUnread();
+    });
+    window.addEventListener('pagehide', flushDwell);
     if ('serviceWorker' in navigator) {
       // Register at root scope so the worker controls the whole app (it's served
       // from /static/ but the server sends Service-Worker-Allowed:/). Drop any
@@ -375,8 +439,8 @@
   // Re-bind whenever the list pane is swapped in by HTMX.
   document.body.addEventListener('htmx:afterSwap', function (e) {
     var t = e.target;
-    if (t && (t.id === 'list-col' || (t.closest && t.closest('#list-col')))) initList();
-    if (t && t.id === 'reader-col' && isMobile()) enterReading();
+    if (t && (t.id === 'list-col' || (t.closest && t.closest('#list-col')))) { flushDwell(); initList(); }
+    if (t && t.id === 'reader-col') { startDwellFromReader(); if (isMobile()) enterReading(); }
     if (t && t.id === 'overlay-slot') markOverlayA11y();
   });
 })();

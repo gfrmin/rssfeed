@@ -1,7 +1,7 @@
 {% from "_icons.html" import icon %}
 {% from "_macros.html" import tile, tag %}
 {# Reading pane. Loaded into #reader-col via HTMX, or inside the full shell. #}
-<section class="reader">
+<section class="reader" data-entry-id="{{ entry.id }}" data-feed-id="{{ entry.feed.id if entry.feed else '' }}">
   <div class="reader-bar">
     {% if entry.feed %}
     <a class="rb-back" href="/entries?feed_id={{ entry.feed.id }}" hx-get="/entries?feed_id={{ entry.feed.id }}" hx-target="#list-col" hx-push-url="true">{{ icon("arrowLeft", 14) }} {{ entry.feed.title }}</a>
@@ -10,7 +10,10 @@
       <button class="rb-act" type="button" data-raction="read" data-entry-id="{{ entry.id }}">{{ 'Mark unread' if entry.status == 'read' else 'Mark read' }}</button>
       <button class="rb-act {{ 'on' if entry.starred else '' }}" type="button" data-raction="star" data-entry-id="{{ entry.id }}">{{ icon("star", 13) }} {{ 'Starred' if entry.starred else 'Star' }}</button>
       <span class="rb-div"></span>
-      <a class="rb-act" href="{{ entry.url }}" target="_blank" rel="noopener">{{ icon("external", 13) }} Original</a>
+      <button class="rb-act rb-thumb" type="button" data-raction="thumb" data-dir="up" data-entry-id="{{ entry.id }}" title="More like this">{{ icon("heart", 13) }}</button>
+      <button class="rb-act rb-thumb rb-thumb-down" type="button" data-raction="thumb" data-dir="down" data-entry-id="{{ entry.id }}" title="Less like this">{{ icon("heart", 13) }}</button>
+      <span class="rb-div"></span>
+      <a class="rb-act rb-original" href="{{ entry.url }}" target="_blank" rel="noopener" data-entry-id="{{ entry.id }}">{{ icon("external", 13) }} Original</a>
       <span class="rb-div"></span>
       <button class="rb-nav" type="button" {{ 'disabled' if not prev_entry_id else '' }} title="Previous (k)"
               {% if prev_entry_id %}hx-get="/entries/{{ prev_entry_id }}" hx-target="#reader-col" hx-push-url="/entries/{{ prev_entry_id }}"{% endif %}>{{ icon("chevron", 14, cls="") }}<span style="display:none">prev</span></button>

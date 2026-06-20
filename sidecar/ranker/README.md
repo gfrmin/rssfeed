@@ -1,50 +1,61 @@
-# Cross-feed ranker runner
+# Cross-feed learning ranker — Credence skin wire (Part C)
 
-This directory is the home for the **ranker runner** — a small, long-lived process
-that holds the warm learned posterior and scores articles for the cross-feed Unread/All
-views. The rssfeed sidecar talks to it over a tiny localhost JSON contract and **degrades
-gracefully**: if the runner is down or cold, the reader falls back to priority+recency
-ordering (you'll see a `learning…` hint on the Smart toggle).
+Orders the cross-feed Unread/All views by inferred preference, learned from
+engagement (star / thumbs / open-original / dwell — never plain reads, which are
+swipe noise). It **degrades gracefully**: if the engine can't start or a call
+errors, the reader falls back to priority+recency ordering, so ranking never
+breaks. The Smart/Newest toggle and warmth meter live in `_list.html`.
 
-The rssfeed (Python) side is **done and proven against this contract** (see
-`app/ranker.py`, `app/ranker_client.py`, and the `order=smart|new` path in
-`app/routes/entries.py`). What lands here is the **credence-side** deliverable — see the
-requirements handed to the credence developer at
-`~/git/credence/docs/rssfeed-ranker-requirements.md`.
+## Architecture
 
-## The contract (the runner must speak this on `RANKER_URL`, default `http://localhost:8092`)
+The preference model is a **pure BDSL program** (`model.bdsl`) — a parametric MAUT
+model where each feature (`feed:<id>`, `author:<slug>`, `tag:<slug>`, `recency`,
+`priority`) has a signed Gaussian **weight** belief, and an article's score is
+`Σ mean(wᵢ)·featureᵢ`.
 
-| method + path | request | response |
-|---|---|---|
-| `POST /load` | `{model_version, weights:{name:[p,q]}}` | `{loaded:n}` |
-| `POST /observe` | `{events:[{id, signal, features:[name,…], value}]}` | `{weights:{name:[p,q]}, obs_count}` |
-| `POST /score` | `{articles:[{entry_id, features:[[name,value],…]}]}` | `{scores:[[entry_id, score],…]}` |
-| `GET /health` | — | `{status, obs_count, n_weights}` |
+It is consumed **only** over the **Credence skin wire** (JSON-RPC over stdio, via
+the `credence-skin-client` package). The engine is **stateless-per-call**: the
+model program is loaded once into a warm subprocess, and every durable belief lives
+here in Postgres (`ranker_state.state_blob.weights` as plain
+`{"type":"gaussian","mu":..,"sigma":..}` specs). Python never does probability
+arithmetic — every update/score goes through `call_dsl` into the pure model
+(`condition`/`mean`); Python only persists belief-specs, maps feature names ↔
+positional indices, and maps each engagement signal to a signed evidence scalar.
 
-- `name` — stable feature key: `feed:<id>`, `author:<slug>`, `tag:<slug>`, `recency`, `priority`.
-- `value` — feature value in [0,1] for scoring; for `/observe`, the event value
-  (dwell seconds, ±1 for thumbs, 1 otherwise).
-- `[p,q]` — serialized conjugate params (`[α,β]` for Beta, `[μ,σ]` for Gaussian). The
-  sidecar persists these as JSON in the `ranker_state` Postgres row and replays them via
-  `/load` when the runner restarts. **Do not** use credence's binary `save_state`.
-- `signal` ∈ `star | unstar | thumb_up | thumb_down | open_original | dwell`.
-- `id` — the `engagement_events.id` of the event. The sidecar advances its high-water
-  mark atomically with weight persistence, so events are never lost; but if a batch is
-  ever retried (sidecar crash after the runner folded it), a **stateful** runner should
-  use `id` to dedupe and avoid double-counting.
+```
+engagement_events ──(worker)──▶ ranker_client.observe ──call_dsl observe-batch──▶ skin
+        feed_config priorities                                   │
+ranker_state.weights ◀── persist (atomic w/ high-water mark) ◀───┘
+entry_list (cross-feed) ── ranker_client.score ──call_dsl score-batch──▶ skin ──▶ order
+```
 
-## Files
+- `app/ranker.py` — feature extraction (entries → `[name, value]` vectors; events → observations).
+- `app/ranker_client.py` — the warm `SkinClient`, the weight store, `score`/`observe`/`sync_observations`, fail-open.
+- `model.bdsl` — the pure model (`observe-batch`, `score-batch`).
 
-- `model.bdsl` — starter parametric-MAUT model (Beta-only, runs on stock credence). A
-  reference for the runner; the credence developer may refine or replace it.
-- `run.jl` — **(to be provided by the credence developer)** the warm process: `using
-  Credence` (via `LOAD_PATH`/`--project=$CREDENCE_SRC`), `load_dsl(model.bdsl)` once, hold
-  the posterior under a lock, and serve the contract above. `apps/julia/rss/server.jl` in
-  credence is a template for the HTTP+locked-global pattern.
-- `rssfeed-ranker.service` — systemd **user** unit template. Once `run.jl` exists:
-  `cp rssfeed-ranker.service ~/.config/systemd/user/ && systemctl --user enable --now rssfeed-ranker`.
+## Runtime
+
+The engine spawn is config-driven (`app/config.py`):
+
+- **Dev / this host (default):** spawn the Julia skin from the local credence
+  checkout — `CREDENCE_SKIN_SERVER` (`~/git/credence/apps/skin/server.jl`) +
+  `CREDENCE_SKIN_PROJECT` (`~/git/credence`). Needs `julia` on PATH and the credence
+  Julia project instantiated (`julia --project=~/git/credence -e 'using Pkg; Pkg.instantiate()'`).
+- **Portable / production:** set `CREDENCE_SKIN_COMMAND` to a JSON argv for the
+  pinned image, e.g. `["docker","run","--rm","-i","ghcr.io/gfrmin/credence-skin:latest"]`.
+  This overrides the local-Julia spawn — no Julia toolchain needed on the app side.
+
+The `credence-skin-client` dependency is sourced from the sibling credence checkout
+(`[tool.uv.sources]` in `pyproject.toml`); it is pure stdlib with no engine code.
+
+## Verify
+
+```
+uv run python scripts/verify_skin_ranker.py   # wire proof + fail-open, needs the local skin
+uv run pytest tests/test_credence_client.py    # adapter unit tests, engine mocked
+```
 
 ## Disabling
 
-Set `RANKER_ENABLED=0` (or just don't start the runner). The reader is fully functional
-without it — ranking is purely additive.
+Set `RANKER_ENABLED=0`. The reader is fully functional without it — ranking is
+purely additive and always has the Newest escape hatch.

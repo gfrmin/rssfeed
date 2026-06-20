@@ -77,6 +77,15 @@ def test_tag_objects_tolerated():
     assert feats.get("tag:ops") == 1.0
 
 
+def test_feature_label_humanizes():
+    assert ranker.feature_label("recency") == "freshness"
+    assert ranker.feature_label("priority") == "priority tier"
+    assert ranker.feature_label("author:jane_doe") == "author Jane Doe"
+    assert ranker.feature_label("tag:ai_ml") == "#aiml"
+    assert ranker.feature_label("feed:9") == "this source"
+    assert ranker.feature_label("feed:9", feed_title="Orbital Weekly") == "Orbital Weekly"
+
+
 def test_build_articles_payload():
     es = [{"id": 1, "feed_id": 3, "published_at": NOW.isoformat()}]
     arts = ranker.build_articles(es, {3: 1}, NOW)

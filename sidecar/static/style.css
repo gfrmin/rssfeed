@@ -256,6 +256,24 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   border-radius:3px; transition:opacity .1s, color .1s; }
 .erow:hover .erow-author .erow-hide, .erow:hover .erow-tagwrap .erow-hide { opacity:.55; }
 .erow-hide:hover { opacity:1; color:var(--danger); }
+/* "Why ranked" chip + lazy reason (cross-feed Smart). Polarity reads from the ▲/▼
+   chevron + word + colour, so it stays legible for red–green colour blindness. */
+.why { display:inline-flex; align-items:center; gap:4px; padding:1px 8px; border-radius:999px; cursor:pointer;
+  font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; letter-spacing:.02em;
+  border:1px solid color-mix(in srgb,var(--accent) 38%,var(--border)); color:var(--accent-hover);
+  background:color-mix(in srgb,var(--accent) 9%,transparent); }
+.why svg { width:11px; height:11px; }
+.why:hover { background:color-mix(in srgb,var(--accent) 16%,transparent); }
+.why.muted-why { border-color:color-mix(in srgb,var(--danger) 40%,var(--border)); color:var(--danger);
+  background:color-mix(in srgb,var(--danger) 9%,transparent); cursor:default; }
+.why-detail:empty { display:none; }
+.why-reason { display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }
+.why-bit { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:7px;
+  font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; border:1px solid var(--border-2); color:var(--muted); }
+.why-bit svg { width:11px; height:11px; }
+.why-up { color:var(--add); border-color:color-mix(in srgb,var(--add) 35%,var(--border-2)); background:color-mix(in srgb,var(--add) 9%,transparent); }
+.why-down { color:var(--danger); border-color:color-mix(in srgb,var(--danger) 35%,var(--border-2)); background:color-mix(in srgb,var(--danger) 9%,transparent); }
+.why-empty { color:var(--faint); font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; margin-top:7px; }
 .erow-full { color:var(--accent); letter-spacing:.04em; }
 .erow-rank { margin-left:auto; }
 .erow-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px; }

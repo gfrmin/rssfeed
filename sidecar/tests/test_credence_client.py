@@ -141,3 +141,32 @@ def test_observe_fails_open_when_engine_down(monkeypatch):
 
 async def _true():
     return True
+
+
+# ---- explain(): per-feature contributions ----
+
+def test_explain_ranks_contributions(monkeypatch):
+    def call(function, args):
+        assert function == "contributions"
+        specs, vals = args
+        return [s.get("mu", 0.0) * v for s, v in zip(specs, vals)]  # mean*feature
+
+    _patch(monkeypatch, weights={
+        "author:a": {"type": "gaussian", "mu": 0.9, "sigma": 0.4},
+        "tag:x": {"type": "gaussian", "mu": -0.6, "sigma": 0.4},
+    }, call=call)
+    article = {"entry_id": 1, "features": [
+        ["author:a", 1.0], ["tag:x", 1.0], ["recency", 0.0]]}  # recency contributes 0 → dropped
+    out = run(rc.explain(article, top=3))
+    assert [o["name"] for o in out] == ["author:a", "tag:x"]   # sorted by |contribution|
+    assert out[0]["dir"] == "up" and out[1]["dir"] == "down"
+
+
+def test_explain_fails_open(monkeypatch):
+    _patch(monkeypatch, call=lambda f, a: None)
+    assert run(rc.explain({"entry_id": 1, "features": [["feed:1", 1.0]]})) is None
+
+
+def test_explain_no_features(monkeypatch):
+    _patch(monkeypatch, call=lambda f, a: [])
+    assert run(rc.explain({"entry_id": 1, "features": []})) is None

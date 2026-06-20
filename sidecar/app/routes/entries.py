@@ -879,6 +879,33 @@ async def thumb(entry_id: int, request: Request):
     return JSONResponse({"ok": True})
 
 
+@router.get("/entries/{entry_id}/why", response_class=HTMLResponse)
+async def why_ranked(entry_id: int, request: Request):
+    """The 'why this ranked' explanation fragment — the largest ± per-feature
+    contributions to this entry's learned score. Loaded lazily when the row's why
+    chip is expanded (cross-feed Smart views only)."""
+    entry = await miniflux_client.get_entry(entry_id)
+    feed = entry.get("feed") or {}
+    feed_id = entry.get("feed_id") or feed.get("id")
+    prio = 2
+    if feed_id:
+        async with get_conn() as conn:
+            cur = await conn.execute(
+                "SELECT priority FROM feed_config WHERE feed_id = %s", (feed_id,))
+            row = await cur.fetchone()
+        if row and row["priority"] is not None:
+            prio = row["priority"]
+    now = datetime.now(timezone.utc)
+    article = {"entry_id": entry_id,
+               "features": ranker.entry_features(entry, prio, now)}
+    reasons = await ranker_client.explain(article)
+    items = [
+        {"label": ranker.feature_label(r["name"], feed.get("title")), "dir": r["dir"]}
+        for r in (reasons or [])
+    ]
+    return templates.TemplateResponse(request, "_why.html", {"items": items})
+
+
 @router.post("/entries/mark-all-read")
 async def mark_all_read(request: Request):
     """Mark all visible entries as read. Accepts JSON body with entry_ids."""

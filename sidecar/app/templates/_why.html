@@ -1,0 +1,12 @@
+{% from "_icons.html" import icon %}
+{# Lazy 'why this ranked' detail: top ± per-feature contributions. Polarity reads
+   from the ▲/▼ chevron + word + colour, so it's legible for colour blindness. #}
+{% if items %}
+<div class="why-reason">
+  {% for it in items %}
+  <span class="why-bit why-{{ it.dir }}">{{ icon('chevronUp' if it.dir == 'up' else 'chevronDown', 11) }} {{ it.label }}</span>
+  {% endfor %}
+</div>
+{% else %}
+<div class="why-reason why-empty">Not enough signal yet — mostly freshness.</div>
+{% endif %}

@@ -16,19 +16,25 @@
   applyTheme(localStorage.getItem('theme') || 'dark');
   function toggleTheme() { applyTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); }
 
-  /* ---------- mobile detection ---------- */
+  /* ---------- mobile detection ----------
+     The breakpoint is owned by CSS (@media max-width:879px). JS mirrors it into the
+     is-mobile class for behavioural code (drawer/swipe/reading-mode) via the SAME media
+     query — not window.innerWidth, which a wide article element can inflate past the
+     threshold (a horizontal-overflow page reports innerWidth > viewport), silently
+     dropping the phone back into the three-pane desktop layout on a deep-linked article. */
+  var mobileMQ = window.matchMedia('(max-width: 879px)');
   function onEntryUrl() { return /^\/entries\/\d+$/.test(location.pathname); }
   function syncMobile() {
-    var mobile = window.innerWidth < 880;
+    var mobile = mobileMQ.matches;
     body.classList.toggle('is-mobile', mobile);
-    // A direct load / refresh of /entries/{id} renders the full three-pane shell;
-    // on mobile we must show the reader pane, not the list. Done here (not just at
-    // DOMContentLoaded) because is-mobile can flip in via a post-load resize, and
-    // this self-corrects then too.
+    // A direct load / refresh of /entries/{id} renders the full shell; on mobile we must
+    // show the reader pane, not the (empty, background-filled) list. Re-checked on every
+    // breakpoint change so a rotate/resize across the threshold self-corrects too.
     if (mobile && onEntryUrl()) body.classList.add('mobile-reading');
   }
   syncMobile();
-  window.addEventListener('resize', syncMobile);
+  if (mobileMQ.addEventListener) mobileMQ.addEventListener('change', syncMobile);
+  else window.addEventListener('resize', syncMobile);   // legacy fallback
 
   /* ---------- delegated controls ---------- */
   document.addEventListener('click', function (e) {

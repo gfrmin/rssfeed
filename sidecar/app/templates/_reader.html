@@ -10,8 +10,8 @@
       <button class="rb-act" type="button" data-raction="read" data-entry-id="{{ entry.id }}">{{ 'Mark unread' if entry.status == 'read' else 'Mark read' }}</button>
       <button class="rb-act {{ 'on' if entry.starred else '' }}" type="button" data-raction="star" data-entry-id="{{ entry.id }}">{{ icon("star", 13) }} {{ 'Starred' if entry.starred else 'Star' }}</button>
       <span class="rb-div"></span>
-      <button class="rb-act rb-thumb" type="button" data-raction="thumb" data-dir="up" data-entry-id="{{ entry.id }}" title="More like this">{{ icon("heart", 13) }}</button>
-      <button class="rb-act rb-thumb rb-thumb-down" type="button" data-raction="thumb" data-dir="down" data-entry-id="{{ entry.id }}" title="Less like this">{{ icon("heart", 13) }}</button>
+      <button class="rb-act rb-thumb rb-thumb-up" type="button" data-raction="thumb" data-dir="up" data-entry-id="{{ entry.id }}" title="More like this — teach the ranker to surface more like it">{{ icon("thumbUp", 13) }} More</button>
+      <button class="rb-act rb-thumb rb-thumb-down" type="button" data-raction="thumb" data-dir="down" data-entry-id="{{ entry.id }}" title="Less like this — teach the ranker to show fewer like it">{{ icon("thumbDown", 13) }} Less</button>
       <span class="rb-div"></span>
       <a class="rb-act rb-original" href="{{ entry.url }}" target="_blank" rel="noopener" data-entry-id="{{ entry.id }}">{{ icon("external", 13) }} Original</a>
       <span class="rb-div"></span>

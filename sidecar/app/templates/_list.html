@@ -38,7 +38,15 @@
       <button class="lf-seg-btn {{ 'on' if order == 'new' else '' }}" type="button" title="Plain reverse-chronological"
               hx-get="/entries?view={{ view or 'unread' }}&order=new" hx-target="#list-col" hx-push-url="true">Newest</button>
     </span>
-    {% if order != 'new' and not ranked %}<span class="lf-hint" title="The ranker is warming up or offline — showing newest for now.">learning…</span>{% endif %}
+    {% if order != 'new' %}
+    {% set sig = ranker_signals or 0 %}
+    {% set pct = (sig * 100 // 200) if sig < 200 else 100 %}
+    <span class="lf-warmth" title="How warm the ranker is — it learns from your stars, thumbs, opens and dwell. {{ sig }} quality signal{{ '' if sig == 1 else 's' }} captured so far.">
+      <span class="lf-meter" aria-hidden="true"><i style="width:{{ pct }}%;"></i></span>
+      <span class="lf-warmth-label">{{ 'cold' if sig < 10 else ('warming' if sig < 120 else 'warm') }}</span>
+      &middot; <b>{{ sig }}</b> signal{{ '' if sig == 1 else 's' }}{% if not ranked %} &middot; newest for now{% endif %}
+    </span>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -84,11 +92,18 @@
       <div class="erow-title">{% if e._has_changes %}<span class="erow-changed" title="Content changed">&pm;</span>{% endif %}{{ e.title }}</div>
       <div class="erow-excerpt">{{ e.content | excerpt }}</div>
       <div class="erow-meta">
-        {% if e.feed %}{{ tile(e.feed, 13) }}<span class="erow-feed">{{ e.feed.title }}</span>{% endif %}
-        <span class="dot-sep">&middot;</span><span>{{ e.published_at | timeago }}</span>
+        {% if feed_id %}{# feed page: author is more useful than the (redundant) feed name, and is a hide affordance #}
+          {% if e.author %}<span class="erow-author">{{ e.author }}<button class="erow-hide" type="button" title="Hide {{ e.author }} on this feed"
+                hx-post="/feeds/{{ feed_id }}/mute" hx-target="#list-col"
+                hx-vals='{"kind":"author","value":{{ e.author | tojson }}}'>{{ icon("x", 10) }}</button></span><span class="dot-sep">&middot;</span>{% endif %}
+        {% elif e.feed %}{{ tile(e.feed, 13) }}<span class="erow-feed">{{ e.feed.title }}</span><span class="dot-sep">&middot;</span>{% endif %}
+        <span>{{ e.published_at | timeago }}</span>
         <span class="dot-sep">&middot;</span><span>{{ e.content | reading_time }}</span>
         {% if e._full %}<span class="dot-sep">&middot;</span><span class="erow-full" title="Full text extracted">FULL{% if e._full.count > 1 %} v{{ e._full.version }}{% endif %}</span>{% endif %}
         {% if e._audio %}<span class="dot-sep">&middot;</span>{{ icon("play", 11) }}{% endif %}
+        {% if feed_id and e.tags %}{% for t in e.tags[:3] %}<span class="erow-tagwrap"><span class="erow-tag">#{{ t }}</span><button class="erow-hide" type="button" title="Hide #{{ t }} on this feed"
+                hx-post="/feeds/{{ feed_id }}/mute" hx-target="#list-col"
+                hx-vals='{"kind":"tag","value":{{ t | tojson }}}'>{{ icon("x", 10) }}</button></span>{% endfor %}{% endif %}
       </div>
     </div>
   </div>

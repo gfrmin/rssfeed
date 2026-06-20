@@ -195,6 +195,13 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .lf-seg-btn:hover { color:var(--text); }
 .lf-seg-btn.on { background:var(--accent); color:#0c0c0e; }
 .lf-hint { font-size:10.5px; color:var(--faint); font-family:"Geist Mono",ui-monospace,monospace; }
+/* Ranker warmth meter (cross-feed Smart view): how much signal the ranker has. */
+.lf-warmth { display:inline-flex; align-items:center; gap:7px; font-size:10.5px; color:var(--faint);
+  font-family:"Geist Mono",ui-monospace,monospace; }
+.lf-warmth b { color:var(--muted); font-weight:600; }
+.lf-warmth-label { color:var(--accent); }
+.lf-meter { width:60px; height:5px; border-radius:3px; background:var(--raised); overflow:hidden; }
+.lf-meter i { display:block; height:100%; background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 55%,var(--del)),var(--accent)); transition:width .3s ease; }
 
 /* Reader inline "hide author / hide tag" affordances (Part A). */
 .art-author { display:inline-flex; align-items:center; gap:4px; }
@@ -241,6 +248,14 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   font-family:"Geist Mono",ui-monospace,monospace; flex-wrap:wrap; }
 [data-mono-meta="0"] .erow-meta { font-family:"Geist",system-ui,sans-serif; font-size:11px; }
 .erow-feed { color:var(--muted); }
+/* Feed-page rows: author + tags double as inline hide affordances (mirror .art-hide). */
+.erow-author, .erow-tagwrap { display:inline-flex; align-items:center; gap:3px; }
+.erow-author { color:var(--muted); }
+.erow-tag { color:var(--accent); }
+.erow-hide { display:inline-flex; opacity:0; background:none; border:none; color:var(--faint); padding:0 1px; cursor:pointer;
+  border-radius:3px; transition:opacity .1s, color .1s; }
+.erow:hover .erow-author .erow-hide, .erow:hover .erow-tagwrap .erow-hide { opacity:.55; }
+.erow-hide:hover { opacity:1; color:var(--danger); }
 .erow-full { color:var(--accent); letter-spacing:.04em; }
 .erow-rank { margin-left:auto; }
 .erow-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px; }
@@ -276,11 +291,13 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .rb-act:hover { background:var(--hover); color:var(--text); border-color:var(--border); }
 .rb-act.on { color:var(--accent); }
 .rb-act.on svg { fill:var(--accent); }
-/* Thumbs (Part B): "more like this" (heart) and an inverted "less like this". */
-.rb-thumb { padding:4px 7px; }
-.rb-thumb-down svg { transform:rotate(180deg); }
+/* Thumbs (Part B): "More like this" / "Less like this" — the explicit ranker signals.
+   Distinct icons + labels + colour; polarity reads from shape & word, not hue alone,
+   so it stays legible for red–green colour blindness. */
+.rb-thumb-up.on { color:var(--add); }
+.rb-thumb-up.on svg { fill:color-mix(in srgb,var(--add) 22%,transparent); stroke:var(--add); }
 .rb-thumb-down.on { color:var(--danger); }
-.rb-thumb-down.on svg { fill:var(--danger); }
+.rb-thumb-down.on svg { fill:color-mix(in srgb,var(--danger) 20%,transparent); stroke:var(--danger); }
 .rb-div { width:1px; height:18px; background:var(--border); margin:0 3px; }
 .rb-nav { width:28px; height:26px; display:flex; align-items:center; justify-content:center; background:var(--panel);
   border:1px solid var(--border); border-radius:6px; color:var(--muted); transition:.1s; text-decoration:none; }

@@ -80,13 +80,17 @@ async def _ensure_started() -> bool:
             from credence_skin_client import SkinClient
 
             model_src = MODEL_PATH.read_text()
+            # Reuse an existing client if we have one (its subprocess self-respawns on
+            # the next use if it died) — so re-initialising after a crash never leaks a
+            # second Julia process. initialize() (re)loads the model env either way.
+            client = _skin
 
             def _spawn():
-                if CREDENCE_SKIN_COMMAND:
-                    s = SkinClient(command=CREDENCE_SKIN_COMMAND)
-                else:
-                    s = SkinClient(server_path=CREDENCE_SKIN_SERVER,
-                                   project=CREDENCE_SKIN_PROJECT)
+                s = client
+                if s is None:
+                    s = (SkinClient(command=CREDENCE_SKIN_COMMAND) if CREDENCE_SKIN_COMMAND
+                         else SkinClient(server_path=CREDENCE_SKIN_SERVER,
+                                         project=CREDENCE_SKIN_PROJECT))
                 s.initialize(dsl_sources={"model": model_src})
                 return s
 
@@ -96,14 +100,14 @@ async def _ensure_started() -> bool:
             return True
         except Exception as exc:
             logger.warning("credence skin unavailable, ranking disabled: %s", exc)
-            _skin = None
-            _started = False
+            _started = False  # keep _skin for reuse; retry (re)init next call
             return False
 
 
 async def _call(function: str, args: list):
     """Run one model function over the wire, serialized and off the loop. Returns
     the result, or None on any error (caller falls back)."""
+    global _started
     if not await _ensure_started():
         return None
     try:
@@ -111,6 +115,7 @@ async def _call(function: str, args: list):
             return await asyncio.to_thread(_skin.call_dsl, "model", function, args)
     except Exception as exc:
         logger.debug("skin call_dsl %s failed: %s", function, exc)
+        _started = False  # force a (re)initialise — and respawn if the engine died
         return None
 
 

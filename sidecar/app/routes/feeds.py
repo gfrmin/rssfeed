@@ -92,64 +92,8 @@ async def feed_list(request: Request):
     return response
 
 
-@router.get("/categories", response_class=HTMLResponse)
-async def category_list(request: Request):
-    categories = await miniflux_client.get_categories()
-    counters = await miniflux_client.get_feed_counters()
-    unreads = counters.get("unreads", {})
-    feeds = await miniflux_client.get_feeds()
-
-    # Group feeds by category and sum unreads
-    cat_feeds: dict[int, list] = {}
-    cat_unreads: dict[int, int] = {}
-    for feed in feeds:
-        cid = feed.get("category", {}).get("id", 0)
-        cat_feeds.setdefault(cid, []).append(feed)
-        cat_unreads[cid] = cat_unreads.get(cid, 0) + unreads.get(str(feed["id"]), 0)
-
-    for cat in categories:
-        cat["feeds"] = cat_feeds.get(cat["id"], [])
-        cat["unread_count"] = cat_unreads.get(cat["id"], 0)
-
-    return templates.TemplateResponse(
-        request, "categories.html", {"categories": categories}
-    )
-
-
 _STALE_SECONDS = 24 * 3600
 _PERSISTENT_ERROR_THRESHOLD = 3
-
-# Ordered: severity (persistent-error buckets first, then stale, paused, ok)
-_BUCKET_ORDER = [
-    "http_404", "not_a_feed", "bot_blocked", "server_5xx", "auth",
-    "tls", "unsupported_scheme", "dns_fail", "connect_fail", "other",
-    "stale", "paused", "ok",
-]
-
-_BUCKET_LABELS = {
-    "http_404": "HTTP 404 — URL not found",
-    "not_a_feed": "Not a feed — URL returns HTML",
-    "bot_blocked": "Bot-protected — blocked by Cloudflare/WAF",
-    "server_5xx": "Server error (5xx)",
-    "auth": "Authentication required",
-    "tls": "TLS / certificate error",
-    "unsupported_scheme": "Unsupported URL scheme (not real feeds)",
-    "dns_fail": "DNS lookup failed",
-    "connect_fail": "Connection failed",
-    "other": "Other errors",
-    "stale": "Stale (not polled in 24h)",
-    "paused": "Paused — polling disabled, entries kept",
-    "ok": "Healthy",
-}
-
-# Severity tier per bucket → drives the .hdot / .sev-* styling in the overlay.
-_BUCKET_SEV = {
-    "http_404": "error", "not_a_feed": "error", "bot_blocked": "error",
-    "auth": "error", "tls": "error", "unsupported_scheme": "error",
-    "dns_fail": "error", "connect_fail": "error", "other": "error",
-    "server_5xx": "warn", "stale": "warn",
-    "paused": "muted", "ok": "ok",
-}
 
 
 def _error_bucket(msg: str) -> str:
@@ -204,66 +148,6 @@ def _annotate_health(feed: dict, now: datetime) -> None:
         feed["_bucket"] = "stale"
     else:
         feed["_bucket"] = "ok"
-
-
-@router.get("/feeds/health", response_class=HTMLResponse)
-async def feed_health(request: Request):
-    feeds = await miniflux_client.get_feeds()
-    now = datetime.now(timezone.utc)
-
-    for feed in feeds:
-        _annotate_health(feed, now)
-
-    # Group by bucket, preserving _BUCKET_ORDER
-    groups: dict[str, list[dict]] = {b: [] for b in _BUCKET_ORDER}
-    for feed in feeds:
-        groups.setdefault(feed["_bucket"], []).append(feed)
-    for bucket in groups:
-        groups[bucket].sort(key=lambda f: f.get("title", "").lower())
-
-    bucket_sections = [
-        {
-            "key": b,
-            "label": _BUCKET_LABELS.get(b, b),
-            "sev": _BUCKET_SEV.get(b, "error"),
-            "feeds": groups[b],
-            "count": len(groups[b]),
-        }
-        for b in _BUCKET_ORDER
-        if groups[b]
-    ]
-
-    ctx = {
-        "bucket_sections": bucket_sections,
-        "has_proxy": bool(BRIGHTDATA_PROXY),
-        "total_feeds": len(feeds),
-    }
-    template = "_health_overlay.html" if request.headers.get("HX-Request") else "feed_health.html"
-    return templates.TemplateResponse(request, template, ctx)
-
-
-@router.get("/feeds/health/summary", response_class=HTMLResponse)
-async def feed_health_summary(request: Request):
-    """Small HTML fragment for the nav badge — lazy-loaded via htmx."""
-    feeds = await miniflux_client.get_feeds()
-    now = datetime.now(timezone.utc)
-    persistent = 0
-    transient = 0
-    stale = 0
-    for feed in feeds:
-        _annotate_health(feed, now)
-        if feed["_is_paused"]:
-            continue
-        if feed["_is_persistent"]:
-            persistent += 1
-        elif feed["_has_error"]:
-            transient += 1
-        elif feed["_is_stale"]:
-            stale += 1
-    return templates.TemplateResponse(
-        request, "feed_health_badge.html",
-        {"persistent": persistent, "transient": transient, "stale": stale},
-    )
 
 
 _DISCOVERY_TYPES = (

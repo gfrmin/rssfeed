@@ -5,11 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Reader{% endblock %} — Reader</title>
   <link rel="stylesheet" href="/static/tailwind.css">
-  <link rel="stylesheet" href="/static/style.css?v=ds2">
+  <link rel="stylesheet" href="/static/style.css?v=ds3">
   <link rel="icon" href="/static/icon-192.png">
   <link rel="manifest" href="/static/manifest.json">
   <script src="/static/htmx.min.js"></script>
-  <script src="/static/sse.js"></script>
 </head>
 <body>
   {% block body %}
@@ -20,26 +19,19 @@
       <a href="/entries?status=unread">Unread</a>
       <a href="/entries?status=all">All</a>
       <a href="/entries?starred=true">Starred</a>
-      <a href="/digest">Digest</a>
       <a href="/">Feeds</a>
       <span style="flex:1"></span>
-      <a href="/stats">Stats</a>
-      <a href="/filters">Filters</a>
-      <a href="/feeds/health">Health</a>
-      <a href="/categories">Categories</a>
       <a href="/cookies">Cookies</a>
     </nav>
     <main class="legacy-main">{% block content %}{% endblock %}</main>
   </div>
   {% endblock %}
 
-  {# Shared overlay slot (health/stats/filters/feed-settings/diff/help/triage fragments load here). #}
+  {# Shared overlay slot (feed-settings / diff fragments load here). #}
   <div id="overlay-slot">{% block overlays %}{% endblock %}</div>
   <div id="toasts" class="toasts"></div>
 
-  <script src="/static/app.js?v=ds2"></script>
-  <script src="/static/triage.js?v=ds2"></script>
-  <script src="/static/palette.js?v=ds2"></script>
+  <script src="/static/app.js?v=ds3"></script>
   <script src="/static/mobile.js?v=ds2"></script>
 </body>
 </html>

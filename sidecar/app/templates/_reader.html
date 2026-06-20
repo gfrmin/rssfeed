@@ -1,5 +1,5 @@
 {% from "_icons.html" import icon %}
-{% from "_macros.html" import tile, tag, label %}
+{% from "_macros.html" import tile, tag %}
 {# Reading pane. Loaded into #reader-col via HTMX, or inside the full shell. #}
 <section class="reader">
   <div class="reader-bar">
@@ -10,7 +10,6 @@
       <button class="rb-act" type="button" data-raction="read" data-entry-id="{{ entry.id }}">{{ 'Mark unread' if entry.status == 'read' else 'Mark read' }}</button>
       <button class="rb-act {{ 'on' if entry.starred else '' }}" type="button" data-raction="star" data-entry-id="{{ entry.id }}">{{ icon("star", 13) }} {{ 'Starred' if entry.starred else 'Star' }}</button>
       <span class="rb-div"></span>
-      <a class="rb-act" href="/entries/{{ entry.id }}/export-md" download>{{ icon("download", 13) }} Export MD</a>
       <a class="rb-act" href="{{ entry.url }}" target="_blank" rel="noopener">{{ icon("external", 13) }} Original</a>
       <span class="rb-div"></span>
       <button class="rb-nav" type="button" {{ 'disabled' if not prev_entry_id else '' }} title="Previous (k)"
@@ -33,56 +32,12 @@
           <span class="dot-sep">&middot;</span><span>{{ icon("clock", 11) }} {{ entry.content | reading_time }}</span>
         </div>
         {% set real_tags = (entry.tags or [])[:5] %}
-        {% if real_tags or llm_tags %}
+        {% if real_tags %}
         <div class="art-tags">
           {% for t in real_tags %}{{ tag(t) }}{% endfor %}
-          {% for t in llm_tags %}{{ tag(t, "llm") }}{% endfor %}
         </div>
         {% endif %}
       </header>
-
-      <div class="summary-wrap" id="summary-section">
-        {% if not summaries and not snapshot %}
-        <div class="summary-empty">{{ icon("cpu", 14) }} No summary yet — fetch full text, then generate one with your local model.</div>
-        {% elif not summaries %}
-        <div class="summary-empty">{{ icon("cpu", 14) }} No summary yet — generate one with your local model.</div>
-        {% endif %}
-        {% set ns = namespace(first=true) %}
-        {% for slug, text in summaries.items() %}
-        <details class="summary-card" {% if ns.first %}open{% endif %}>
-          <summary>{{ icon("cpu", 12) }} <span class="sum-name">{{ prompt_names.get(slug, slug) }}</span><span class="sum-tag">Ollama</span>{{ icon("chevron", 13, cls="sum-chev") }}</summary>
-          <div class="summary-body">{{ text | md }}</div>
-        </details>
-        {% set ns.first = false %}
-        {% endfor %}
-
-        {% if snapshot %}
-        <form id="summary-form" class="summary-gen"
-              hx-post="/entries/{{ entry.id }}/generate-summary" hx-target="#summary-stream-slot" hx-swap="innerHTML" hx-disabled-elt="find button">
-          <span class="gen-label">Summarise as</span>
-          <select name="prompt_id" class="gen-select"
-                  onchange="document.getElementById('custom-prompt-fields').classList.toggle('hidden', this.value !== '__other__')">
-            {% for p in prompts %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
-            <option value="__other__">Other…</option>
-          </select>
-          <button type="submit" class="gen-btn">{{ icon("bolt", 12) }} Generate</button>
-          <div id="custom-prompt-fields" class="hidden" style="width:100%;display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-            <textarea name="inline_prompt" rows="3" class="ti mono" placeholder="System prompt (describe the summary style you want)…"></textarea>
-            <input type="text" name="save_as" class="ti" placeholder="Save as… (leave blank for one-off)">
-          </div>
-        </form>
-        <script>
-          (function () {
-            var f = document.getElementById('summary-form');
-            if (f) f.addEventListener('htmx:configRequest', function (e) {
-              if (e.detail.parameters.prompt_id === '__other__') { e.detail.parameters.prompt_id = ''; }
-              else { e.detail.parameters.inline_prompt = ''; e.detail.parameters.save_as = ''; }
-            });
-          })();
-        </script>
-        <div id="summary-stream-slot"></div>
-        {% endif %}
-      </div>
 
       {% set cb = content_block %}
       <div id="entry-content">{% include "_content_block.html" %}</div>
@@ -94,10 +49,6 @@
         </audio>
       </div>
       {% endif %}
-
-      {# Lazy: the embedding similarity search is slow, so load it after first paint.
-         Targets its own child slot so it never triggers a history pushState. #}
-      <div id="similar-slot" hx-get="/entries/{{ entry.id }}/similar" hx-trigger="load" hx-target="#similar-slot" hx-swap="innerHTML"></div>
     </div>
   </div>
 </section>

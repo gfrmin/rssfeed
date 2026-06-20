@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import miniflux_client
 from app.db import run_migrations
-from app.routes import cookies, entries, feeds, stats, filters, share, proxy, digest, searches
+from app.routes import cookies, entries, feeds, proxy
 from app.templating import templates
 from app.worker import worker_loop
 
@@ -63,10 +63,5 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 app.include_router(feeds.router)
 app.include_router(entries.router)
-app.include_router(stats.router)
-app.include_router(filters.router)
-app.include_router(searches.router)
-app.include_router(share.router)
 app.include_router(proxy.router)
-app.include_router(digest.router)
 app.include_router(cookies.router)

@@ -1,8 +1,0 @@
-<div hx-ext="sse"
-     sse-connect="/entries/{{ entry_id }}/summary-stream?prompt_id={{ prompt_id | urlencode }}&inline_prompt={{ inline_prompt | urlencode }}"
-     sse-swap="done" hx-swap="outerHTML">
-  <div class="summary-card streaming">
-    <div class="summary-stream-head"><span class="rung-spin"></span> {{ prompt_label }}</div>
-    <div class="summary-body" sse-swap="token" hx-swap="beforeend"></div>
-  </div>
-</div>

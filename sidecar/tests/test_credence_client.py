@@ -35,11 +35,13 @@ def test_evidence_dwell_graded_and_clamped():
 
 # ---- weight helpers ----
 
-def test_weight_seeds_prior_for_unseen():
-    w = rc._weight({}, "author:x")
-    assert w == rc._PRIOR and w is not rc._PRIOR        # a copy, not the shared prior
-    existing = {"author:y": {"type": "gaussian", "mu": 0.5, "sigma": 0.3}}
-    assert rc._weight(existing, "author:y")["mu"] == 0.5
+def test_spec_seeds_priors_and_moments():
+    assert rc._spec({}, "author:x") == rc._PRIOR              # unseen → flat prior
+    assert rc._spec({}, "embed_sim")["mu"] == 0.5             # seeded positive
+    s = {"type": "gaussian", "mu": 0.5, "sigma": 0.4}
+    assert rc._mean(s) == 0.5
+    assert abs(rc._var(s) - 0.16) < 1e-9                      # var = sigma²
+    assert rc._to_spec(0.3, 0.04)["sigma"] == 0.2            # sigma = √var
 
 
 def test_weights_of_null_coalesces():
@@ -65,7 +67,7 @@ def test_score_builds_positional_vectors(monkeypatch):
 
     def call(function, args):
         captured["function"] = function
-        captured["weights"], captured["vectors"] = args
+        captured["means"], captured["vectors"] = args
         return [9.0, 1.0]  # one score per article, in input order
 
     _patch(monkeypatch, weights={"author:a": {"type": "gaussian", "mu": 0.8, "sigma": 0.4}},
@@ -76,11 +78,9 @@ def test_score_builds_positional_vectors(monkeypatch):
     ]
     out = run(rc.score(articles))
     assert out == {11: 9.0, 22: 1.0}
-    # union order is first-seen: author:a, recency, feed:3
+    # union order is first-seen: author:a, recency, feed:3 — means passed positionally
     assert captured["function"] == "score-batch"
-    assert len(captured["weights"]) == 3
-    assert captured["weights"][0]["mu"] == 0.8          # known weight passed through
-    assert captured["weights"][2] == rc._PRIOR          # feed:3 seeded prior
+    assert captured["means"] == [0.8, 0.0, 0.0]         # known mu; recency/feed:3 prior mu 0
     assert captured["vectors"][0] == [1.0, 0.5, 0.0]    # article 1 over [a, recency, feed:3]
     assert captured["vectors"][1] == [0.0, 0.0, 1.0]    # article 2
 
@@ -107,34 +107,50 @@ def test_score_fails_open_on_length_mismatch(monkeypatch):
 
 # ---- observe(): evidence application + fail-open ----
 
-def test_observe_folds_active_weights(monkeypatch):
+def test_observe_blr_update(monkeypatch):
     calls = []
 
     def call(function, args):
-        calls.append(args)
-        specs, obs = args
-        # fake conjugate move: bump mu by obs for each active weight
-        return [{"type": "gaussian", "mu": s.get("mu", 0.0) + obs, "sigma": 0.4} for s in specs]
+        calls.append((function, args))
+        means, variances, xs, y, noise = args
+        k = len(means)
+        # fake BLR: shift each active mean by y, return [means…, vars…] (len 2k)
+        return [m + y for m in means] + list(variances)
 
     _patch(monkeypatch, call=call)
     monkeypatch.setattr(rc, "_ensure_started", _true)
     events = [
-        {"signal": "star", "value": 1, "features": ["author:a", "feed:1"]},
-        {"signal": "thumb_down", "value": 1, "features": ["author:b"]},
-        {"signal": "read", "value": 1, "features": ["author:c"]},  # no evidence → skipped
+        {"signal": "star", "value": 1, "features": [["author:a", 1.0], ["feed:1", 1.0]]},
+        {"signal": "thumb_down", "value": 1, "features": [["author:b", 1.0]]},
+        {"signal": "read", "value": 1, "features": [["author:c", 1.0]]},   # no evidence → skipped
     ]
     res = run(rc.observe(events, base_weights={}))
-    assert res["obs_count"] == 2                        # read skipped
-    assert res["weights"]["author:a"]["mu"] == 1.0      # star +1
-    assert res["weights"]["author:b"]["mu"] == -1.0     # thumb_down -1
+    assert res["obs_count"] == 2                                 # read skipped
+    assert abs(res["weights"]["author:a"]["mu"] - 1.0) < 1e-9    # star y=+1
+    assert abs(res["weights"]["author:b"]["mu"] + 1.0) < 1e-9    # thumb_down y=-1
     assert "author:c" not in res["weights"]
-    assert len(calls) == 2
+    assert calls[0][0] == "observe-blr" and calls[0][1][3] == 1   # function + target y
+
+
+def test_observe_skips_zero_value_features(monkeypatch):
+    seen = {}
+
+    def call(function, args):
+        seen["xs"] = args[2]
+        return [m + args[3] for m in args[0]] + list(args[1])
+
+    _patch(monkeypatch, call=call)
+    monkeypatch.setattr(rc, "_ensure_started", _true)
+    # priority 0.0 should be dropped (only present features participate)
+    run(rc.observe([{"signal": "star", "value": 1,
+                     "features": [["feed:1", 1.0], ["priority", 0.0]]}], base_weights={}))
+    assert seen["xs"] == [1.0]
 
 
 def test_observe_fails_open_when_engine_down(monkeypatch):
     _patch(monkeypatch, call=lambda f, a: None)
     monkeypatch.setattr(rc, "_ensure_started", _true)
-    res = run(rc.observe([{"signal": "star", "value": 1, "features": ["author:a"]}],
+    res = run(rc.observe([{"signal": "star", "value": 1, "features": [["author:a", 1.0]]}],
                          base_weights={}))
     assert res is None
 
@@ -148,8 +164,8 @@ async def _true():
 def test_explain_ranks_contributions(monkeypatch):
     def call(function, args):
         assert function == "contributions"
-        specs, vals = args
-        return [s.get("mu", 0.0) * v for s, v in zip(specs, vals)]  # mean*feature
+        means, vals = args
+        return [m * v for m, v in zip(means, vals)]  # mean*feature
 
     _patch(monkeypatch, weights={
         "author:a": {"type": "gaussian", "mu": 0.9, "sigma": 0.4},

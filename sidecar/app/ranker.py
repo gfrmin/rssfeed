@@ -112,9 +112,10 @@ def feature_label(name: str, feed_title: str | None = None) -> str:
 def build_observation(entry: dict, signal: str, value: float,
                       priority: int, now: datetime,
                       embed_sim: float | None = None) -> dict:
-    """Shape one engagement event + its entry into an observe event."""
+    """Shape one engagement event + its entry into an observe event. Features are
+    [name, value] pairs (the BLR update needs the values, not just the names)."""
     return {
         "signal": signal,
         "value": value,
-        "features": feature_names(entry, priority, now, embed_sim),
+        "features": entry_features(entry, priority, now, embed_sim),
     }

@@ -64,8 +64,8 @@ def test_build_observation():
     obs = ranker.build_observation(e, "dwell", 12.5, priority=2, now=NOW)
     assert obs["signal"] == "dwell"
     assert obs["value"] == 12.5
-    assert "feed:2" in obs["features"] and "author:a" in obs["features"]
-    assert "tag:x" in obs["features"]
+    feats = dict(obs["features"])                       # [name, value] pairs now
+    assert feats["feed:2"] == 1.0 and feats["author:a"] == 1.0 and feats["tag:x"] == 1.0
 
 
 def test_tag_objects_tolerated():

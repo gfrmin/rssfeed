@@ -5,9 +5,9 @@ and is **stateless-per-call**: the preference model is a pure BDSL program
 (`ranker/model.bdsl`) loaded once into a warm subprocess, and every durable belief
 lives here in Postgres as a plain Gaussian belief-spec
 (`{"type":"gaussian","mu":..,"sigma":..}`). Python never does probability
-arithmetic — every belief update and score goes through `call_dsl` into the pure
-model; Python only persists belief-specs, maps feature names↔positional indices,
-and maps engagement signals to a signed evidence scalar.
+arithmetic — the Bayesian-linear-regression update and the scoring both run in the
+model via `call_dsl`; Python only persists belief-specs, maps feature names↔
+positional indices, and maps each engagement signal to a regression target y.
 
 Every call **fails open**: if the engine can't start or a call errors, `score()`
 returns None and the caller keeps its priority+recency ordering, so ranking never
@@ -16,6 +16,7 @@ breaks the reader.
 
 import asyncio
 import logging
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,14 +35,18 @@ from app.db import get_conn
 logger = logging.getLogger(__name__)
 
 MODEL_PATH = Path(__file__).resolve().parent.parent / "ranker" / "model.bdsl"
-# Prior for an unseen feature: a signed weight with no opinion yet.
+# Prior for an unseen feature: a Gaussian weight with no opinion yet.
 _PRIOR = {"type": "gaussian", "mu": 0.0, "sigma": 1.0}
 # Per-feature prior overrides. embed_sim (taste-centroid cosine, Part C phase 2) is
 # seeded positive so taste-similar articles get a lift before the weight has learned.
 _SEED_PRIORS = {"embed_sim": {"type": "gaussian", "mu": 0.5, "sigma": 0.5}}
+# σ²: observation noise on the score in the Bayesian-linear-regression update. Larger
+# → a single like/dislike moves the weights less (more robust to one-off posts).
+_NOISE = 1.0
+_MIN_VAR = 1e-6   # floor so a weight never collapses to a delta
 
-# signal → signed evidence scalar. NOT probability math — just how strongly each
-# quality signal counts as evidence; the model does the Bayesian update. Plain
+# signal → engagement target y for the regression. NOT probability math — just how
+# strongly each quality signal counts; the model does the Bayesian update. Plain
 # reads (swipe / mark-all) are never captured, so they never reach here.
 _EVIDENCE = {
     "star": 1.0,
@@ -148,11 +153,22 @@ def _weights_of(row: dict | None) -> dict:
     return ((row or {}).get("state_blob") or {}).get("weights", {}) or {}
 
 
-def _weight(weights: dict, name: str) -> dict:
-    spec = weights.get(name)
-    if spec:
-        return dict(spec)
-    return dict(_SEED_PRIORS.get(name, _PRIOR))
+def _spec(weights: dict, name: str) -> dict:
+    """The Gaussian belief-spec for a feature, seeding a prior if unseen."""
+    return weights.get(name) or _SEED_PRIORS.get(name, _PRIOR)
+
+
+def _mean(spec: dict) -> float:
+    return float(spec.get("mu", 0.0))
+
+
+def _var(spec: dict) -> float:
+    s = float(spec.get("sigma", 1.0))
+    return s * s
+
+
+def _to_spec(mu: float, var: float) -> dict:
+    return {"type": "gaussian", "mu": float(mu), "sigma": math.sqrt(max(var, _MIN_VAR))}
 
 
 async def _persist_state(weights: dict, obs_count, last_event_id: int) -> None:
@@ -213,7 +229,7 @@ async def score(articles: list[dict]) -> dict[int, float] | None:
         if not names:
             return None
         idx = {n: i for i, n in enumerate(names)}
-        weight_list = [_weight(weights, n) for n in names]
+        means = [_mean(_spec(weights, n)) for n in names]
 
         vectors = []
         for a in articles:
@@ -222,7 +238,7 @@ async def score(articles: list[dict]) -> dict[int, float] | None:
                 vec[idx[name]] = float(v)
             vectors.append(vec)
 
-        res = await _call("score-batch", [weight_list, vectors])
+        res = await _call("score-batch", [means, vectors])
         if res is None or len(res) != len(articles):
             return None
         return {int(a["entry_id"]): float(s) for a, s in zip(articles, res)}
@@ -242,9 +258,9 @@ async def explain(article: dict, top: int = 4) -> list[dict] | None:
     try:
         weights = _weights_of(await read_state())
         names = [n for n, _v in feats]
-        weight_list = [_weight(weights, n) for n in names]
+        means = [_mean(_spec(weights, n)) for n in names]
         values = [float(v) for _n, v in feats]
-        res = await _call("contributions", [weight_list, values])
+        res = await _call("contributions", [means, values])
         if res is None or len(res) != len(names):
             return None
         pairs = [(n, float(c)) for n, c in zip(names, res) if abs(float(c)) > 1e-6]
@@ -257,11 +273,13 @@ async def explain(article: dict, top: int = 4) -> list[dict] | None:
 
 
 async def observe(events: list[dict], base_weights: dict | None = None) -> dict | None:
-    """Fold a batch of observations into the weights. `events` is
-    ranker.build_observation() output — [{signal, value, features:[name,...]}, ...].
-    Returns {"weights": {...}, "obs_count": n_applied} layered on `base_weights`
-    (read from Postgres if not given), or None if the engine is unavailable (so the
-    caller leaves the high-water mark and retries)."""
+    """Fold a batch of observations into the weights via the Bayesian-linear-
+    regression update. `events` is ranker.build_observation() output —
+    [{signal, value, features:[[name, value], ...]}, ...]. Each event is one noisy
+    measurement of the whole score (y ~ Normal(Σ wᵢxᵢ, σ²)), so its error is shared
+    across the active features instead of duplicated onto each. Returns
+    {"weights": {...}, "obs_count": n_applied} layered on `base_weights`, or None if
+    the engine is unavailable (so the caller leaves the high-water mark and retries)."""
     if not events:
         return None
     if not await _ensure_started():
@@ -269,16 +287,22 @@ async def observe(events: list[dict], base_weights: dict | None = None) -> dict 
     weights = dict(base_weights if base_weights is not None else _weights_of(await read_state()))
     applied = 0
     for ev in events:
-        obs = _evidence(ev["signal"], ev.get("value"))
-        active = ev.get("features", [])
-        if obs == 0.0 or not active:
+        y = _evidence(ev["signal"], ev.get("value"))
+        # active features = those actually present (nonzero value)
+        active = [(n, float(v)) for n, v in ev.get("features", []) if float(v) != 0.0]
+        if y == 0.0 or not active:
             continue
-        specs = [_weight(weights, n) for n in active]
-        updated = await _call("observe-batch", [specs, obs])
-        if updated is None or len(updated) != len(active):
+        names = [n for n, _v in active]
+        xs = [v for _n, v in active]
+        specs = [_spec(weights, n) for n in names]
+        means = [_mean(s) for s in specs]
+        variances = [_var(s) for s in specs]
+        out = await _call("observe-blr", [means, variances, xs, y, _NOISE])
+        if out is None or len(out) != 2 * len(names):
             return None  # fail open — don't lose events
-        for name, spec in zip(active, updated):
-            weights[name] = spec
+        k = len(names)
+        for name, mu, var in zip(names, out[:k], out[k:]):
+            weights[name] = _to_spec(mu, var)
         applied += 1
     return {"weights": weights, "obs_count": applied}
 

@@ -58,6 +58,11 @@ def test_mv_spec_round_trips_diagonal():
     assert variances == [0.4, 0.21]                          # diag(Σ'), off-diag dropped
     assert rc._read_mv({"type": "gaussian", "mu": 0.0}) is None
     assert rc._read_mv(None) is None
+    # malformed Σ from the engine must fail open, never raise (don't break the reader)
+    assert rc._read_mv({"type": "mv_gaussian", "mu": [0.0, 1.0],
+                        "sigma": [[0.1], [0.2]]}) is None        # ragged rows
+    assert rc._read_mv({"type": "mv_gaussian", "mu": [0.0],
+                        "sigma": [0.1]}) is None                 # row not a list
 
 
 def test_weights_of_null_coalesces():

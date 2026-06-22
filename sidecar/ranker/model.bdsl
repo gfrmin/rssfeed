@@ -10,44 +10,39 @@
 ;
 ;     y  ~  Normal( Σ wᵢ·xᵢ ,  σ² ),
 ;
-; and does the exact conjugate (rank-1 Kalman / Bayesian-linear-regression)
-; measurement update. The prediction error is SHARED across the active features in
-; proportion to each one's variance (uncertainty) and damped by the noise term, so
-; a confident, well-liked source barely moves on a one-off negative while an
+; and does the exact conjugate (Kalman / Bayesian-linear-regression) measurement
+; update. The prediction error is SHARED across the active features in proportion
+; to each one's variance (uncertainty) and damped by the noise term, so a
+; confident, well-liked source barely moves on a one-off negative while an
 ; uncertain feature absorbs it.
 ;
-; The engine has no linear-Gaussian conjugate and BDSL can't read a belief's
-; variance, so the closed form is computed here in the model (the inference logic
-; still lives in rssfeed, not Python). Weights are passed as plain (mean, variance)
-; number lists; rssfeed holds the durable {mu, sigma} store in Postgres. Feature
-; *semantics* (which index is which feed/author/tag) live in Python.
+; The inference runs NATIVELY in the engine: the (MvGaussianPrevision,
+; LinearGaussian) conjugate (credence src/conjugate.jl) does the exact Kalman
+; update, so `observe` is a single `condition` — no hand-rolled posterior
+; arithmetic here, no probability math in Python. The active weights cross the
+; wire as a joint {type:mv_gaussian, mu, sigma} belief-spec and the conditioned
+; belief crosses back the same way; rssfeed persists the per-feature {mu, sigma}
+; marginals (diag Σ) in Postgres. Feature *semantics* (which index is which
+; feed/author/tag) live in Python.
 ; ============================================================
 
-; ── observe-blr: one rank-1 BLR/Kalman measurement update ──
-; means, vars : the active features' weight marginals (Gaussian).
-; xs          : the article's feature values for those features.
-; y           : the engagement target (e.g. +1 star/up, −1 down, graded dwell).
-; noise       : σ², the observation noise on the score.
-; Returns a length-2k numeric vector: [updated-means… , updated-vars…].
-;   ŷ = Σ xᵢmᵢ ;  s = σ² + Σ xᵢ²vᵢ ;  gain gᵢ = xᵢvᵢ/s
-;   mᵢ' = mᵢ + gᵢ(y−ŷ) ;  vᵢ' = vᵢ − gᵢ·xᵢvᵢ
-(define observe-blr
-  (lambda (means vars xs y noise)
-    (let k (length means)
-    (let yhat (fold-init + 0.0
-                (map (lambda (i) (* (nth xs i) (nth means i))) (range k)))
-    (let s (+ noise (fold-init + 0.0
-                (map (lambda (i) (* (* (nth xs i) (nth xs i)) (nth vars i))) (range k))))
-    (let r (- y yhat)
-      (map (lambda (j)
-             (if (> k j)
-                 ; updated MEAN for feature j: mⱼ + (xⱼvⱼ/s)·r
-                 (+ (nth means j) (/ (* (* (nth xs j) (nth vars j)) r) s))
-                 ; updated VARIANCE for feature (j−k): vᵢ − (xᵢvᵢ)²/s
-                 (let i (- j k)
-                 (let xv (* (nth xs i) (nth vars i))
-                   (- (nth vars i) (/ (* xv xv) s))))))
-           (range (+ k k)))))))))
+; ── observe: one joint linear-Gaussian (Kalman/BLR) measurement update ──
+; weights : the active features' joint weight belief — an MvGaussianMeasure
+;           (built from a {type:mv_gaussian, mu, sigma} spec; sigma is Σ's rows).
+; xs      : the article's feature values for those features (the LinearGaussian
+;           coefficients a in y ~ N(aᵀw, σ²)).
+; y       : the engagement target (e.g. +1 star/up, −1 down, graded dwell).
+; sigma   : σ, the observation-noise stddev on the score.
+; Returns the conditioned MvGaussianMeasure (serialised back as an mv_gaussian
+; belief-spec). The engine's conjugate keeps the full off-diagonal Σ'; rssfeed
+; reads off the per-feature marginals it persists.
+(define observe
+  (lambda (weights xs y sigma)
+    (condition weights
+      (kernel (space :euclidean (length xs)) (space :euclidean 1)
+              (lambda (w) (lambda (o) o))
+              :family linear-gaussian xs sigma)
+      y)))
 
 ; ── score ONE article: Σ meanᵢ·featureᵢ ──
 ; means: positional weight means (host's name→index order). features: same order.

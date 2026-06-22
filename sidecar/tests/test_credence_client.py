@@ -44,6 +44,22 @@ def test_spec_seeds_priors_and_moments():
     assert rc._to_spec(0.3, 0.04)["sigma"] == 0.2            # sigma = √var
 
 
+def test_mv_spec_round_trips_diagonal():
+    # priors → diagonal Σ joint spec for the wire
+    spec = rc._mv_spec([0.2, -0.5], [1.0, 0.25])
+    assert spec["type"] == "mv_gaussian"
+    assert spec["mu"] == [0.2, -0.5]
+    assert spec["sigma"] == [[1.0, 0.0], [0.0, 0.25]]        # Σ = diag(var)
+    # posterior spec (full Σ) → (means, marginal vars off the diagonal)
+    post = {"type": "mv_gaussian", "mu": [0.1, -0.4],
+            "sigma": [[0.4, -0.14], [-0.14, 0.21]]}
+    means, variances = rc._read_mv(post)
+    assert means == [0.1, -0.4]
+    assert variances == [0.4, 0.21]                          # diag(Σ'), off-diag dropped
+    assert rc._read_mv({"type": "gaussian", "mu": 0.0}) is None
+    assert rc._read_mv(None) is None
+
+
 def test_weights_of_null_coalesces():
     assert rc._weights_of(None) == {}
     assert rc._weights_of({"state_blob": None}) == {}
@@ -107,15 +123,20 @@ def test_score_fails_open_on_length_mismatch(monkeypatch):
 
 # ---- observe(): evidence application + fail-open ----
 
-def test_observe_blr_update(monkeypatch):
+def _fake_observe(args):
+    """Stand-in for the engine's linear-Gaussian conjugate: shift each active mean
+    by y, keep the prior diagonal. Returns an mv_gaussian posterior spec."""
+    prior, xs, y, sigma = args
+    mu = [m + y for m in prior["mu"]]
+    return {"type": "mv_gaussian", "mu": mu, "sigma": prior["sigma"]}
+
+
+def test_observe_update(monkeypatch):
     calls = []
 
     def call(function, args):
         calls.append((function, args))
-        means, variances, xs, y, noise = args
-        k = len(means)
-        # fake BLR: shift each active mean by y, return [means…, vars…] (len 2k)
-        return [m + y for m in means] + list(variances)
+        return _fake_observe(args)
 
     _patch(monkeypatch, call=call)
     monkeypatch.setattr(rc, "_ensure_started", _true)
@@ -129,15 +150,17 @@ def test_observe_blr_update(monkeypatch):
     assert abs(res["weights"]["author:a"]["mu"] - 1.0) < 1e-9    # star y=+1
     assert abs(res["weights"]["author:b"]["mu"] + 1.0) < 1e-9    # thumb_down y=-1
     assert "author:c" not in res["weights"]
-    assert calls[0][0] == "observe-blr" and calls[0][1][3] == 1   # function + target y
+    # function + joint mv_gaussian prior + target y over the wire
+    assert calls[0][0] == "observe"
+    assert calls[0][1][0]["type"] == "mv_gaussian" and calls[0][1][2] == 1
 
 
 def test_observe_skips_zero_value_features(monkeypatch):
     seen = {}
 
     def call(function, args):
-        seen["xs"] = args[2]
-        return [m + args[3] for m in args[0]] + list(args[1])
+        seen["xs"] = args[1]
+        return _fake_observe(args)
 
     _patch(monkeypatch, call=call)
     monkeypatch.setattr(rc, "_ensure_started", _true)

@@ -2,11 +2,15 @@
 """End-to-end check of the rssfeed ↔ Credence skin wire (Part C).
 
 Mirrors ~/git/credence/examples/maut_demo_wire.py but in rssfeed terms: loads
-ranker/model.bdsl into the skin, seeds two feature weights (two authors), sends a
-thumb-up on one, confirms ITS weight moves and the other doesn't, scores two
-articles, and confirms the ranking reflects the update — all with belief-specs as
-plain JSON, no state_id, no probability math in Python. Then confirms fail-open:
-a bogus engine command makes the adapter's score() return None.
+ranker/model.bdsl into the skin and drives the NATIVE linear-Gaussian conjugate.
+It (1) sends a thumb-up on a single-feature article and confirms that weight
+rises; (2) sends a thumb-down on a two-feature article — a confident source plus a
+diffuse author — and confirms the engine's joint update shares the error by
+uncertainty (the confident weight barely moves, the diffuse one absorbs it:
+explaining-away); (3) scores two articles and confirms the ranking reflects the
+learned weights. Beliefs cross as plain {type:mv_gaussian/gaussian} JSON — no
+state_id, no probability math in Python. Then confirms fail-open: a bogus engine
+command makes the adapter's score() return None.
 
     uv run python scripts/verify_skin_ranker.py
 """
@@ -31,26 +35,35 @@ def wire_proof() -> None:
         info = skin.initialize(dsl_sources={"model": MODEL})
         print(f"engine {info['version']}, wire protocol {info['protocol']}")
 
-        # Two author-weight priors as plain belief-specs (rssfeed's durable store
-        # holds exactly these as JSON in ranker_state).
-        prior = lambda: {"type": "gaussian", "mu": 0.0, "sigma": 1.0}
-        names = ["author:alice", "author:bob"]
-        weights = {n: prior() for n in names}
+        # (1) thumb_up (y=+1) on a single-feature article by alice. The active
+        # weights cross as a JOINT mv_gaussian (here 1-D); the native conjugate
+        # returns the conditioned belief — no state_id, no Python math.
+        mv = {"type": "mv_gaussian", "mu": [0.0], "sigma": [[1.0]]}
+        post = skin.call_dsl("model", "observe", [mv, [1.0], 1.0, 1.0])
+        assert post["type"] == "mv_gaussian" and "state_id" not in post, post
+        alice_mu = post["mu"][0]
+        print(f"after thumb_up on alice: mu {alice_mu:.3f}")
+        assert alice_mu > 0.0, "alice weight should rise"
 
-        # thumb_up on an article by alice → condition alice's weight only (+1.0).
-        updated = skin.call_dsl("model", "observe-batch", [[weights["author:alice"]], 1.0])
-        assert isinstance(updated, list) and "state_id" not in updated[0], updated
-        weights["author:alice"] = updated[0]
-        print(f"after thumb_up on alice: {weights}")
-        assert weights["author:alice"]["mu"] > 0.0, "alice weight should rise"
-        assert weights["author:bob"]["mu"] == 0.0, "bob weight must be untouched"
+        # (2) thumb_down (y=−1) on an article from a CONFIDENT liked source (small
+        # σ) + a DIFFUSE author. The engine's joint update must share the error by
+        # uncertainty: the confident weight barely moves, the diffuse one absorbs it.
+        joint = {"type": "mv_gaussian", "mu": [0.8, 0.0],
+                 "sigma": [[0.09, 0.0], [0.0, 1.0]]}        # σ 0.3 (confident), 1.0 (diffuse)
+        post2 = skin.call_dsl("model", "observe", [joint, [1.0, 1.0], -1.0, 1.0])
+        src_mu, auth_mu = post2["mu"]
+        print(f"after thumb_down on [confident src, diffuse author]: "
+              f"src 0.800->{src_mu:.3f}, author 0.000->{auth_mu:.3f}")
+        assert abs(src_mu - 0.8) < abs(auth_mu - 0.0), "confident source must move less"
+        assert post2["sigma"][0][1] < 0.0, "joint update induces explaining-away covariance"
 
-        # Score two articles: [by-alice], [by-bob], positional over [alice, bob].
-        wl = [weights["author:alice"], weights["author:bob"]]
-        scores = skin.call_dsl("model", "score-batch", [wl, [[1.0, 0.0], [0.0, 1.0]]])
+        # (3) Score two articles over [alice, bob] using the learned means.
+        means = [alice_mu, 0.0]
+        scores = skin.call_dsl("model", "score-batch", [means, [[1.0, 0.0], [0.0, 1.0]]])
         print(f"article scores [alice, bob]: {scores}")
         assert scores[0] > scores[1], scores
-        print("OK: rss feature weights learn over the wire — no state_id, no Python math")
+        print("OK: rss feature weights learn over the wire via the native "
+              "linear-Gaussian conjugate — no state_id, no Python math")
     finally:
         skin.shutdown()
 

@@ -41,8 +41,10 @@ _PRIOR = {"type": "gaussian", "mu": 0.0, "sigma": 1.0}
 # seeded positive so taste-similar articles get a lift before the weight has learned.
 _SEED_PRIORS = {"embed_sim": {"type": "gaussian", "mu": 0.5, "sigma": 0.5}}
 # σ²: observation noise on the score in the Bayesian-linear-regression update. Larger
-# → a single like/dislike moves the weights less (more robust to one-off posts).
+# → a single like/dislike moves the weights less (more robust to one-off posts). The
+# linear-gaussian kernel takes σ (stddev), so we pass √_NOISE over the wire.
 _NOISE = 1.0
+_SIGMA_OBS = math.sqrt(_NOISE)
 _MIN_VAR = 1e-6   # floor so a weight never collapses to a delta
 
 # signal → engagement target y for the regression. NOT probability math — just how
@@ -171,6 +173,27 @@ def _to_spec(mu: float, var: float) -> dict:
     return {"type": "gaussian", "mu": float(mu), "sigma": math.sqrt(max(var, _MIN_VAR))}
 
 
+def _mv_spec(means: list[float], variances: list[float]) -> dict:
+    """A joint Gaussian belief-spec over the active weights for the wire. We persist
+    only per-feature marginals, so the prior covariance is diagonal (Σ = diag(var));
+    the engine's conjugate induces the off-diagonal explaining-away within the
+    update, and we read the posterior marginals back off its diagonal."""
+    k = len(means)
+    rows = [[variances[i] if i == j else 0.0 for j in range(k)] for i in range(k)]
+    return {"type": "mv_gaussian", "mu": [float(m) for m in means], "sigma": rows}
+
+
+def _read_mv(spec: dict) -> tuple[list[float], list[float]] | None:
+    """Pull (means, marginal variances=diag Σ) out of an mv_gaussian posterior spec."""
+    if not isinstance(spec, dict) or spec.get("type") != "mv_gaussian":
+        return None
+    mu = spec.get("mu")
+    sigma = spec.get("sigma")  # Σ as rows
+    if not isinstance(mu, list) or not isinstance(sigma, list) or len(sigma) != len(mu):
+        return None
+    return [float(m) for m in mu], [float(sigma[i][i]) for i in range(len(mu))]
+
+
 async def _persist_state(weights: dict, obs_count, last_event_id: int) -> None:
     """Persist updated weights AND advance the high-water mark in ONE transaction,
     so a crash can't leave the mark ahead of the folded weights (re-folding events
@@ -295,13 +318,13 @@ async def observe(events: list[dict], base_weights: dict | None = None) -> dict 
         names = [n for n, _v in active]
         xs = [v for _n, v in active]
         specs = [_spec(weights, n) for n in names]
-        means = [_mean(s) for s in specs]
-        variances = [_var(s) for s in specs]
-        out = await _call("observe-blr", [means, variances, xs, y, _NOISE])
-        if out is None or len(out) != 2 * len(names):
+        prior = _mv_spec([_mean(s) for s in specs], [_var(s) for s in specs])
+        # The engine's (MvGaussian, LinearGaussian) conjugate does the joint update.
+        out = _read_mv(await _call("observe", [prior, xs, y, _SIGMA_OBS]))
+        if out is None or len(out[0]) != len(names):
             return None  # fail open — don't lose events
-        k = len(names)
-        for name, mu, var in zip(names, out[:k], out[k:]):
+        mus, variances = out
+        for name, mu, var in zip(names, mus, variances):
             weights[name] = _to_spec(mu, var)
         applied += 1
     return {"weights": weights, "obs_count": applied}

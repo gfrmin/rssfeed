@@ -191,7 +191,10 @@ def _read_mv(spec: dict) -> tuple[list[float], list[float]] | None:
     sigma = spec.get("sigma")  # Σ as rows
     if not isinstance(mu, list) or not isinstance(sigma, list) or len(sigma) != len(mu):
         return None
-    return [float(m) for m in mu], [float(sigma[i][i]) for i in range(len(mu))]
+    try:  # stay fail-open even on a ragged/short Σ from the engine
+        return [float(m) for m in mu], [float(sigma[i][i]) for i in range(len(mu))]
+    except (IndexError, TypeError, ValueError):
+        return None
 
 
 async def _persist_state(weights: dict, obs_count, last_event_id: int) -> None:

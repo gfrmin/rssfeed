@@ -501,6 +501,40 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .fset-toggle.on { background:var(--accent); color:#0c0c0e; }
 .fset-toggle.off { background:var(--border); color:var(--muted); }
 .fset-foot { display:flex; justify-content:space-between; align-items:center; margin-top:22px; padding-top:16px; border-top:1px solid var(--border); }
+
+/* Section sub-headers within the settings grid (span both columns). */
+.fset-section { grid-column:1 / -1; font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.08em;
+  color:var(--faint); padding:14px 0 4px; border-bottom:1px solid var(--border); margin-top:4px; }
+.fset-section:first-child { margin-top:0; padding-top:0; }
+.fset-advanced { margin-top:18px; }
+.fset-advanced > summary { cursor:pointer; font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.08em;
+  color:var(--faint); padding-bottom:6px; border-bottom:1px solid var(--border); list-style-position:inside; }
+.fset-advanced > summary:hover { color:var(--muted); }
+.fset-advanced[open] > summary { margin-bottom:14px; }
+
+/* Per-feed subscription login block. */
+.fsub { display:flex; flex-direction:column; gap:8px; padding:11px 12px; border:1px solid var(--border); border-radius:9px;
+  background:var(--panel-2); }
+.fsub-status { display:flex; align-items:center; flex-wrap:wrap; gap:7px; font-size:12px; }
+.fsub-badge { display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600; letter-spacing:.02em;
+  padding:2px 8px; border-radius:999px; border:1px solid var(--border); color:var(--muted); white-space:nowrap; }
+.fsub-badge.ok { background:color-mix(in srgb,var(--accent) 16%,transparent); border-color:color-mix(in srgb,var(--accent) 45%,transparent); color:var(--accent); }
+.fsub-domain { font-family:"Geist Mono",ui-monospace,monospace; font-size:12px; color:var(--text); }
+.fsub-dim { color:var(--faint); font-size:11.5px; }
+.fsub-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.fsub-primary { border-color:color-mix(in srgb,var(--accent) 55%,transparent); color:var(--accent); font-weight:600; }
+.fsub-primary:hover { background:color-mix(in srgb,var(--accent) 12%,transparent); }
+.fsub-danger { color:var(--danger); border-color:color-mix(in srgb,var(--danger) 40%,transparent); }
+.fsub-danger:hover { background:var(--danger); color:#fff; border-color:var(--danger); }
+.fsub-note { font-size:11px; line-height:1.45; color:var(--faint); }
+.fsub-note.warn { color:var(--accent); }
+.fsub-manual { font-size:11.5px; }
+.fsub-manual > summary { cursor:pointer; color:var(--faint); padding:2px 0; }
+.fsub-manual > summary:hover { color:var(--muted); }
+.fsub-paste { display:flex; flex-direction:column; gap:7px; margin-top:7px; }
+.fsub-flash { font-size:11.5px; padding:6px 9px; border-radius:6px; }
+.fsub-flash.ok { background:var(--success-bg); color:var(--text); }
+.fsub-flash.err { background:var(--error-bg); color:var(--danger); }
 .btn-ghost { display:inline-flex; align-items:center; gap:6px; background:none; border:1px solid var(--border); border-radius:7px; padding:6px 12px;
   color:var(--muted); font-size:12px; text-decoration:none; }
 .btn-ghost:hover { border-color:var(--accent); color:var(--accent); }

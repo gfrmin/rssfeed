@@ -14,11 +14,39 @@ from lxml import etree as lxml_etree, html as lxml_html
 from app import miniflux_client
 from app.config import BRIGHTDATA_PROXY
 from app.db import get_conn
+from app.routes.cookies import (
+    cookie_meta_for_domain,
+    delete_cookies_for_domain,
+    domain_from_url,
+    read_firefox_cookies,
+    upsert_cookies,
+    _parse_cookie_string,
+)
 from app.templating import templates
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Subscription cookies older than this are flagged "may be stale" — login
+# sessions for paywalled sites typically expire within a month.
+_COOKIE_STALE_AFTER = timedelta(days=30)
+
+
+async def _subscription_ctx(feed: dict) -> dict:
+    """Build the per-feed subscription-login context (domain + cookie status)."""
+    domain = domain_from_url(feed.get("site_url")) or domain_from_url(feed.get("feed_url"))
+    meta = await cookie_meta_for_domain(domain) if domain else None
+    is_stale = False
+    if meta and meta["updated_at"]:
+        is_stale = (datetime.now(timezone.utc) - meta["updated_at"]) > _COOKIE_STALE_AFTER
+    return {
+        "domain": domain,
+        "has_cookies": meta is not None,
+        "count": meta["count"] if meta else 0,
+        "updated_at": meta["updated_at"] if meta else None,
+        "is_stale": is_stale,
+    }
 
 
 async def _feed_configs(conn) -> dict[int, dict]:
@@ -749,9 +777,127 @@ async def feed_settings(request: Request, feed_id: int):
         "show_read_default": show_read_default,
         "author_mutes": author_mutes,
         "tag_mutes": tag_mutes,
+        "subscription": await _subscription_ctx(feed),
     }
     template = "_feed_settings_overlay.html" if request.headers.get("HX-Request") else "feed_settings.html"
     return templates.TemplateResponse(request, template, ctx)
+
+
+async def _enable_full_content(feed_id: int) -> bool:
+    """Turn on full-content fetching for a feed. Returns True if it was newly enabled."""
+    async with get_conn() as conn:
+        cur = await conn.execute(
+            "SELECT fetch_full_content FROM feed_config WHERE feed_id = %s", (feed_id,)
+        )
+        row = await cur.fetchone()
+        if row and row["fetch_full_content"]:
+            return False
+        if row is None:
+            await conn.execute(
+                "INSERT INTO feed_config (feed_id, fetch_full_content) VALUES (%s, TRUE)",
+                (feed_id,),
+            )
+        else:
+            await conn.execute(
+                "UPDATE feed_config SET fetch_full_content = TRUE, updated_at = NOW() WHERE feed_id = %s",
+                (feed_id,),
+            )
+        await conn.commit()
+    return True
+
+
+async def _render_subscription_block(
+    request: Request,
+    feed: dict,
+    *,
+    message: str | None = None,
+    error: str | None = None,
+    fetch_full_content: bool,
+    enabled_full_content: bool = False,
+) -> HTMLResponse:
+    """Render the per-feed subscription-login partial (used for HTMX swaps)."""
+    ctx = {
+        "feed": feed,
+        "subscription": await _subscription_ctx(feed),
+        "fetch_full_content": fetch_full_content,
+        "sub_message": message,
+        "sub_error": error,
+        "sub_enabled_full_content": enabled_full_content,
+    }
+    return templates.TemplateResponse(request, "_subscription_block.html", ctx)
+
+
+async def _full_content_enabled(feed_id: int) -> bool:
+    async with get_conn() as conn:
+        cur = await conn.execute(
+            "SELECT fetch_full_content FROM feed_config WHERE feed_id = %s", (feed_id,)
+        )
+        row = await cur.fetchone()
+    return bool(row and row["fetch_full_content"])
+
+
+@router.post("/feeds/{feed_id}/subscription/import-firefox")
+async def subscription_import_firefox(request: Request, feed_id: int):
+    feed = await miniflux_client.get_feed(feed_id)
+    domain = domain_from_url(feed.get("site_url")) or domain_from_url(feed.get("feed_url"))
+    if not domain:
+        return await _render_subscription_block(
+            request, feed, error="Could not determine this feed's domain.",
+            fetch_full_content=await _full_content_enabled(feed_id),
+        )
+    cookies = read_firefox_cookies(domain)
+    if not cookies:
+        return await _render_subscription_block(
+            request, feed,
+            error=f"No Firefox cookies found for {domain}. Log in to the site in Firefox, then try again.",
+            fetch_full_content=await _full_content_enabled(feed_id),
+        )
+    await upsert_cookies(domain, cookies)
+    enabled = await _enable_full_content(feed_id)
+    return await _render_subscription_block(
+        request, feed,
+        message=f"Imported {len(cookies)} cookies for {domain} from Firefox.",
+        fetch_full_content=True,
+        enabled_full_content=enabled,
+    )
+
+
+@router.post("/feeds/{feed_id}/subscription/paste")
+async def subscription_paste(request: Request, feed_id: int, cookies_raw: str = Form(...)):
+    feed = await miniflux_client.get_feed(feed_id)
+    domain = domain_from_url(feed.get("site_url")) or domain_from_url(feed.get("feed_url"))
+    cookies = _parse_cookie_string(cookies_raw)
+    if not domain:
+        return await _render_subscription_block(
+            request, feed, error="Could not determine this feed's domain.",
+            fetch_full_content=await _full_content_enabled(feed_id),
+        )
+    if not cookies:
+        return await _render_subscription_block(
+            request, feed, error="No valid cookies found in the pasted text.",
+            fetch_full_content=await _full_content_enabled(feed_id),
+        )
+    await upsert_cookies(domain, cookies)
+    enabled = await _enable_full_content(feed_id)
+    return await _render_subscription_block(
+        request, feed,
+        message=f"Saved {len(cookies)} cookies for {domain}.",
+        fetch_full_content=True,
+        enabled_full_content=enabled,
+    )
+
+
+@router.post("/feeds/{feed_id}/subscription/remove")
+async def subscription_remove(request: Request, feed_id: int):
+    feed = await miniflux_client.get_feed(feed_id)
+    domain = domain_from_url(feed.get("site_url")) or domain_from_url(feed.get("feed_url"))
+    if domain:
+        await delete_cookies_for_domain(domain)
+    return await _render_subscription_block(
+        request, feed,
+        message=f"Removed the saved login for {domain}." if domain else None,
+        fetch_full_content=await _full_content_enabled(feed_id),
+    )
 
 
 @router.get("/feeds/{feed_id}/icon")
@@ -971,7 +1117,7 @@ async def toggle_full_content(feed_id: int):
     label = "ON" if new_val else "OFF"
     cls = "on" if new_val else "off"
     return HTMLResponse(
-        f'<button hx-post="/feeds/{feed_id}/toggle-full-content" hx-swap="outerHTML" class="fset-toggle {cls}">{label}</button>'
+        f'<button id="fc-toggle-{feed_id}" hx-post="/feeds/{feed_id}/toggle-full-content" hx-swap="outerHTML" class="fset-toggle {cls}">{label}</button>'
     )
 
 

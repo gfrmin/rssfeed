@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from lxml import html as lxml_html
 from psycopg.types.json import Jsonb
 
 from app import browser_login, embeddings, miniflux_client, ranker, ranker_client
@@ -651,11 +652,31 @@ async def _show_login_affordance(url: str | None) -> bool:
     return bool(await cookie_meta_for_domain(domain))
 
 
+def _snapshot_has_text(snapshot: dict | None) -> bool:
+    """True if a snapshot holds real article prose (not an empty SPA shell).
+
+    Early NR fetches (pre browser-render tier) stored a 0-char shell; treating
+    those as "full" renders a blank page. Falling back to the RSS body is the
+    non-destructive defense — the empty snapshot is kept, just not displayed.
+    """
+    if not snapshot:
+        return False
+    if (snapshot.get("content_text") or "").strip():
+        return True
+    html = snapshot.get("content_html") or ""
+    if not html:
+        return False
+    try:
+        return bool(lxml_html.fromstring(html).text_content().strip())
+    except Exception:
+        return False
+
+
 def _content_block_ctx(entry_id: int, snapshot: dict | None, version_count: int,
                        message: str | None = None, rss_html: str = "",
                        feed_id: int | None = None, show_login: bool = False) -> dict:
     """Build the `cb` context for _content_block.html (extraction bar + body)."""
-    if snapshot:
+    if snapshot and _snapshot_has_text(snapshot):
         meta = snapshot.get("metadata") or {}
         return {
             "entry_id": entry_id,

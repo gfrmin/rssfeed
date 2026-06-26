@@ -13,6 +13,7 @@
     {% if cb.source %}<span class="dot-sep">&middot;</span><span class="eb-src src-{{ cb.source }}" title="extraction source">{{ icon("globe", 11) }} {{ SOURCE_LABELS.get(cb.source, cb.source) }}</span>{% endif %}
     {% if cb.version_count > 1 %}<span class="dot-sep">&middot;</span><a class="eb-diff" href="/entries/{{ cb.entry_id }}/diff" hx-get="/entries/{{ cb.entry_id }}/diff" hx-target="#overlay-slot">{{ icon("diff", 12) }} {{ cb.version_count }} versions — view changes</a>{% endif %}
     {% if cb.message %}<span class="dot-sep">&middot;</span><span class="eb-note">{{ cb.message }}</span>{% endif %}
+    {% if cb.show_login and cb.feed_id %}<span class="dot-sep">&middot;</span><a class="eb-login" href="/feeds/{{ cb.feed_id }}" hx-get="/feeds/{{ cb.feed_id }}" hx-target="#overlay-slot" title="Sign in with your subscription if full text looks truncated">{{ icon("key", 12) }} Subscription login</a>{% endif %}
   </div>
   <button class="eb-refetch" type="button" hx-post="/entries/{{ cb.entry_id }}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML" hx-indicator="#extract-indicator" title="Re-fetch">{{ icon("refresh", 13) }} Refetch</button>
 </div>
@@ -21,6 +22,7 @@
   <div class="eb-left">
     <span class="eb-badge rss">RSS content only</span>
     <span class="eb-note">Body truncated by the publisher’s feed.</span>
+    {% if cb.show_login and cb.feed_id %}<a class="eb-login" href="/feeds/{{ cb.feed_id }}" hx-get="/feeds/{{ cb.feed_id }}" hx-target="#overlay-slot" title="Open feed settings to sign in with your subscription">{{ icon("key", 12) }} Subscription login</a>{% endif %}
   </div>
   <button class="eb-fetch" type="button" hx-post="/entries/{{ cb.entry_id }}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML" hx-indicator="#extract-indicator">{{ icon("download", 13) }} Fetch full text</button>
 </div>

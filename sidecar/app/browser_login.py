@@ -70,6 +70,18 @@ def recipe_for(domain: str) -> LoginRecipe:
     )
 
 
+def has_login_recipe(domain: str | None) -> bool:
+    """True only for domains with a site-specific recipe (a known paywall site).
+
+    Unlike ``recipe_for`` (which always returns a heuristic fallback), this is the
+    signal for "is subscription login meaningful here?" — used to decide whether to
+    surface a login affordance in the reader.
+    """
+    if not domain:
+        return False
+    return domain in LOGIN_RECIPES or domain.removeprefix("www.") in LOGIN_RECIPES
+
+
 def login_available() -> bool:
     """True if browser login is configured (the Scraping Browser endpoint is set)."""
     return bool(BRIGHTDATA_BROWSER_WSS)

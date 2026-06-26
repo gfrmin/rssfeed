@@ -4,7 +4,7 @@
 <div class="ov-scrim">
   <div class="ov-panel ov-wide ov-side" data-diffmode="unified">
     <header class="ov-head">
-      <div class="ov-head-title">{{ icon("diff", 16) }}<h2>Content changes</h2><span class="ov-sub">{{ entry.title }}</span></div>
+      <div class="ov-head-title">{{ icon("diff", 16) }}<h2>Content changes</h2><span class="ov-sub">{{ entry.title | inline_html }}</span></div>
       <button class="ov-close" type="button" data-close aria-label="Close">{{ icon("x", 16) }}</button>
     </header>
     <div class="ov-scroll">

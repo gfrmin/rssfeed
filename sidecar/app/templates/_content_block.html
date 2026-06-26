@@ -28,4 +28,4 @@
 </div>
 {% endif %}
 <span id="extract-indicator" class="htmx-indicator mono" style="color:var(--accent);font-size:11px;margin-bottom:12px;gap:7px;align-items:center;"><span class="rung-spin"></span> Extracting full text — Direct → Static proxy → Web Unlocker → Wayback…</span>
-<div class="art-body">{{ cb.body_html | safe }}</div>
+<div class="art-body">{{ cb.body_html | clean_body }}</div>

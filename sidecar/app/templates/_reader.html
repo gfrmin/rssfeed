@@ -25,7 +25,7 @@
   <div class="reader-scroll">
     <div class="reader-inner">
       <header class="art-head">
-        <h1 class="art-title">{{ entry.title }}</h1>
+        <h1 class="art-title">{{ entry.title | inline_html }}</h1>
         <div class="art-meta">
           {% if entry.feed %}{{ tile(entry.feed, 18) }}
           <a class="art-feed" href="/entries?feed_id={{ entry.feed.id }}" hx-get="/entries?feed_id={{ entry.feed.id }}" hx-target="#list-col" hx-push-url="true">{{ entry.feed.title }}</a>

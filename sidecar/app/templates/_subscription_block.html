@@ -1,8 +1,42 @@
 {# Per-feed subscription login. Shared by feed_settings.html + the overlay, and
    returned standalone by /feeds/{id}/subscription/* for HTMX swaps.
-   Context: feed, subscription{domain,has_cookies,count,updated_at,is_stale},
-            fetch_full_content, sub_message, sub_error, sub_enabled_full_content #}
+   Context: feed, subscription{domain,has_cookies,count,updated_at,is_stale,
+            has_saved_password,login_available}, fetch_full_content,
+            sub_message, sub_error, sub_enabled_full_content #}
 {% set s = subscription %}
+
+{% macro login_details(feed, s, open) %}
+<details class="fsub-manual"{{ ' open' if open else '' }}>
+  <summary>Log in with username &amp; password</summary>
+  {% if s.login_available %}
+  <form hx-post="/feeds/{{ feed.id }}/subscription/login"
+        hx-target="#sub-block-{{ feed.id }}" hx-swap="outerHTML"
+        hx-indicator="#sub-spin-{{ feed.id }}" hx-disabled-elt="find button"
+        class="fsub-paste" autocomplete="off">
+    <input class="ti" type="text" name="username" placeholder="Username or email" autocomplete="off" required>
+    <input class="ti" type="password" name="password" placeholder="Password" autocomplete="new-password" required>
+    <div class="fsub-actions">
+      <button class="btn-ghost fsub-primary" type="submit">Log in to {{ s.domain }}</button>
+      <span id="sub-spin-{{ feed.id }}" class="fsub-spin htmx-indicator">Logging in… (~20–40s)</span>
+    </div>
+    <span class="fsub-dim">Drives a real browser server-side to complete the login, then saves the session. Your password is kept in the system keyring (not the database) for automatic re-login.</span>
+  </form>
+  {% else %}
+  <div class="fsub-dim">Server-side login isn&rsquo;t configured (BRIGHTDATA_BROWSER_WSS unset). Use Firefox import or manual paste.</div>
+  {% endif %}
+</details>
+{% endmacro %}
+
+{% macro saved_pw(feed, s) %}
+{% if s.has_saved_password %}
+<div class="fsub-note">&#128273; Password saved — auto re-login on.
+  <button class="fsub-linkbtn" type="button"
+          hx-post="/feeds/{{ feed.id }}/subscription/forget-password"
+          hx-target="#sub-block-{{ feed.id }}" hx-swap="outerHTML">Forget password</button>
+</div>
+{% endif %}
+{% endmacro %}
+
 <div id="sub-block-{{ feed.id }}" class="fsub">
   {% if not s.domain %}
   <div class="fsub-dim">This feed has no site URL, so a subscription login can't be attached.</div>
@@ -11,14 +45,15 @@
   <div class="fsub-status">
     <span class="fsub-badge ok">&#10003; Signed in</span>
     <span class="fsub-domain">{{ s.domain }}</span>
-    <span class="fsub-dim">&middot; {{ s.count }} cookie{{ '' if s.count == 1 else 's' }}{% if s.updated_at %} &middot; imported {{ s.updated_at | timeago }}{% endif %}</span>
+    <span class="fsub-dim">&middot; {{ s.count }} cookie{{ '' if s.count == 1 else 's' }}{% if s.updated_at %} &middot; updated {{ s.updated_at | timeago }}{% endif %}</span>
   </div>
-  {% if s.is_stale %}
-  <div class="fsub-note warn">This login is over a month old and may have expired &mdash; re-import if full articles stop loading.</div>
+  {% if s.is_stale and not s.has_saved_password %}
+  <div class="fsub-note warn">This login is over a month old and may have expired &mdash; re-import or re-login if full articles stop loading.</div>
   {% endif %}
   {% if not fetch_full_content %}
   <div class="fsub-note warn">&ldquo;Fetch full article content&rdquo; is off, so this login isn&rsquo;t being used yet &mdash; turn it on above.</div>
   {% endif %}
+  {{ saved_pw(feed, s) }}
   <div class="fsub-actions">
     <button class="btn-ghost" type="button"
             hx-post="/feeds/{{ feed.id }}/subscription/import-firefox"
@@ -27,14 +62,17 @@
             hx-post="/feeds/{{ feed.id }}/subscription/remove"
             hx-target="#sub-block-{{ feed.id }}" hx-swap="outerHTML">Remove</button>
   </div>
+  {{ login_details(feed, s, sub_error) }}
 
   {% else %}
   <div class="fsub-status">
     <span class="fsub-badge">&#128274; Not signed in</span>
     <span class="fsub-dim">{{ s.domain }} may need a subscription login to fetch full articles.</span>
   </div>
+  {{ saved_pw(feed, s) }}
+  {{ login_details(feed, s, true) }}
   <div class="fsub-actions">
-    <button class="btn-ghost fsub-primary" type="button"
+    <button class="btn-ghost" type="button"
             hx-post="/feeds/{{ feed.id }}/subscription/import-firefox"
             hx-target="#sub-block-{{ feed.id }}" hx-swap="outerHTML">Import my Firefox login for {{ s.domain }}</button>
   </div>

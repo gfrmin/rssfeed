@@ -535,6 +535,10 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .fsub-flash { font-size:11.5px; padding:6px 9px; border-radius:6px; }
 .fsub-flash.ok { background:var(--success-bg); color:var(--text); }
 .fsub-flash.err { background:var(--error-bg); color:var(--danger); }
+.fsub-spin { font-size:11px; color:var(--accent); align-self:center; }
+.fsub-linkbtn { background:none; border:none; color:var(--accent); font-size:11px; cursor:pointer; padding:0 0 0 4px; text-decoration:underline; }
+.fsub-linkbtn:hover { color:var(--accent-hover); }
+.fsub-manual .ti { width:100%; }
 
 /* "Recent fetches" — what automatic full-content fetches brought back. */
 .ffetch { display:flex; flex-direction:column; gap:6px; }

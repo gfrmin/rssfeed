@@ -6,6 +6,11 @@ MINIFLUX_URL = os.environ.get("MINIFLUX_URL", "http://localhost:9144")
 MINIFLUX_API_KEY = os.environ.get("MINIFLUX_API_KEY", "")
 BRIGHTDATA_PROXY = os.environ.get("BRIGHTDATA_PROXY", "")
 BRIGHTDATA_UNLOCKER_PROXY = os.environ.get("BRIGHTDATA_UNLOCKER_PROXY", "")
+# BrightData Browser-API CDP endpoint (a browser_api zone, e.g. cli_browser),
+# used to drive JS/SPA paywall logins server-side. Form:
+#   wss://brd-customer-<id>-zone-cli_browser:<pw>@brd.superproxy.io:9222
+# Unset → username/password login is disabled (Firefox import / paste still work).
+BRIGHTDATA_BROWSER_WSS = os.environ.get("BRIGHTDATA_BROWSER_WSS", "")
 WORKER_POLL_INTERVAL = int(os.environ.get("WORKER_POLL_INTERVAL", "60"))
 
 # Cross-feed learning ranker (Part C) — consumed over the Credence skin wire

@@ -13,6 +13,9 @@ dependencies = [
     "python-multipart>=0.0.18",
     "humanize>=4.0",
     "credence-skin-client",
+    # Drives the BrightData Scraping Browser over CDP for server-side paywall
+    # login. Remote browser only — no `playwright install`, just the client.
+    "playwright>=1.40",
 ]
 
 # The thin JSON-RPC wire client for the Credence skin engine (Part C). Pure stdlib,

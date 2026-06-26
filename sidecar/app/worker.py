@@ -1,16 +1,65 @@
 import asyncio
 import hashlib
 import logging
+import time
+from datetime import datetime, timedelta, timezone
 
 import psycopg
 
-from app import miniflux_client
+from app import browser_login, credvault, miniflux_client
 from app.config import WORKER_POLL_INTERVAL
 from app.db import get_conn
 from app.extractor import fetch_and_extract
-from app.routes.cookies import get_cookies_for_url
+from app.routes.cookies import (
+    cookie_meta_for_domain,
+    domain_from_url,
+    get_cookies_for_url,
+    upsert_cookies,
+)
 
 logger = logging.getLogger(__name__)
+
+# Auto re-login: refresh a domain's paywall session when its cookies are missing
+# or older than this, but no more than once per cooldown (browser logins are slow
+# and metered). Throttle state is per-process and intentionally not persisted.
+_RELOGIN_STALE_AFTER = timedelta(days=25)
+_RELOGIN_COOLDOWN_S = 3 * 3600
+_last_login_attempt: dict[str, float] = {}
+
+
+async def ensure_fresh_login(domain: str | None) -> None:
+    """Re-login a domain (from saved credentials) if its cookies are missing/stale.
+
+    Fail-soft and throttled: any error leaves existing cookies untouched, and a
+    domain is retried at most once per cooldown regardless of outcome.
+    """
+    if not domain or not browser_login.login_available():
+        return
+    now = time.monotonic()
+    if now - _last_login_attempt.get(domain, 0.0) < _RELOGIN_COOLDOWN_S:
+        return
+    meta = await cookie_meta_for_domain(domain)
+    if meta and meta["updated_at"] and (
+        datetime.now(timezone.utc) - meta["updated_at"] < _RELOGIN_STALE_AFTER
+    ):
+        return  # cookies still fresh
+    creds = await credvault.get_credentials(domain)
+    if not creds:
+        return
+    _last_login_attempt[domain] = now
+    logger.info("Auto re-login for %s (cookies missing/stale)", domain)
+    try:
+        cookies = await browser_login.login_and_get_cookies(
+            domain, creds["username"], creds["password"]
+        )
+    except Exception:
+        logger.exception("Auto re-login crashed for %s", domain)
+        return
+    if cookies:
+        await upsert_cookies(domain, cookies)
+        logger.info("Auto re-login for %s refreshed %d cookies", domain, len(cookies))
+    else:
+        logger.warning("Auto re-login for %s failed (kept existing cookies)", domain)
 
 
 async def _get_enabled_feeds(conn: psycopg.AsyncConnection) -> dict[int, dict]:
@@ -83,7 +132,13 @@ async def process_new_entries() -> int:
                 logger.exception("Failed to fetch entries for feed %d", feed_id)
                 continue
 
-            for entry in data.get("entries", []):
+            entries = data.get("entries", [])
+            # Refresh a stored paywall login before fetching this feed's articles.
+            first_url = next((e.get("url") for e in entries if e.get("url")), None)
+            if first_url:
+                await ensure_fresh_login(domain_from_url(first_url))
+
+            for entry in entries:
                 entry_id = entry["id"]
                 url = entry.get("url", "")
                 if not url:

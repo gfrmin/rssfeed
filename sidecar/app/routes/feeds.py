@@ -33,6 +33,32 @@ router = APIRouter()
 _COOKIE_STALE_AFTER = timedelta(days=30)
 
 
+async def _recent_fetches(conn, feed_id: int, limit: int = 5) -> dict:
+    """Summarise what recent automatic full-content fetches actually brought back.
+
+    Returns the last few snapshots' word counts + timing, and a coarse health
+    read ('full' vs 'short') so a paywall teaser is visible at a glance without
+    any live test. Word count is computed in SQL to avoid pulling big text blobs.
+    """
+    cur = await conn.execute(
+        """SELECT coalesce(array_length(regexp_split_to_array(btrim(content_text), E'\\s+'), 1), 0) AS words,
+                  fetched_at, url
+           FROM article_snapshots
+           WHERE feed_id = %s AND content_text IS NOT NULL AND btrim(content_text) <> ''
+           ORDER BY fetched_at DESC
+           LIMIT %s""",
+        (feed_id, limit),
+    )
+    rows = [dict(r) for r in await cur.fetchall()]
+    health = None
+    if rows:
+        counts = sorted(r["words"] for r in rows)
+        median = counts[len(counts) // 2]
+        # Full articles here run many hundreds of words; a paywall teaser is short.
+        health = "short" if median < 200 else "full"
+    return {"samples": rows, "health": health}
+
+
 async def _subscription_ctx(feed: dict) -> dict:
     """Build the per-feed subscription-login context (domain + cookie status)."""
     domain = domain_from_url(feed.get("site_url")) or domain_from_url(feed.get("feed_url"))
@@ -767,6 +793,8 @@ async def feed_settings(request: Request, feed_id: int):
             (feed_id,),
         )
         url_history = await cur.fetchall()
+
+        recent_fetches = await _recent_fetches(conn, feed_id) if fetch_full else {"samples": [], "health": None}
     ctx = {
         "feed": feed,
         "fetch_full_content": fetch_full,
@@ -778,6 +806,7 @@ async def feed_settings(request: Request, feed_id: int):
         "author_mutes": author_mutes,
         "tag_mutes": tag_mutes,
         "subscription": await _subscription_ctx(feed),
+        "recent_fetches": recent_fetches,
     }
     template = "_feed_settings_overlay.html" if request.headers.get("HX-Request") else "feed_settings.html"
     return templates.TemplateResponse(request, template, ctx)

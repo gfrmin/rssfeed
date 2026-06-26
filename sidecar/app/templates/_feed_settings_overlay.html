@@ -74,6 +74,13 @@
           <span class="fset-note">Fetch the full article from the source instead of the RSS summary.</span>
         </div>
 
+        {% if fetch_full_content %}
+        <div class="fset-label">Recent fetches</div>
+        <div class="fset-ctrl col">
+          {% include "_fetch_status.html" %}
+        </div>
+        {% endif %}
+
         <div class="fset-label">Subscription login</div>
         <div class="fset-ctrl col">
           {% include "_subscription_block.html" %}

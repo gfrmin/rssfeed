@@ -86,6 +86,15 @@
   <span class="text-detail text-text-muted">Fetch the full article from the source instead of the RSS summary.</span>
 </div>
 
+{% if fetch_full_content %}
+<div class="my-6 flex items-start gap-4 flex-wrap">
+  <label class="text-text-muted min-w-[180px] pt-1.5">Recent fetches</label>
+  <div class="flex flex-col gap-2 flex-1 min-w-[300px]">
+    {% include "_fetch_status.html" %}
+  </div>
+</div>
+{% endif %}
+
 <div class="my-6 flex items-start gap-4 flex-wrap">
   <label class="text-text-muted min-w-[180px] pt-1.5">Subscription login</label>
   <div class="flex flex-col gap-2 flex-1 min-w-[300px]">

@@ -535,6 +535,15 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .fsub-flash { font-size:11.5px; padding:6px 9px; border-radius:6px; }
 .fsub-flash.ok { background:var(--success-bg); color:var(--text); }
 .fsub-flash.err { background:var(--error-bg); color:var(--danger); }
+
+/* "Recent fetches" — what automatic full-content fetches brought back. */
+.ffetch { display:flex; flex-direction:column; gap:6px; }
+.ffetch-main { font-size:12.5px; color:var(--text); }
+.ffetch-spark { display:flex; flex-wrap:wrap; gap:5px; }
+.ffetch-chip { font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; padding:1px 7px; border-radius:999px;
+  border:1px solid var(--border); color:var(--muted); }
+.ffetch-chip.ok { border-color:color-mix(in srgb,var(--accent) 40%,transparent); color:var(--accent); }
+.ffetch-chip.lo { border-color:color-mix(in srgb,var(--danger) 45%,transparent); color:var(--danger); }
 .btn-ghost { display:inline-flex; align-items:center; gap:6px; background:none; border:1px solid var(--border); border-radius:7px; padding:6px 12px;
   color:var(--muted); font-size:12px; text-decoration:none; }
 .btn-ghost:hover { border-color:var(--accent); color:var(--accent); }

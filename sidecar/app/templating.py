@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -7,6 +8,24 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+# Cache-busting query string for static assets, derived from their content so it
+# changes automatically on every edit — no more hand-bumped "?v=ds7" going stale
+# and leaving browsers on an old stylesheet. Computed once at startup.
+_STATIC_DIR = Path(__file__).parent.parent / "static"
+
+
+def _asset_version() -> str:
+    h = hashlib.sha1()
+    for name in ("style.css", "tailwind.css"):
+        try:
+            h.update((_STATIC_DIR / name).read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:10]
+
+
+templates.env.globals["asset_v"] = _asset_version()
 
 # --- HTML sanitisation (the trust boundary for feed/web-supplied HTML) ----------
 # Autoescape is on, so by default any markup in a value is escaped (shown as text).

@@ -539,6 +539,12 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .fsub-flash.ok { background:var(--success-bg); color:var(--text); }
 .fsub-flash.err { background:var(--error-bg); color:var(--danger); }
 .fsub-spin { font-size:11px; color:var(--accent); align-self:center; }
+/* Login button feedback: swap idle→busy the moment the form starts its request. */
+.fsub-idle { display:inline-flex; align-items:center; }
+.fsub-busy { display:none; align-items:center; gap:6px; }
+.htmx-request .fsub-idle { display:none; }
+.htmx-request .fsub-busy { display:inline-flex; }
+.fsub-primary:disabled { opacity:.7; cursor:progress; }
 .fsub-linkbtn { background:none; border:none; color:var(--accent); font-size:11px; cursor:pointer; padding:0 0 0 4px; text-decoration:underline; }
 .fsub-linkbtn:hover { color:var(--accent-hover); }
 .fsub-manual .ti { width:100%; }

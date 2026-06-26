@@ -9,17 +9,20 @@
 <details class="fsub-manual"{{ ' open' if open else '' }}>
   <summary>Log in with username &amp; password</summary>
   {% if s.login_available %}
+  {# No hx-indicator: let the form itself carry .htmx-request so the descendant
+     idle/busy swap below fires the instant the button is clicked. #}
   <form hx-post="/feeds/{{ feed.id }}/subscription/login"
         hx-target="#sub-block-{{ feed.id }}" hx-swap="outerHTML"
-        hx-indicator="#sub-spin-{{ feed.id }}" hx-disabled-elt="find button"
-        class="fsub-paste" autocomplete="off">
+        hx-disabled-elt="find button" class="fsub-paste" autocomplete="off">
     <input class="ti" type="text" name="username" placeholder="Username or email" autocomplete="off" required>
     <input class="ti" type="password" name="password" placeholder="Password" autocomplete="new-password" required>
     <div class="fsub-actions">
-      <button class="btn-ghost fsub-primary" type="submit">Log in to {{ s.domain }}</button>
-      <span id="sub-spin-{{ feed.id }}" class="fsub-spin htmx-indicator">Logging in… (~20–40s)</span>
+      <button class="btn-ghost fsub-primary" type="submit">
+        <span class="fsub-idle">Log in to {{ s.domain }}</span>
+        <span class="fsub-busy"><span class="rung-spin"></span> Logging in…</span>
+      </button>
     </div>
-    <span class="fsub-dim">Drives a real browser server-side to complete the login, then saves the session. Your password is kept in the system keyring (not the database) for automatic re-login.</span>
+    <span class="fsub-dim">Drives a real browser on the server to complete the login (a few seconds), then saves the session. Your password is kept in the system keyring (not the database) for automatic re-login.</span>
   </form>
   {% else %}
   <div class="fsub-dim">Server-side login isn&rsquo;t available (the login browser isn&rsquo;t installed &mdash; run <code>playwright install chromium</code>). Use Firefox import or manual paste.</div>

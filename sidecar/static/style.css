@@ -358,6 +358,28 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .eb-fetch:hover { filter:brightness(1.08); }
 .eb-refetch { background:none; border:1px solid var(--border); color:var(--muted); }
 .eb-refetch:hover { border-color:var(--accent); color:var(--accent); }
+.eb-badge.warn { background:color-mix(in srgb,var(--danger) 16%,transparent); color:var(--danger);
+  border:1px solid color-mix(in srgb,var(--danger) 40%,transparent); }
+/* Fetch/Refetch button feedback: the button is the htmx request element, so it
+   gets .htmx-request while in flight — swap label to a spinner + "Fetching…". */
+.eb-busy { display:none; align-items:center; gap:6px; }
+.htmx-request .eb-idle { display:none; }
+.htmx-request .eb-busy { display:inline-flex; }
+.eb-fetch:disabled,.eb-refetch:disabled { opacity:.75; cursor:progress; }
+
+/* CSS-only toggle between the full-fetch result and the original RSS body. */
+.art-viewtoggle { margin:2px 0 12px; }
+.art-togglebtn { display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--muted);
+  cursor:pointer; border:1px solid var(--border); border-radius:6px; padding:4px 9px; user-select:none; }
+.art-togglebtn:hover { border-color:var(--accent); color:var(--accent); }
+.art-togglebtn .show-full { display:none; }
+.art-view-rss { display:none; }
+.rssview-cb:checked ~ .art-viewtoggle .art-togglebtn .show-rss { display:none; }
+.rssview-cb:checked ~ .art-viewtoggle .art-togglebtn .show-full { display:inline-flex; }
+.rssview-cb:checked ~ .art-view-full { display:none; }
+.rssview-cb:checked ~ .art-view-rss { display:block; }
+.art-empty-note { color:var(--muted); font-size:13px; line-height:1.6; padding:14px 16px;
+  border:1px dashed var(--border); border-radius:9px; background:var(--panel-2); }
 
 .extract-chain { border:1px solid color-mix(in srgb,var(--accent) 28%,var(--border)); background:var(--panel-2); border-radius:10px;
   padding:13px 14px; margin-bottom:18px; }

@@ -1,21 +1,28 @@
 {% from "_icons.html" import icon %}
 {# Extraction bar + article body. Rendered both in the reader and as the
-   #entry-content swap target for /fetch-full. Consumes `cb`. #}
+   #entry-content swap target for /fetch-full. Consumes `cb`.
+   When a full snapshot exists we show its result (even if empty) and offer a
+   CSS-only toggle to the original RSS body — never silently swap one for the
+   other. #}
 {%- set SOURCE_LABELS = {
   "direct": "Direct", "static_proxy": "Static proxy",
   "web_unlocker": "Web Unlocker", "wayback": "Wayback", "browser": "Browser"
 } -%}
 {% if cb.has_full %}
-<div class="extract-bar full">
+<div class="extract-bar full{{ ' empty' if cb.full_empty else '' }}">
   <div class="eb-left">
+    {% if cb.full_empty %}
+    <span class="eb-badge warn">Full fetch · empty</span>
+    {% else %}
     <span class="eb-badge full">Full article &middot; v{{ cb.version }}</span>
+    {% endif %}
     <span class="eb-meta">fetched {{ cb.fetched }}</span>
     {% if cb.source %}<span class="dot-sep">&middot;</span><span class="eb-src src-{{ cb.source }}" title="extraction source">{{ icon("globe", 11) }} {{ SOURCE_LABELS.get(cb.source, cb.source) }}</span>{% endif %}
     {% if cb.version_count > 1 %}<span class="dot-sep">&middot;</span><a class="eb-diff" href="/entries/{{ cb.entry_id }}/diff" hx-get="/entries/{{ cb.entry_id }}/diff" hx-target="#overlay-slot">{{ icon("diff", 12) }} {{ cb.version_count }} versions — view changes</a>{% endif %}
     {% if cb.message %}<span class="dot-sep">&middot;</span><span class="eb-note">{{ cb.message }}</span>{% endif %}
     {% if cb.show_login and cb.feed_id %}<span class="dot-sep">&middot;</span><a class="eb-login" href="/feeds/{{ cb.feed_id }}" hx-get="/feeds/{{ cb.feed_id }}" hx-target="#overlay-slot" title="Sign in with your subscription if full text looks truncated">{{ icon("key", 12) }} Subscription login</a>{% endif %}
   </div>
-  <button class="eb-refetch" type="button" hx-post="/entries/{{ cb.entry_id }}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML" hx-indicator="#extract-indicator" title="Re-fetch">{{ icon("refresh", 13) }} Refetch</button>
+  <button class="eb-refetch" type="button" hx-post="/entries/{{ cb.entry_id }}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML" hx-disabled-elt="this" title="Re-fetch">{{ icon("refresh", 13) }} <span class="eb-idle">Refetch</span><span class="eb-busy"><span class="rung-spin"></span> Fetching…</span></button>
 </div>
 {% else %}
 <div class="extract-bar rss">
@@ -24,8 +31,29 @@
     <span class="eb-note">Body truncated by the publisher’s feed.</span>
     {% if cb.show_login and cb.feed_id %}<a class="eb-login" href="/feeds/{{ cb.feed_id }}" hx-get="/feeds/{{ cb.feed_id }}" hx-target="#overlay-slot" title="Open feed settings to sign in with your subscription">{{ icon("key", 12) }} Subscription login</a>{% endif %}
   </div>
-  <button class="eb-fetch" type="button" hx-post="/entries/{{ cb.entry_id }}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML" hx-indicator="#extract-indicator">{{ icon("download", 13) }} Fetch full text</button>
+  <button class="eb-fetch" type="button" hx-post="/entries/{{ cb.entry_id }}/fetch-full" hx-target="#entry-content" hx-swap="innerHTML" hx-disabled-elt="this">{{ icon("download", 13) }} <span class="eb-idle">Fetch full text</span><span class="eb-busy"><span class="rung-spin"></span> Fetching…</span></button>
 </div>
 {% endif %}
-<span id="extract-indicator" class="htmx-indicator mono" style="color:var(--accent);font-size:11px;margin-bottom:12px;gap:7px;align-items:center;"><span class="rung-spin"></span> Extracting full text — Direct → Static proxy → Web Unlocker → Wayback…</span>
+
+{% if cb.has_full %}
+{# Full-fetch result + toggle to the original RSS body (CSS-only via the checkbox). #}
+<div class="art-content">
+  <input type="checkbox" class="rssview-cb" id="rssview-{{ cb.entry_id }}" hidden>
+  <div class="art-viewtoggle">
+    <label for="rssview-{{ cb.entry_id }}" class="art-togglebtn">
+      <span class="show-rss">{{ icon("inbox", 12) }} Show original RSS</span>
+      <span class="show-full">{{ icon("globe", 12) }} Show full article</span>
+    </label>
+  </div>
+  <div class="art-body art-view-full">
+    {% if cb.full_empty %}
+    <p class="art-empty-note">The full-text fetch returned no content for this article. Switch to <strong>Show original RSS</strong> above to read the feed’s version, or try <strong>Refetch</strong>.</p>
+    {% else %}
+    {{ cb.body_html | clean_body }}
+    {% endif %}
+  </div>
+  <div class="art-body art-view-rss">{{ cb.rss_html | clean_body }}</div>
+</div>
+{% else %}
 <div class="art-body">{{ cb.body_html | clean_body }}</div>
+{% endif %}

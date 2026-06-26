@@ -27,6 +27,11 @@ WORKER_POLL_INTERVAL = int(os.environ.get("WORKER_POLL_INTERVAL", "60"))
 FETCH_MIN_INTERVAL_S = float(os.environ.get("FETCH_MIN_INTERVAL_S", "2"))
 RENDER_MIN_INTERVAL_S = float(os.environ.get("RENDER_MIN_INTERVAL_S", "8"))
 
+# Don't auto-backfill a feed's whole archive when full-content is first enabled:
+# the worker only fetches never-seen entries published within this window. Older
+# unfetched entries are left for on-demand "Fetch full text". 0 = no limit.
+WORKER_BACKFILL_MAX_AGE_DAYS = int(os.environ.get("WORKER_BACKFILL_MAX_AGE_DAYS", "3"))
+
 # Cross-feed learning ranker (Part C) — consumed over the Credence skin wire
 # (JSON-RPC/stdio via credence-skin-client). The engine is stateless-per-call; all
 # durable belief state lives here in Postgres. When the engine is unreachable the

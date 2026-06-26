@@ -655,9 +655,9 @@ async def _show_login_affordance(url: str | None) -> bool:
 def _snapshot_has_text(snapshot: dict | None) -> bool:
     """True if a snapshot holds real article prose (not an empty SPA shell).
 
-    Early NR fetches (pre browser-render tier) stored a 0-char shell; treating
-    those as "full" renders a blank page. Falling back to the RSS body is the
-    non-destructive defense — the empty snapshot is kept, just not displayed.
+    Early NR fetches (pre browser-render tier) stored a 0-char shell. We don't
+    hide those — the reader shows the (empty) full state with a toggle to the
+    original RSS body — but this flags them so the empty state can be labelled.
     """
     if not snapshot:
         return False
@@ -675,31 +675,35 @@ def _snapshot_has_text(snapshot: dict | None) -> bool:
 def _content_block_ctx(entry_id: int, snapshot: dict | None, version_count: int,
                        message: str | None = None, rss_html: str = "",
                        feed_id: int | None = None, show_login: bool = False) -> dict:
-    """Build the `cb` context for _content_block.html (extraction bar + body)."""
-    if snapshot and _snapshot_has_text(snapshot):
+    """Build the `cb` context for _content_block.html (extraction bar + body).
+
+    When a snapshot exists we always show the full-fetch result (even if empty)
+    with a toggle to the original RSS body — never silently substitute one for
+    the other, so it's clear what the fetch actually produced.
+    """
+    base = {"entry_id": entry_id, "feed_id": feed_id, "show_login": show_login,
+            "rss_html": rss_html, "message": message}
+    if snapshot:
         meta = snapshot.get("metadata") or {}
         return {
-            "entry_id": entry_id,
-            "feed_id": feed_id,
-            "show_login": show_login,
+            **base,
             "has_full": True,
+            "full_empty": not _snapshot_has_text(snapshot),
             "version": snapshot.get("version"),
             "fetched": snapshot["fetched_at"].strftime("%Y-%m-%d %H:%M") if snapshot.get("fetched_at") else "unknown",
             "version_count": version_count,
             "source": meta.get("source"),
-            "message": message,
             "body_html": snapshot.get("content_html") or snapshot.get("content_text") or "",
         }
-    return {"entry_id": entry_id, "feed_id": feed_id, "show_login": show_login,
-            "has_full": False, "body_html": rss_html, "message": message}
+    return {**base, "has_full": False, "full_empty": False, "body_html": rss_html}
 
 
 async def _render_content_block(entry_id: int, snapshot: dict, version_count: int,
                                 message: str | None = None, feed_id: int | None = None,
-                                url: str | None = None) -> str:
+                                url: str | None = None, rss_html: str = "") -> str:
     """Render the extraction bar + article HTML for the #entry-content swap."""
-    cb = _content_block_ctx(entry_id, snapshot, version_count, message, feed_id=feed_id,
-                            show_login=await _show_login_affordance(url))
+    cb = _content_block_ctx(entry_id, snapshot, version_count, message, rss_html=rss_html,
+                            feed_id=feed_id, show_login=await _show_login_affordance(url))
     return templates.env.get_template("_content_block.html").render(cb=cb)
 
 
@@ -733,7 +737,7 @@ async def fetch_full_content(entry_id: int):
         latest = await _get_snapshot(conn, entry_id)
         if latest and latest["content_hash"] == extracted["content_hash"]:
             vc = await _version_count(conn, entry_id)
-            return HTMLResponse(await _render_content_block(entry_id, latest, vc, "No changes detected", feed_id=entry.get("feed_id"), url=url))
+            return HTMLResponse(await _render_content_block(entry_id, latest, vc, "No changes detected", feed_id=entry.get("feed_id"), url=url, rss_html=entry.get("content") or ""))
 
         next_version = (latest["version"] + 1) if latest else 1
         await conn.execute(
@@ -758,7 +762,7 @@ async def fetch_full_content(entry_id: int):
         snapshot = await _get_snapshot(conn, entry_id)
         vc = await _version_count(conn, entry_id)
 
-    return HTMLResponse(await _render_content_block(entry_id, snapshot, vc, feed_id=entry.get("feed_id"), url=url))
+    return HTMLResponse(await _render_content_block(entry_id, snapshot, vc, feed_id=entry.get("feed_id"), url=url, rss_html=entry.get("content") or ""))
 
 
 def _structured_diff_lines(prev_text: str, curr_text: str) -> list[dict]:

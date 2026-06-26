@@ -8,7 +8,7 @@ import httpx
 import psycopg
 
 from app import browser_login, credvault, miniflux_client
-from app.config import WORKER_POLL_INTERVAL
+from app.config import WORKER_BACKFILL_MAX_AGE_DAYS, WORKER_POLL_INTERVAL
 from app.db import get_conn
 from app.extractor import fetch_and_extract
 from app.routes.cookies import (
@@ -38,6 +38,28 @@ _missing_feeds: set[int] = set()
 def _feed_gone_from_miniflux(exc: Exception) -> bool:
     """True if ``exc`` is Miniflux reporting that a feed no longer exists."""
     return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (400, 404)
+
+
+_BACKFILL_MAX_AGE = (
+    timedelta(days=WORKER_BACKFILL_MAX_AGE_DAYS) if WORKER_BACKFILL_MAX_AGE_DAYS > 0 else None
+)
+
+
+def _too_old_to_backfill(entry: dict) -> bool:
+    """True if a never-fetched entry is old enough to skip (avoid archive backfill
+    when a feed is newly enabled). Entries with an unparseable/absent date fetch."""
+    if _BACKFILL_MAX_AGE is None:
+        return False
+    pub = entry.get("published_at")
+    if not pub:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(pub).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return False
+    return datetime.now(timezone.utc) - dt > _BACKFILL_MAX_AGE
 
 
 async def ensure_fresh_login(domain: str | None) -> None:
@@ -168,6 +190,9 @@ async def process_new_entries() -> int:
 
                 source_hash = hashlib.sha256(entry.get("content", "").encode()).hexdigest()
                 exists, stored_hash, stored_content_hash, max_version = await _get_snapshot_info(conn, entry_id)
+
+                if not exists and _too_old_to_backfill(entry):
+                    continue  # never fetched + old → don't backfill the archive
 
                 if exists and stored_hash == source_hash:
                     continue  # No change in RSS content

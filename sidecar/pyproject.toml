@@ -18,8 +18,9 @@ dependencies = [
     "python-multipart>=0.0.18",
     "humanize>=4.0",
     "credence-skin-client",
-    # Drives the BrightData Scraping Browser over CDP for server-side paywall
-    # login. Remote browser only — no `playwright install`, just the client.
+    # Drives a self-hosted headless Chromium for server-side paywall login
+    # (BrightData's Scraping Browser forbids password typing). REQUIRES a one-time
+    # `playwright install chromium` on the host to provision the browser binary.
     "playwright>=1.40",
 ]
 

@@ -1,24 +1,48 @@
-"""Server-side paywall login via the BrightData Scraping Browser.
+"""Server-side paywall login via a self-hosted headless Chromium.
 
 Some paywalls (e.g. National Review's Piano/tinypass flow) authenticate with
-JavaScript and render as a SPA, so a plain HTTP POST can't mint a session. We
-drive a real remote browser over CDP, perform the login, and hand the resulting
-cookies back to the existing ``site_cookies`` plumbing.
+JavaScript, so a plain HTTP POST can't mint a session. We drive a real browser,
+perform the login, and hand the resulting cookies back to the existing
+``site_cookies`` plumbing.
+
+We run Chromium *locally* (via ``playwright install chromium``) rather than on
+BrightData's Scraping Browser: BrightData deliberately blocks typing into
+password fields ("Forbidden action: password typing is not allowed"), which
+makes credential login impossible there. A self-hosted browser has no such
+restriction. If a paywall ever blocks steel's IP, route the browser through
+``LOGIN_BROWSER_PROXY`` (a plain proxy — proxies don't block password entry).
 
 Per-site quirks live in ``LOGIN_RECIPES``; everything else falls back to
-heuristic field detection across the page and its iframes (Piano renders its
-form in an iframe). On failure we save a screenshot to ``/tmp/rssfeed-login-debug``
-so the recipe can be tuned against the live flow.
+heuristic field detection across the page and its iframes. On failure we save a
+screenshot to ``/tmp/rssfeed-login-debug`` so the recipe can be tuned live.
 """
+import glob
 import logging
 import os
 from dataclasses import dataclass, field
 
-from app.config import BRIGHTDATA_BROWSER_WSS
+from app.config import LOGIN_BROWSER_PROXY
 
 logger = logging.getLogger(__name__)
 
 _DEBUG_DIR = "/tmp/rssfeed-login-debug"
+
+# Realistic context so the headless browser isn't trivially fingerprinted.
+_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
+
+def _local_chromium_present() -> bool:
+    """True if `playwright install chromium` has provisioned a browser binary."""
+    # chrome-linux on official builds, chrome-linux64 on the OS-fallback build.
+    base = os.path.expanduser("~/.cache/ms-playwright")
+    return bool(
+        glob.glob(os.path.join(base, "chromium-*/chrome-linux*/chrome"))
+        or glob.glob(os.path.join(base, "chromium_headless_shell-*/chrome-linux*/headless_shell"))
+    )
+
+
+_CHROMIUM_AVAILABLE = _local_chromium_present()
 
 # Heuristic selector candidates, tried in order, used when a recipe omits them.
 _DEFAULT_USER_SEL = [
@@ -54,9 +78,15 @@ class LoginRecipe:
 
 
 # Per-site overrides. NR first; the heuristic path covers the common case.
+# NR's /login/ is a plain server-rendered form, but the page is ad-heavy, so the
+# generic `button[type=submit]` heuristic latched onto the wrong button — hence the
+# explicit selectors below (verified against the live form).
 LOGIN_RECIPES: dict[str, LoginRecipe] = {
     "nationalreview.com": LoginRecipe(
         login_url="https://www.nationalreview.com/login/",
+        username_selectors=["#login-email"],
+        password_selectors=["#login-password"],
+        submit_selectors=["button.login__button--login", "button[type=submit].login__button"],
     ),
 }
 
@@ -83,8 +113,8 @@ def has_login_recipe(domain: str | None) -> bool:
 
 
 def login_available() -> bool:
-    """True if browser login is configured (the Scraping Browser endpoint is set)."""
-    return bool(BRIGHTDATA_BROWSER_WSS)
+    """True if the self-hosted login browser is provisioned (chromium installed)."""
+    return _CHROMIUM_AVAILABLE
 
 
 def _cookies_for_domain(cookies: list[dict], domain: str) -> dict[str, str]:
@@ -153,22 +183,33 @@ async def _dump_failure(page, domain: str, reason: str) -> None:
 
 async def login_and_get_cookies(domain: str, username: str, password: str) -> dict[str, str] | None:
     """Drive a browser login for ``domain`` and return its cookies, or None on failure."""
-    if not BRIGHTDATA_BROWSER_WSS:
-        logger.warning("BRIGHTDATA_BROWSER_WSS unset — browser login unavailable")
+    if not _CHROMIUM_AVAILABLE:
+        logger.warning("Local Chromium not installed — run `playwright install chromium`")
         return None
 
     recipe = recipe_for(domain)
+    proxy = {"server": LOGIN_BROWSER_PROXY} if LOGIN_BROWSER_PROXY else None
     from playwright.async_api import async_playwright
 
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.connect_over_cdp(BRIGHTDATA_BROWSER_WSS, timeout=60_000)
+            browser = await p.chromium.launch(headless=True)
             try:
-                page = await browser.new_page()
+                context = await browser.new_context(
+                    user_agent=_UA, viewport={"width": 1280, "height": 900}, proxy=proxy,
+                )
+                page = await context.new_page()
                 await page.goto(recipe.login_url, wait_until="domcontentloaded", timeout=90_000)
 
-                if not await _fill_and_submit(page, recipe, username, password):
-                    await _dump_failure(page, domain, "fields-not-found")
+                try:
+                    if not await _fill_and_submit(page, recipe, username, password):
+                        await _dump_failure(page, domain, "fields-not-found")
+                        return None
+                except Exception:
+                    # A fill/click that raises (e.g. a selector resolved but the action
+                    # failed) must still leave a screenshot — that's where tuning starts.
+                    logger.exception("Login interaction failed for %s", domain)
+                    await _dump_failure(page, domain, "interaction-error")
                     return None
 
                 try:
@@ -176,7 +217,16 @@ async def login_and_get_cookies(domain: str, username: str, password: str) -> di
                 except Exception:
                     pass
 
-                jar = _cookies_for_domain(await page.context.cookies(), domain)
+                # A still-visible password field means we're back on the login form —
+                # i.e. the credentials were rejected. Without this, the anonymous
+                # cookies a paywall sets anyway would masquerade as a real session.
+                pass_sel = recipe.password_selectors or _DEFAULT_PASS_SEL
+                if await _first_visible(page, pass_sel) is not None:
+                    await _dump_failure(page, domain, "login-rejected")
+                    logger.warning("Login for %s appears rejected (still on login form)", domain)
+                    return None
+
+                jar = _cookies_for_domain(await context.cookies(), domain)
                 if not jar:
                     await _dump_failure(page, domain, "no-cookies")
                     return None

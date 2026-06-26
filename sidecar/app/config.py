@@ -6,11 +6,17 @@ MINIFLUX_URL = os.environ.get("MINIFLUX_URL", "http://localhost:9144")
 MINIFLUX_API_KEY = os.environ.get("MINIFLUX_API_KEY", "")
 BRIGHTDATA_PROXY = os.environ.get("BRIGHTDATA_PROXY", "")
 BRIGHTDATA_UNLOCKER_PROXY = os.environ.get("BRIGHTDATA_UNLOCKER_PROXY", "")
-# BrightData Browser-API CDP endpoint (a browser_api zone, e.g. cli_browser),
-# used to drive JS/SPA paywall logins server-side. Form:
-#   wss://brd-customer-<id>-zone-cli_browser:<pw>@brd.superproxy.io:9222
-# Unset → username/password login is disabled (Firefox import / paste still work).
+# BrightData Browser-API CDP endpoint (a browser_api zone, e.g. cli_browser).
+# NOTE: NOT used for paywall login — BrightData's Scraping Browser forbids typing
+# into password fields ("Forbidden action: password typing is not allowed"), so
+# logins run on a self-hosted Chromium (see browser_login.py). Kept for a possible
+# future SPA *fetch* tier (rendering article HTML), which has no such restriction.
 BRIGHTDATA_BROWSER_WSS = os.environ.get("BRIGHTDATA_BROWSER_WSS", "")
+# Optional proxy for the self-hosted login browser, used only if a paywall blocks
+# steel's IP. Form: http://user:pass@host:port (e.g. a BrightData residential zone).
+# Empty → the login browser connects directly. Plain proxies don't block password
+# entry, so this is purely an IP-reputation escape hatch.
+LOGIN_BROWSER_PROXY = os.environ.get("LOGIN_BROWSER_PROXY", "")
 WORKER_POLL_INTERVAL = int(os.environ.get("WORKER_POLL_INTERVAL", "60"))
 
 # Cross-feed learning ranker (Part C) — consumed over the Credence skin wire

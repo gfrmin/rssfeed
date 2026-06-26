@@ -22,7 +22,7 @@
     <span class="fsub-dim">Drives a real browser server-side to complete the login, then saves the session. Your password is kept in the system keyring (not the database) for automatic re-login.</span>
   </form>
   {% else %}
-  <div class="fsub-dim">Server-side login isn&rsquo;t configured (BRIGHTDATA_BROWSER_WSS unset). Use Firefox import or manual paste.</div>
+  <div class="fsub-dim">Server-side login isn&rsquo;t available (the login browser isn&rsquo;t installed &mdash; run <code>playwright install chromium</code>). Use Firefox import or manual paste.</div>
   {% endif %}
 </details>
 {% endmacro %}

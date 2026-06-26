@@ -950,7 +950,7 @@ async def subscription_login(
     if not browser_login.login_available():
         return await _render_subscription_block(
             request, feed,
-            error="Browser login isn't configured on the server (BRIGHTDATA_BROWSER_WSS unset).",
+            error="Browser login isn't available — the login browser isn't installed (run `playwright install chromium`).",
             fetch_full_content=fc,
         )
     username = username.strip()

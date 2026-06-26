@@ -4,6 +4,7 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import psycopg
 
 from app import browser_login, credvault, miniflux_client
@@ -25,6 +26,18 @@ logger = logging.getLogger(__name__)
 _RELOGIN_STALE_AFTER = timedelta(days=25)
 _RELOGIN_COOLDOWN_S = 3 * 3600
 _last_login_attempt: dict[str, float] = {}
+
+# Feeds whose feed_config row outlived their Miniflux feed (deleted upstream).
+# Miniflux answers /v1/feeds/<id>/entries with 400 "invalid feed ID" (or 404),
+# which otherwise spams an ERROR every poll. We skip them for the rest of the
+# process — non-destructively: the local feed_config and any collected snapshots
+# are left untouched (a feed can be re-subscribed and resume). Cleared on restart.
+_missing_feeds: set[int] = set()
+
+
+def _feed_gone_from_miniflux(exc: Exception) -> bool:
+    """True if ``exc`` is Miniflux reporting that a feed no longer exists."""
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (400, 404)
 
 
 async def ensure_fresh_login(domain: str | None) -> None:
@@ -124,12 +137,21 @@ async def process_new_entries() -> int:
             return 0
 
         for feed_id, config in enabled.items():
+            if feed_id in _missing_feeds:
+                continue  # deleted from Miniflux earlier this run — skip silently
             extract_rules = config["extract_rules"]
 
             try:
                 data = await miniflux_client.get_entries(feed_id=feed_id, limit=50)
-            except Exception:
-                logger.exception("Failed to fetch entries for feed %d", feed_id)
+            except Exception as e:
+                if _feed_gone_from_miniflux(e):
+                    logger.warning(
+                        "Feed %d no longer exists in Miniflux (deleted upstream); "
+                        "skipping full-content fetch. Local config and snapshots are "
+                        "retained.", feed_id)
+                    _missing_feeds.add(feed_id)
+                else:
+                    logger.exception("Failed to fetch entries for feed %d", feed_id)
                 continue
 
             entries = data.get("entries", [])

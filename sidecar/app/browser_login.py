@@ -238,3 +238,52 @@ async def login_and_get_cookies(domain: str, username: str, password: str) -> di
     except Exception:
         logger.exception("Browser login crashed for %s", domain)
         return None
+
+
+# Article containers that signal the SPA has hydrated real prose (not just chrome).
+_RENDER_READY_JS = (
+    "() => document.querySelectorAll("
+    "'article p, #page p, main p, .article__content p, .article-content p'"
+    ").length >= 2"
+)
+
+
+async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
+                           settle_ms: int = 4000, timeout: int = 60_000) -> str | None:
+    """Render a JS/SPA page in a real browser (with session cookies) and return its
+    HTML. For paywalled SPAs like National Review, the article only exists after JS
+    runs, so plain httpx returns an empty shell — this is the fetch tier that works.
+    """
+    if not _CHROMIUM_AVAILABLE:
+        return None
+    from urllib.parse import urlparse
+    from playwright.async_api import async_playwright
+
+    proxy = {"server": LOGIN_BROWSER_PROXY} if LOGIN_BROWSER_PROXY else None
+    bare = (urlparse(url).hostname or "").removeprefix("www.")
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            try:
+                context = await browser.new_context(
+                    user_agent=_UA, viewport={"width": 1280, "height": 1600}, proxy=proxy,
+                )
+                if cookies and bare:
+                    await context.add_cookies([
+                        {"name": k, "value": v, "domain": "." + bare, "path": "/"}
+                        for k, v in cookies.items()
+                    ])
+                page = await context.new_page()
+                await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                # Wait for article prose to hydrate; fall back to a fixed settle.
+                try:
+                    await page.wait_for_function(_RENDER_READY_JS, timeout=20_000)
+                except Exception:
+                    pass
+                await page.wait_for_timeout(settle_ms)
+                return await page.content()
+            finally:
+                await browser.close()
+    except Exception:
+        logger.exception("Browser render failed for %s", url)
+        return None

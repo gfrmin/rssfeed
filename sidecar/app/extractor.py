@@ -1,16 +1,64 @@
+import asyncio
 import fnmatch
 import hashlib
 import logging
+import time
 from typing import Any
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 from lxml import html as lxml_html
 from trafilatura import extract
 
-from app.config import BRIGHTDATA_PROXY, BRIGHTDATA_UNLOCKER_PROXY
+from app import browser_login
+from app.config import (
+    BRIGHTDATA_PROXY,
+    BRIGHTDATA_UNLOCKER_PROXY,
+    FETCH_MIN_INTERVAL_S,
+    RENDER_MIN_INTERVAL_S,
+)
 
 logger = logging.getLogger(__name__)
+
+# Below this much extracted text we treat the page as "no real content" — for a
+# logged-in/known-SPA domain that triggers the browser-render fetch tier.
+_RENDER_TEXT_THRESHOLD = 200
+
+# Per-domain rate limiting: serialize + space out fetches to the same site.
+_domain_locks: dict[str, asyncio.Lock] = {}
+_domain_last: dict[str, float] = {}
+
+
+def _domain_of(url: str) -> str | None:
+    try:
+        return (urlparse(url).hostname or "").removeprefix("www.") or None
+    except Exception:
+        return None
+
+
+async def _throttle(domain: str | None, min_interval: float) -> None:
+    """Ensure at least ``min_interval`` seconds between fetches to ``domain``."""
+    if not domain or min_interval <= 0:
+        return
+    lock = _domain_locks.setdefault(domain, asyncio.Lock())
+    async with lock:
+        wait = min_interval - (time.monotonic() - _domain_last.get(domain, 0.0))
+        if wait > 0:
+            logger.debug("Rate-limiting %s: waiting %.1fs", domain, wait)
+            await asyncio.sleep(wait)
+        _domain_last[domain] = time.monotonic()
+
+
+def _needs_browser_render(domain: str | None, result: dict[str, Any] | None,
+                          cookies: dict[str, str] | None) -> bool:
+    """True when the cheap fetch came back empty/short on a domain worth rendering
+    in a real browser — i.e. a known SPA paywall or one we hold a session for."""
+    text_len = len(result["content_text"]) if result else 0
+    if text_len >= _RENDER_TEXT_THRESHOLD:
+        return False
+    if not browser_login.login_available():
+        return False
+    return browser_login.has_login_recipe(domain) or bool(cookies)
 
 
 async def fetch_and_extract(
@@ -19,11 +67,29 @@ async def fetch_and_extract(
     proxy_images: bool = True,
     cookies: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
-    """Fetch a URL (direct, then proxy fallback, then Wayback) and extract article content."""
-    html = await _fetch_html(url, cookies=cookies)
-    if not html:
-        return None
-    return _extract(html, url, extract_rules or {}, proxy_images=proxy_images)
+    """Fetch a URL (direct → proxy → Wayback, then a browser-render tier for SPAs)
+    and extract article content. Rate-limited per domain to stay polite."""
+    rules = extract_rules or {}
+    domain = _domain_of(url)
+
+    await _throttle(domain, FETCH_MIN_INTERVAL_S)
+    html, source = await _fetch_html(url, cookies=cookies)
+    result = _extract(html, url, rules, proxy_images=proxy_images) if html else None
+    if result and source:
+        result["metadata"]["source"] = source
+
+    # SPA fallback: render in a real browser when httpx only got an empty shell.
+    if _needs_browser_render(domain, result, cookies):
+        logger.info("Browser-render fallback for %s (httpx text too short)", url)
+        await _throttle(domain, RENDER_MIN_INTERVAL_S)
+        rendered = await browser_login.render_page_html(url, cookies)
+        if rendered:
+            r2 = _extract(rendered, url, rules, proxy_images=proxy_images)
+            if r2 and len(r2["content_text"]) > len((result or {}).get("content_text", "")):
+                r2["metadata"]["source"] = "browser"
+                return r2
+
+    return result
 
 
 _HTTP_KWARGS = dict(
@@ -53,17 +119,20 @@ async def _get_via(
         return r.text
 
 
-async def _fetch_html(url: str, cookies: dict[str, str] | None = None) -> str | None:
+async def _fetch_html(
+    url: str, cookies: dict[str, str] | None = None,
+) -> tuple[str | None, str | None]:
+    """Return (html, source_tier) trying progressively heavier fetch methods."""
     # 1. Direct (free)
     try:
-        return await _get_via(_HTTP_KWARGS, url, proxy=None, cookies=cookies)
+        return await _get_via(_HTTP_KWARGS, url, proxy=None, cookies=cookies), "direct"
     except Exception:
         logger.info("Direct fetch failed for %s, trying static proxy", url)
 
     # 2. Static datacenter proxy (cheap — bandwidth only, different IP)
     if BRIGHTDATA_PROXY:
         try:
-            return await _get_via(_HTTP_KWARGS, url, proxy=BRIGHTDATA_PROXY, cookies=cookies)
+            return await _get_via(_HTTP_KWARGS, url, proxy=BRIGHTDATA_PROXY, cookies=cookies), "static_proxy"
         except Exception:
             logger.info("Static proxy failed for %s, trying web_unlocker", url)
 
@@ -72,17 +141,17 @@ async def _fetch_html(url: str, cookies: dict[str, str] | None = None) -> str | 
         try:
             return await _get_via(
                 _UNLOCKER_KWARGS, url, proxy=BRIGHTDATA_UNLOCKER_PROXY, cookies=cookies,
-            )
+            ), "web_unlocker"
         except Exception:
             logger.info("Web Unlocker failed for %s, trying Wayback Machine", url)
 
     # 4. Wayback Machine (free last resort — no cookies, site-specific creds irrelevant)
     try:
         wayback_url = f"https://web.archive.org/web/{quote(url, safe='')}"
-        return await _get_via(_HTTP_KWARGS, wayback_url, proxy=None, cookies=None)
+        return await _get_via(_HTTP_KWARGS, wayback_url, proxy=None, cookies=None), "wayback"
     except Exception:
         logger.warning("All fetch methods failed for %s", url)
-        return None
+        return None, None
 
 
 async def fetch_proxied_image(url: str) -> tuple[bytes, str] | None:

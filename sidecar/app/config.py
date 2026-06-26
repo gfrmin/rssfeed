@@ -19,6 +19,14 @@ BRIGHTDATA_BROWSER_WSS = os.environ.get("BRIGHTDATA_BROWSER_WSS", "")
 LOGIN_BROWSER_PROXY = os.environ.get("LOGIN_BROWSER_PROXY", "")
 WORKER_POLL_INTERVAL = int(os.environ.get("WORKER_POLL_INTERVAL", "60"))
 
+# Per-domain fetch rate limiting — keep article fetching polite so a publisher
+# (especially one we're logged into, like National Review) doesn't flag the
+# traffic as abusive. Minimum seconds between consecutive fetches to the SAME
+# domain; browser renders get a longer gap since they're heavier and more
+# bot-like. Set to 0 to disable.
+FETCH_MIN_INTERVAL_S = float(os.environ.get("FETCH_MIN_INTERVAL_S", "2"))
+RENDER_MIN_INTERVAL_S = float(os.environ.get("RENDER_MIN_INTERVAL_S", "8"))
+
 # Cross-feed learning ranker (Part C) — consumed over the Credence skin wire
 # (JSON-RPC/stdio via credence-skin-client). The engine is stateless-per-call; all
 # durable belief state lives here in Postgres. When the engine is unreachable the

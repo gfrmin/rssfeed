@@ -324,7 +324,17 @@ def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = Tr
                 if fallback:
                     html_content = fallback
 
-    if not text and not html_content:
+    # A fetch can return page scaffolding with no real article text — e.g. a
+    # paywall / JS-app shell of empty wrapper elements (NR's <p id="page">,
+    # <p id="bc-root">). Treat that as a *failed* extraction rather than storing
+    # a blank snapshot that would replace the visible RSS content.
+    visible_text = (text or "").strip()
+    if not visible_text and html_content:
+        try:
+            visible_text = lxml_html.fromstring(html_content).text_content().strip()
+        except Exception:
+            visible_text = ""
+    if not visible_text:
         return None
 
     # Proxy images through our endpoint

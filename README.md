@@ -1,6 +1,6 @@
 # RSS Sidecar
 
-A self-hosted, single-user RSS reader that runs as a sidecar alongside [Miniflux](https://miniflux.app). It does one thing Miniflux intentionally leaves out, and does it reliably: **show you the actual full article** — full-text extraction with versioning — wrapped in a fast, distraction-free reader.
+A self-hosted, single-user RSS reader that runs as a sidecar alongside [Miniflux](https://miniflux.app). It does two things Miniflux intentionally leaves out: **show you the actual full article** (full-text extraction with versioning) and **order the firehose by what you actually like** (a learning ranker that explains itself) — wrapped in a fast, distraction-free reader.
 
 ## Features
 
@@ -31,6 +31,19 @@ A self-hosted, single-user RSS reader that runs as a sidecar alongside [Miniflux
 - Views: Unread / All / Read / Starred / Changed, plus per-feed lists
 - Full-text search (via Miniflux API)
 
+**Learning ranker** (optional — cross-feed Unread/All views)
+- Orders cross-feed views by inferred preference, with a **Smart / Newest** toggle; per-feed lists stay strictly reverse-chronological
+- Learns from *quality* signals only — star, thumbs up/down, open-original, dwell (≥4s) — recorded in `engagement_events`
+- **Bayesian linear regression**: `score = Σ wᵢ·featureᵢ`, where each engagement is one noisy measurement of the score (`y ~ Normal(Σwx, σ²)`). Evidence is shared across co-occurring features by uncertainty, so a single thumbs-down doesn't clobber a confidently-liked source
+- Features: per-feed / per-author / per-tag weights, recency (exponential half-life), priority tier, and embedding similarity to a learned taste centroid
+- **"Why this ranked"** — every Smart-ordered row can explain its top ± feature contributions
+- Inference runs on [Credence](https://github.com/gfrmin/credence) over the skin wire (JSON-RPC/stdio); the engine is stateless-per-call and all belief state lives in this app's Postgres. **Fails open**: if the engine is unreachable, ordering falls back to priority + recency
+- Author/tag mutes sink unwanted items to the bottom cross-feed (and hard-filter on the feed's own page)
+
+**Embedding similarity** (optional)
+- Article text is embedded locally via [Ollama](https://ollama.com) (`nomic-embed-text`); the worker maintains a taste centroid from positively-engaged articles
+- Cosine similarity to that centroid becomes one more ranker feature ("similar to your taste"). Fails open if Ollama is down
+
 **Self-hosted friendly**
 - All assets bundled locally (no CDN dependencies)
 - PWA with service worker for offline reading
@@ -42,13 +55,23 @@ A self-hosted, single-user RSS reader that runs as a sidecar alongside [Miniflux
 ┌──────────┐     ┌──────────┐     ┌────────────┐
 │ Miniflux │◄───►│ Postgres │◄───►│  Sidecar   │
 │ :9144    │     │          │     │  :9145     │
-└──────────┘     └──────────┘     └────────────┘
+└──────────┘     └──────────┘     └─────┬──────┘
+                                        │ optional, fails open
+                        ┌───────────────┴───────────────┐
+                        ▼                               ▼
+                 ┌─────────────┐                 ┌─────────────┐
+                 │  Credence   │                 │   Ollama    │
+                 │ skin engine │                 │ embeddings  │
+                 │ (JSON-RPC)  │                 │  :11434     │
+                 └─────────────┘                 └─────────────┘
 ```
 
 The sidecar is a FastAPI + htmx application that:
-- Uses Miniflux's API for feed/entry management
-- Stores its own data (article snapshots, feed config, cookies, URL history) in the shared PostgreSQL database
-- Runs a background worker that auto-extracts full-text for feeds with extraction enabled
+- Uses Miniflux's API for feed/entry management (Miniflux owns all feed/entry/read/star state)
+- Stores its own data (article snapshots, feed config, cookies, URL history, engagement events, ranker weights, embeddings) in the shared PostgreSQL database
+- Runs a background worker that auto-extracts full-text for feeds with extraction enabled, maintains embeddings, and folds new engagement events into the ranker's learned weights
+
+Both optional dependencies degrade gracefully: without Credence the reader orders by priority + recency; without Ollama the `embed_sim` feature is simply absent.
 
 ## Setup
 
@@ -88,9 +111,28 @@ All configuration is via environment variables in `.env`:
 | `MINIFLUX_ADMIN_USER` | `admin` | Miniflux admin username |
 | `MINIFLUX_ADMIN_PASSWORD` | `changeme` | Miniflux admin password |
 | `MINIFLUX_API_KEY` | (required) | Miniflux API key |
+| `MINIFLUX_URL` | `http://localhost:9144` | Miniflux base URL |
 | `BRIGHTDATA_PROXY` | | HTTP proxy URL (static) for fetching blocked content |
 | `BRIGHTDATA_UNLOCKER_PROXY` | | Web Unlocker proxy URL for anti-bot sites |
 | `WORKER_POLL_INTERVAL` | `60` | Seconds between background extraction polls |
+
+### Learning ranker (optional)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RANKER_ENABLED` | `1` | Set `0` to disable smart ordering entirely (falls back to priority + recency) |
+| `RANKER_MODEL_VERSION` | `maut-skin-v1` | Bump to re-learn from scratch; the worker refolds all `engagement_events` |
+| `CREDENCE_SKIN_SERVER` | `~/git/credence/apps/skin/server.jl` | Julia skin entrypoint spawned from a local Credence checkout |
+| `CREDENCE_SKIN_PROJECT` | `~/git/credence` | Julia project dir for the local skin |
+| `CREDENCE_SKIN_COMMAND` | | JSON argv overriding the local-Julia spawn, e.g. `["docker","run","--rm","-i","ghcr.io/gfrmin/credence-skin:latest"]` |
+
+### Embeddings (optional)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMBED_ENABLED` | `1` | Set `0` to disable embedding similarity |
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint for embedding article text |
+| `EMBED_MODEL` | `nomic-embed-text` | Embedding model (768-dim) |
 
 ## Per-feed extract rules
 
@@ -108,12 +150,24 @@ For sites where automatic extraction doesn't work well, you can set custom rules
 - `unwrap_tags` — HTML tags to unwrap (promote children), useful for Vue.js/Web Component sites
 - `remove_tags` — Glob patterns for tags to remove entirely
 
+## Development
+
+The sidecar is managed with [uv](https://docs.astral.sh/uv/). Tests and lint must run through it — the system Python has none of the dependencies:
+
+```bash
+cd sidecar
+uv run pytest          # test suite
+uv run ruff check .    # lint
+uv run ruff format .   # format
+```
+
 ## Tech stack
 
 - **Backend**: Python 3.12, FastAPI, psycopg3
 - **Frontend**: htmx, vanilla JS, CSS custom properties
 - **Database**: PostgreSQL 17 (shared with Miniflux)
 - **Extraction**: trafilatura, readability-lxml, lxml
+- **Ranking**: Credence (Bayesian inference engine, consumed over the skin wire); Ollama for embeddings
 - **Containerization**: Docker Compose
 
 ## License

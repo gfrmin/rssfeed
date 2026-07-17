@@ -267,7 +267,12 @@ def _extract_by_xpath(html: str, xpath: str) -> str | None:
     return ''.join(parts).strip() or None
 
 
-_MEDIA_XPATH = "//img[@src] | //video | //audio | //iframe[@src] | //source[@src]"
+# Every tag requires a src, video/audio included: a JS-hydrated player skeleton
+# (`<video class="skeleton">`, src set later by script that never ran on a plain
+# fetch) is page furniture, not article media. Counting it would let an empty
+# shell back through — the exact bug this guard exists to stop. The common
+# `<video><source src=…>` form is still caught, by the //source clause.
+_MEDIA_XPATH = "//img[@src] | //video[@src] | //audio[@src] | //iframe[@src] | //source[@src]"
 
 
 def _has_media(html_content: str | None) -> bool:

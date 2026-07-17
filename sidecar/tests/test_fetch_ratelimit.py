@@ -7,39 +7,54 @@ domain worth rendering (a known SPA paywall, or one we hold a session for).
 import asyncio
 import time
 
-from app import extractor
+from app import browser_login, extractor
 
 # --- _needs_browser_render (gating the expensive tier) ----------------------
 
+_PAYWALL = "paywall.example.com"     # stands in for a configured paywall site
+_UNKNOWN = "example.com"             # no recipe, no session
+
+
 def _force_browser(monkeypatch, available=True):
+    """Pretend chromium is provisioned, and give the run one known-paywall domain.
+
+    The recipe is injected rather than relied on: recipes are operator config now,
+    so a test environment has none. A test that leaned on a shipped recipe would
+    quietly assert nothing once the list is empty.
+    """
     monkeypatch.setattr(extractor.browser_login, "login_available", lambda: available)
+    monkeypatch.setattr(
+        browser_login,
+        "LOGIN_RECIPES",
+        {_PAYWALL: browser_login.LoginRecipe(login_url=f"https://{_PAYWALL}/login")},
+    )
 
 
 def test_render_skipped_when_text_is_long(monkeypatch):
     _force_browser(monkeypatch)
     res = {"content_text": "x" * 500}
-    assert extractor._needs_browser_render("nationalreview.com", res, None) is False
+    assert extractor._needs_browser_render(_PAYWALL, res, None) is False
 
 
 def test_render_for_short_text_on_known_spa(monkeypatch):
     _force_browser(monkeypatch)
     res = {"content_text": "tiny"}
-    assert extractor._needs_browser_render("nationalreview.com", res, None) is True
+    assert extractor._needs_browser_render(_PAYWALL, res, None) is True
 
 
 def test_render_for_short_text_when_we_have_cookies(monkeypatch):
     _force_browser(monkeypatch)
-    assert extractor._needs_browser_render("example.com", None, {"sess": "1"}) is True
+    assert extractor._needs_browser_render(_UNKNOWN, None, {"sess": "1"}) is True
 
 
 def test_no_render_for_unknown_domain_without_session(monkeypatch):
     _force_browser(monkeypatch)
-    assert extractor._needs_browser_render("example.com", {"content_text": ""}, None) is False
+    assert extractor._needs_browser_render(_UNKNOWN, {"content_text": ""}, None) is False
 
 
 def test_no_render_when_browser_unavailable(monkeypatch):
     _force_browser(monkeypatch, available=False)
-    assert extractor._needs_browser_render("nationalreview.com", None, {"a": "b"}) is False
+    assert extractor._needs_browser_render(_PAYWALL, None, {"a": "b"}) is False
 
 
 # --- _throttle (per-domain spacing) -----------------------------------------

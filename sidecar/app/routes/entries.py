@@ -642,9 +642,9 @@ async def entry_detail(request: Request, entry_id: int):
 async def _show_login_affordance(url: str | None) -> bool:
     """Whether to offer a "Subscription login" link for this article's site.
 
-    True for known paywall recipes (e.g. National Review) or domains we already
-    hold a session for — so the link appears where login is meaningful, not on
-    every ordinary feed.
+    True for domains with a configured login recipe, or ones we already hold a
+    session for — so the link appears where login is meaningful, not on every
+    ordinary feed.
     """
     domain = domain_from_url(url)
     if not domain:
@@ -657,9 +657,9 @@ async def _show_login_affordance(url: str | None) -> bool:
 def _snapshot_has_text(snapshot: dict | None) -> bool:
     """True if a snapshot holds real article prose (not an empty SPA shell).
 
-    Early NR fetches (pre browser-render tier) stored a 0-char shell. We don't
-    hide those — the reader shows the (empty) full state with a toggle to the
-    original RSS body — but this flags them so the empty state can be labelled.
+    Early paywalled-SPA fetches (pre browser-render tier) stored a 0-char shell.
+    We don't hide those — the reader shows the (empty) full state with a toggle
+    to the original RSS body — but this flags them so it can be labelled.
     """
     if not snapshot:
         return False

@@ -115,6 +115,28 @@ All configuration is via environment variables in `.env`:
 | `BRIGHTDATA_PROXY` | | HTTP proxy URL (static) for fetching blocked content |
 | `BRIGHTDATA_UNLOCKER_PROXY` | | Web Unlocker proxy URL for anti-bot sites |
 | `WORKER_POLL_INTERVAL` | `60` | Seconds between background extraction polls |
+| `LOGIN_RECIPES_FILE` | `~/.config/rssfeed/login-recipes.json` | Per-site login recipes — see below |
+
+### Subscription login recipes (optional)
+
+If you subscribe to a paywalled site, the sidecar can log in with a real browser
+and reuse the session cookies. Most plain login forms work with no configuration:
+the generic heuristics find the username/password/submit fields. You only need a
+recipe where those misfire — typically an ad-heavy page carrying several
+`button[type=submit]`, where the generic selector clicks the wrong one.
+
+Recipes are **configuration, not code**, and live outside the repo by default: the
+set of sites you can log into is the set of subscriptions you hold, which is data
+about you, not about the program. Copy the example and fill in your own:
+
+```bash
+mkdir -p ~/.config/rssfeed
+cp sidecar/config/login-recipes.example.json ~/.config/rssfeed/login-recipes.json
+```
+
+A missing or malformed file just means "no recipes" — every site falls back to the
+heuristic path and the app runs unchanged. A failed login leaves a screenshot in
+`/tmp/rssfeed-login-debug` to help you find the right selectors.
 
 ### Learning ranker (optional)
 

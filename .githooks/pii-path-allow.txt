@@ -38,13 +38,18 @@
 /srv
 /data
 /path/to
+# Deliberately-never-exists placeholder, used to pin config to "absent" in tests.
+/nonexistent
 
-# f-string tails: `f"{_HOME}/git/credence/..."` (config.py, verify_skin_ranker.py)
-# leaves the literal `/git/credence/...` in the source. The home part is resolved at
-# runtime via expanduser, so nothing personal is in the tree — the regex just can't
-# see the `{_HOME}` before it. Allowlisted here rather than with a PII-OK marker,
-# which would exempt those whole lines from every rule including the denylist.
+# f-string tails: `f"{_HOME}/git/credence/..."` and `f"{_HOME}/.config/rssfeed/..."`
+# leave the literals `/git/credence/...` and `/.config/rssfeed/...` in the source.
+# The home part is resolved at runtime via expanduser, so nothing personal is in the
+# tree — the regex just can't see the `{_HOME}` before it. Allowlisted here rather
+# than with a PII-OK marker, which would exempt those whole lines from every rule
+# including the denylist. (The tilde forms `~/git`, `~/.config` are listed below;
+# these are the same roots minus the tilde the f-string swallows.)
 /git
+/.config
 
 # --- documented dev-machine conventions ------------------------------------
 # Tilde-rooted and therefore anonymous: they describe where a developer keeps

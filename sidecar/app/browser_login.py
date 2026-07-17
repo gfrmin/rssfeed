@@ -1,9 +1,8 @@
 """Server-side paywall login via a self-hosted headless Chromium.
 
-Some paywalls (e.g. National Review's Piano/tinypass flow) authenticate with
-JavaScript, so a plain HTTP POST can't mint a session. We drive a real browser,
-perform the login, and hand the resulting cookies back to the existing
-``site_cookies`` plumbing.
+Some paywalls (Piano/tinypass and similar) authenticate with JavaScript, so a
+plain HTTP POST can't mint a session. We drive a real browser, perform the login,
+and hand the resulting cookies back to the existing ``site_cookies`` plumbing.
 
 We run Chromium *locally* (via ``playwright install chromium``) rather than on
 BrightData's Scraping Browser: BrightData deliberately blocks typing into
@@ -12,19 +11,22 @@ makes credential login impossible there. A self-hosted browser has no such
 restriction. If a paywall ever blocks steel's IP, route the browser through
 ``LOGIN_BROWSER_PROXY`` (a plain proxy — proxies don't block password entry).
 
-Per-site quirks live in ``LOGIN_RECIPES``; everything else falls back to
-heuristic field detection across the page and its *trusted* frames — the main
-frame, same-site frames, and the ``_AUTH_FRAME_HOSTS`` allowlist. Credentials are
-never typed into an arbitrary third-party iframe. On failure we save a screenshot
-to ``/tmp/rssfeed-login-debug`` so the recipe can be tuned live.
+Per-site quirks are *configuration*, loaded from ``LOGIN_RECIPES_FILE`` outside
+the repo (the set of sites you can log into is the set of subscriptions you hold).
+Everything else falls back to heuristic field detection across the page and its
+*trusted* frames — the main frame, same-site frames, and the ``_AUTH_FRAME_HOSTS``
+allowlist. Credentials are never typed into an arbitrary third-party iframe. On
+failure we save a screenshot to ``/tmp/rssfeed-login-debug`` so a recipe can be
+tuned live.
 """
 import glob
+import json
 import logging
 import os
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
-from app.config import LOGIN_BROWSER_PROXY
+from app.config import LOGIN_BROWSER_PROXY, LOGIN_RECIPES_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -89,18 +91,72 @@ class LoginRecipe:
     submit_selectors: list[str] = field(default_factory=list)
 
 
-# Per-site overrides. NR first; the heuristic path covers the common case.
-# NR's /login/ is a plain server-rendered form, but the page is ad-heavy, so the
-# generic `button[type=submit]` heuristic latched onto the wrong button — hence the
-# explicit selectors below (verified against the live form).
-LOGIN_RECIPES: dict[str, LoginRecipe] = {
-    "nationalreview.com": LoginRecipe(
-        login_url="https://www.nationalreview.com/login/",
-        username_selectors=["#login-email"],
-        password_selectors=["#login-password"],
-        submit_selectors=["button.login__button--login", "button[type=submit].login__button"],
-    ),
-}
+def _selector_list(spec: dict, key: str) -> list[str]:
+    """A recipe's selector list, validated.
+
+    Rejects a bare string explicitly: `"username_selectors": "#login-email"` is the
+    natural thing to write instead of a list, and `list()` would silently splay it
+    into ['#','l','o','g',...]. That "works" — no error, no warning — and then the
+    login just mysteriously never finds the field. Better to skip the recipe loudly.
+    """
+    v = spec.get(key) or []
+    if not isinstance(v, list):
+        raise TypeError(f"{key} must be a list of CSS selectors")
+    if not all(isinstance(s, str) for s in v):
+        raise TypeError(f"{key} must contain only strings")
+    return v
+
+
+def load_recipes(path: str) -> dict[str, LoginRecipe]:
+    """Load per-site login overrides from a JSON file.
+
+    Recipes are *configuration*, not code: the set of sites you can log into is
+    the set of subscriptions you pay for — data about the operator, not program
+    logic. So they live outside the repo (see ``LOGIN_RECIPES_FILE`` and
+    ``config/login-recipes.example.json``) and none ship here. With no file every
+    site uses the generic heuristic path and the app works unchanged.
+
+    A recipe is only needed where the heuristics misfire — an ad-heavy login page
+    can carry several `button[type=submit]`, and the generic selector will happily
+    click the wrong one; pinning explicit selectors fixes that.
+
+    A malformed entry is skipped on its own rather than failing the whole load, so
+    one bad recipe can't disable the others. Warnings name the domain only, never
+    the recipe body.
+    """
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        if not isinstance(raw, dict):
+            raise TypeError("top level must be an object of domain -> recipe")
+    except (OSError, ValueError, TypeError) as exc:
+        logger.warning("login recipes: ignoring %s (%s)", path, exc)
+        return {}
+
+    out: dict[str, LoginRecipe] = {}
+    for domain, spec in raw.items():
+        if str(domain).startswith("__"):
+            continue  # JSON has no comments; `__`-prefixed keys are documentation
+        try:
+            url = spec["login_url"]
+            if not isinstance(url, str) or not url.strip():
+                raise TypeError("login_url must be a non-empty string")
+            out[str(domain).lower()] = LoginRecipe(
+                login_url=url,
+                username_selectors=_selector_list(spec, "username_selectors"),
+                password_selectors=_selector_list(spec, "password_selectors"),
+                submit_selectors=_selector_list(spec, "submit_selectors"),
+            )
+        except (KeyError, TypeError, AttributeError) as exc:
+            logger.warning("login recipes: skipping %s (%s)", domain, exc)
+    if out:
+        logger.info("login recipes: loaded %d", len(out))
+    return out
+
+
+LOGIN_RECIPES: dict[str, LoginRecipe] = load_recipes(LOGIN_RECIPES_FILE)
 
 
 def recipe_for(domain: str) -> LoginRecipe:
@@ -305,8 +361,8 @@ _RENDER_READY_JS = (
 async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
                            settle_ms: int = 4000, timeout: int = 60_000) -> str | None:
     """Render a JS/SPA page in a real browser (with session cookies) and return its
-    HTML. For paywalled SPAs like National Review, the article only exists after JS
-    runs, so plain httpx returns an empty shell — this is the fetch tier that works.
+    HTML. On a paywalled SPA the article only exists after JS runs, so plain httpx
+    returns an empty shell — this is the fetch tier that works.
     """
     if not _CHROMIUM_AVAILABLE:
         return None

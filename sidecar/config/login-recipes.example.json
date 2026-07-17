@@ -1,0 +1,37 @@
+{
+  "__comment": [
+    "Per-site login recipes — EXAMPLE. Copy to the path in LOGIN_RECIPES_FILE",
+    "(default ~/.config/rssfeed/login-recipes.json) and fill in your own sites.",
+    "",
+    "WHY THIS ISN'T IN THE REPO",
+    "  The set of sites you can log into is the set of subscriptions you pay for.",
+    "  That's data about you — on a public repo it advertises what you read and",
+    "  subscribe to. So it's configuration, kept outside the tree, like your .env.",
+    "",
+    "WHEN YOU NEED ONE",
+    "  Usually never: without a recipe the login uses generic heuristics",
+    "  (input[type=email], input[type=password], button[type=submit]) that work on",
+    "  most plain login forms. Add a recipe only when those misfire — typically an",
+    "  ad-heavy page with several submit buttons where the generic selector clicks",
+    "  the wrong one. Find the real selectors in devtools; a failed login leaves a",
+    "  screenshot in /tmp/rssfeed-login-debug to help.",
+    "",
+    "FIELDS",
+    "  login_url           required — the page carrying the login form",
+    "  username_selectors  optional — tried in order; first visible match wins",
+    "  password_selectors  optional",
+    "  submit_selectors    optional",
+    "  Omitted selector lists fall back to the built-in heuristics.",
+    "",
+    "Keys are domains, matched with and without a leading 'www.'. A malformed",
+    "entry is skipped with a warning naming only the domain; the rest still load.",
+    "This __comment key is ignored (it has no login_url)."
+  ],
+
+  "example.com": {
+    "login_url": "https://www.example.com/login/",
+    "username_selectors": ["#login-email"],
+    "password_selectors": ["#login-password"],
+    "submit_selectors": ["button.login__button--login", "button[type=submit].login__button"]
+  }
+}

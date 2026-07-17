@@ -19,11 +19,21 @@ BRIGHTDATA_BROWSER_WSS = os.environ.get("BRIGHTDATA_BROWSER_WSS", "")
 LOGIN_BROWSER_PROXY = os.environ.get("LOGIN_BROWSER_PROXY", "")
 WORKER_POLL_INTERVAL = int(os.environ.get("WORKER_POLL_INTERVAL", "60"))
 
+# Per-site login recipes (see sidecar/config/login-recipes.example.json).
+#
+# This file lives OUTSIDE the repo by default and is deliberately not shipped: a
+# list of the sites you can log into is a list of the subscriptions you pay for —
+# data about the operator, not program logic. Absent, every site uses the generic
+# heuristic login path; the app works fine with no recipes at all.
+_HOME = os.path.expanduser("~")
+LOGIN_RECIPES_FILE = os.environ.get(
+    "LOGIN_RECIPES_FILE", f"{_HOME}/.config/rssfeed/login-recipes.json")
+
 # Per-domain fetch rate limiting — keep article fetching polite so a publisher
-# (especially one we're logged into, like National Review) doesn't flag the
-# traffic as abusive. Minimum seconds between consecutive fetches to the SAME
-# domain; browser renders get a longer gap since they're heavier and more
-# bot-like. Set to 0 to disable.
+# (especially one we hold a subscription session with) doesn't flag the traffic
+# as abusive. Minimum seconds between consecutive fetches to the SAME domain;
+# browser renders get a longer gap since they're heavier and more bot-like.
+# Set to 0 to disable.
 FETCH_MIN_INTERVAL_S = float(os.environ.get("FETCH_MIN_INTERVAL_S", "2"))
 RENDER_MIN_INTERVAL_S = float(os.environ.get("RENDER_MIN_INTERVAL_S", "8"))
 
@@ -43,7 +53,6 @@ RANKER_MODEL_VERSION = os.environ.get("RANKER_MODEL_VERSION", "maut-skin-v1")
 # (no Docker). Production/portable: set CREDENCE_SKIN_COMMAND to a JSON argv for
 # the pinned image, e.g. '["docker","run","--rm","-i","ghcr.io/gfrmin/credence-skin:latest"]',
 # which overrides the local-Julia spawn.
-_HOME = os.path.expanduser("~")
 CREDENCE_SKIN_SERVER = os.environ.get(
     "CREDENCE_SKIN_SERVER", f"{_HOME}/git/credence/apps/skin/server.jl")
 CREDENCE_SKIN_PROJECT = os.environ.get(

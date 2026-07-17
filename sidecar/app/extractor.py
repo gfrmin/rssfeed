@@ -348,9 +348,9 @@ def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = Tr
                     html_content = fallback
 
     # A fetch can return page scaffolding with no real article text — e.g. a
-    # paywall / JS-app shell of empty wrapper elements (NR's <p id="page">,
-    # <p id="bc-root">). Treat that as a *failed* extraction rather than storing
-    # a blank snapshot that would replace the visible RSS content.
+    # paywall / JS-app shell whose body is only empty React mount points. Treat
+    # that as a *failed* extraction rather than storing a blank snapshot that
+    # would replace the visible RSS content.
     visible_text = (text or "").strip()
     if not visible_text and html_content:
         try:

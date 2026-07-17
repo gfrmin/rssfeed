@@ -41,7 +41,29 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "ruff>=0.14",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Deliberately conservative: correctness and dead-code rules that catch real bugs,
+# not stylistic opinions. The codebase is hand-styled and consistent; a maximal
+# ruleset would mean a huge reformat diff for no defect-finding benefit.
+select = [
+    "F",    # pyflakes — undefined names, unused imports/variables
+    "E4",   # import formatting
+    "E7",   # statement-level mistakes (comparisons to None/True, etc.)
+    "E9",   # syntax/IO errors
+    "B",    # flake8-bugbear — likely bugs (mutable defaults, unused loop vars)
+    "UP",   # pyupgrade — modern syntax for the pinned Python floor
+    "I",    # isort — import ordering
+]
+# B008 fires on FastAPI's Depends()/Query() defaults, which is the framework's
+# intended idiom, not a bug.
+ignore = ["B008"]

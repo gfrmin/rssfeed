@@ -1,4 +1,16 @@
-.PHONY: css build up down restart logs ps
+.PHONY: css build up down restart logs ps test lint fmt
+
+# Run the test suite (must go through uv — system Python lacks the deps)
+test:
+	cd sidecar && uv run pytest
+
+# Lint
+lint:
+	cd sidecar && uv run ruff check .
+
+# Format (see README: the repo is not yet fully ruff-formatted)
+fmt:
+	cd sidecar && uv run ruff format .
 
 # Build Tailwind CSS locally (requires tailwindcss CLI)
 css:

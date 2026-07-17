@@ -1,10 +1,13 @@
 import contextlib
+import logging
 from collections.abc import AsyncIterator
 
 import psycopg
 from psycopg.rows import dict_row
 
 from app.config import DATABASE_URL
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS feed_config (
@@ -116,6 +119,86 @@ CREATE TABLE IF NOT EXISTS ranker_taste (
 );
 """
 
+# Vector storage, kept OUT of SCHEMA_SQL so a plain postgres:17 deployment still boots.
+# It needs the pgvector extension (image: pgvector/pgvector:pg17); when that's missing
+# this block fails, VECTOR_READY stays False, and every embedding-backed feature simply
+# switches off instead of breaking the reader.
+#
+# `emb` supersedes the legacy `vec` JSONB column: 3KB/row instead of ~10KB, and an HNSW
+# index answers nearest-neighbour queries in single-digit ms instead of a full scan. The
+# denormalized feed_id/title/published_at let /related render without calling Miniflux.
+# `vec` is deliberately left in place (unwritten) for one release, so a rollback keeps
+# its data; a follow-up migration drops it.
+VECTOR_SCHEMA_SQL = """
+CREATE EXTENSION IF NOT EXISTS vector;
+
+ALTER TABLE entry_embeddings ADD COLUMN IF NOT EXISTS emb vector(768);
+ALTER TABLE entry_embeddings ADD COLUMN IF NOT EXISTS feed_id BIGINT;
+ALTER TABLE entry_embeddings ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE entry_embeddings ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;
+
+-- `vec` was NOT NULL back when it was the only storage. New rows write `emb` and
+-- leave `vec` empty, so the constraint has to go or every insert fails.
+ALTER TABLE entry_embeddings ALTER COLUMN vec DROP NOT NULL;
+
+-- One-time conversion of already-embedded rows. Guarded on `vec` still existing so
+-- this stays valid after the follow-up drop, and on the 768-dim shape so a row from
+-- a different model can't produce a dimension error.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'entry_embeddings' AND column_name = 'vec'
+    ) THEN
+        UPDATE entry_embeddings
+           SET emb = (ARRAY(SELECT jsonb_array_elements_text(vec)::float4))::vector(768)
+         WHERE emb IS NULL
+           AND jsonb_array_length(vec) = 768;
+    END IF;
+END $$;
+
+-- Seed the denormalized render columns for rows embedded before they existed.
+-- Miniflux shares this database, so one UPDATE does what would otherwise be 8k+ REST
+-- calls. Without it /related renders nothing until the archive sweep happens to reach
+-- each row — and since that sweep runs oldest-id first, the newest articles (the ones
+-- actually being read) would be the last to work.
+--
+-- Guarded on the table existing: if the sidecar ever points at a database that isn't
+-- Miniflux's, this must skip quietly rather than fail the whole vector block and
+-- switch the feature off.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'entries'
+    ) THEN
+        UPDATE entry_embeddings ee
+           SET title        = e.title,
+               feed_id      = e.feed_id,
+               published_at = e.published_at
+          FROM entries e
+         WHERE e.id = ee.entry_id
+           AND ee.title IS NULL;
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_entry_embeddings_emb
+  ON entry_embeddings USING hnsw (emb vector_cosine_ops);
+
+-- Resumable cursor for the backfill pass that embeds the archive.
+CREATE TABLE IF NOT EXISTS embed_backfill (
+    id              SMALLINT PRIMARY KEY DEFAULT 1,
+    cursor_entry_id BIGINT NOT NULL DEFAULT 0,
+    done            BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    CHECK (id = 1)
+);
+"""
+
+# True once VECTOR_SCHEMA_SQL has applied cleanly. Everything vector-backed gates on
+# `EMBED_ENABLED and db.VECTOR_READY`.
+VECTOR_READY = False
+
 
 def get_sync_conn() -> psycopg.Connection:
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
@@ -130,6 +213,21 @@ async def get_conn() -> AsyncIterator[psycopg.AsyncConnection]:
 
 
 def run_migrations() -> None:
+    global VECTOR_READY
     with get_sync_conn() as conn:
         conn.execute(SCHEMA_SQL)
         conn.commit()
+    # Separate transaction: a database without pgvector must still come up with the
+    # core schema applied and the reader fully working, minus similarity features.
+    try:
+        with get_sync_conn() as conn:
+            conn.execute(VECTOR_SCHEMA_SQL)
+            conn.commit()
+        VECTOR_READY = True
+    except psycopg.Error as exc:
+        VECTOR_READY = False
+        logger.warning(
+            "pgvector unavailable — embeddings and related-articles are disabled "
+            "(use image pgvector/pgvector:pg17 to enable them): %s",
+            exc,
+        )

@@ -1,6 +1,11 @@
 services:
   db:
-    image: postgres:17
+    # pgvector's image is built FROM postgres:17, so this is a drop-in swap on an
+    # existing pgdata volume (same PG major). It adds the `vector` extension, which
+    # backs entry_embeddings.emb and the related-articles nearest-neighbour search.
+    # Reverting to plain postgres:17 requires dropping the vector column/index and
+    # the extension first, or the server won't start (the .so goes away with it).
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: miniflux
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-miniflux}

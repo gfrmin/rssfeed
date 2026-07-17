@@ -267,6 +267,24 @@ def _extract_by_xpath(html: str, xpath: str) -> str | None:
     return ''.join(parts).strip() or None
 
 
+_MEDIA_XPATH = "//img[@src] | //video | //audio | //iframe[@src] | //source[@src]"
+
+
+def _has_media(html_content: str | None) -> bool:
+    """Does the extracted region contain real embedded media?
+
+    Used to tell a text-free *article* (photo essay, comic) apart from a text-free
+    *shell* (paywall wrapper divs). Requires a src so an empty <img> placeholder
+    in a shell doesn't count.
+    """
+    if not html_content:
+        return False
+    try:
+        return bool(lxml_html.fromstring(html_content).xpath(_MEDIA_XPATH))
+    except Exception:
+        return False
+
+
 def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = True) -> dict[str, Any] | None:
     cleaned = _clean_html(html, rules)
     text = extract(cleaned, url=url, include_comments=False, favor_precision=True, output_format="txt")
@@ -334,7 +352,12 @@ def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = Tr
             visible_text = lxml_html.fromstring(html_content).text_content().strip()
         except Exception:
             visible_text = ""
-    if not visible_text:
+    # ...but "no text" isn't the same as "no article". A photo essay, comic, or
+    # video post is legitimately text-free, and rejecting it sends a perfectly
+    # good fetch down the expensive tiers (proxy → unlocker → Wayback) only to
+    # end up showing the RSS body. Media in the extracted region is evidence we
+    # really did find the article; an empty shell has neither text nor media.
+    if not visible_text and not _has_media(html_content):
         return None
 
     # Proxy images through our endpoint

@@ -243,17 +243,47 @@ def frame_trusted_now(frame, target: str) -> bool:
     return _host_trusted(_frame_host(frame.url), target)
 
 
+# The JS gathers raw facts only; the trust DECISION lives in Python (below), where
+# it can be tested against realistic DOM-shaped data. That split is deliberate: the
+# first version of this check baked the decision into the JS as
+# `el.formAction || el.form.action`, which is a dead no-op — `el.formAction`
+# reflects the document's own URL as its missing-value default when the button has
+# no `formaction` attribute (HTML spec), so the `||` short-circuits on a
+# trusted-looking URL and never reads the form's real action. A Python mock of
+# `evaluate` couldn't catch it because the mock encoded the same wrong assumption;
+# only a real browser did. So: read the ATTRIBUTE presence, not the reflected
+# property, and decide in code we can actually test.
+_SUBMIT_DEST_JS = """el => ({
+    formactionAttr: el.getAttribute('formaction'),
+    formAction: el.formAction || null,
+    formAction_of_form: (el.form && el.form.action) || null,
+    docUrl: location.href,
+})"""
+
+
+def _resolve_submit_dest(info: dict) -> str:
+    """The effective form-submission destination, from raw DOM facts.
+
+    A submit button's own ``formaction`` overrides the form — but only when the
+    *attribute* is actually set; the reflected ``formAction`` property is never
+    empty (it defaults to the page URL), so attribute presence is what decides.
+    Otherwise the enclosing form's ``action`` is the destination (itself defaulting
+    to the document URL when unset, which is correct — a form with no action posts
+    to where it already is). No form at all ⇒ a JS-only button ⇒ current document.
+    """
+    if info.get("formactionAttr"):
+        return info.get("formAction") or ""
+    return info.get("formAction_of_form") or info.get("docUrl") or ""
+
+
 async def _submit_dest_trusted(handle, target: str) -> bool:
     """Would activating this element submit a form to a trusted origin?
 
     Frame trust judges where a form *lives*; this judges where it *posts*. They
     differ: a trusted, never-navigating frame can host ``<form action="https://
     attacker/">``, and submitting it sends the credentials there while the frame's
-    URL never changes — invisible to frame_trusted_now. So before any click that
-    can submit, read the effective destination: a submit button's ``formAction``
-    wins, else the enclosing form's ``action``, else the current document URL (a
-    JS-only button that doesn't post a form — trusted, since we're in a trusted
-    frame).
+    URL never changes — invisible to frame_trusted_now. So before any click that can
+    submit, resolve the effective destination and check its host.
 
     Fails CLOSED: if the destination can't be read, we don't submit credentials.
 
@@ -261,12 +291,12 @@ async def _submit_dest_trusted(handle, target: str) -> bool:
     endpoint exposes no inspectable destination and can't be caught here.
     """
     try:
-        dest = await handle.evaluate(
-            "el => el.formAction || (el.form && el.form.action) || location.href"
-        )
+        info = await handle.evaluate(_SUBMIT_DEST_JS)
     except Exception:
         return False
-    return _host_trusted(_frame_host(dest), target)
+    if not isinstance(info, dict):
+        return False
+    return _host_trusted(_frame_host(_resolve_submit_dest(info)), target)
 
 
 def trusted_login_frames(page, login_url: str) -> list:
@@ -312,6 +342,14 @@ async def _fill_and_submit(page, recipe: LoginRecipe, username: str, password: s
             continue
         if not frame_trusted_now(scope, target):
             continue  # drifted between listing and now
+        # Never type a credential into a form that posts cross-origin — check the
+        # destination *before* filling, not just before submitting. Filling alone
+        # doesn't leak, but this keeps the username out of the DOM of a form bound
+        # for an attacker, and it's the earliest point we can refuse.
+        if not await _submit_dest_trusted(user, target):
+            logger.warning("Aborting login for %s — the login form submits to an "
+                           "untrusted origin", recipe.login_url)
+            return False
         await user.fill(username)
 
         # Track which frame the password field came from — it isn't always `scope`
@@ -350,6 +388,12 @@ async def _fill_and_submit(page, recipe: LoginRecipe, username: str, password: s
                 "Aborting login for %s — the form moved to an untrusted origin (%s)",
                 recipe.login_url, _frame_host(pw_frame.url) or "unknown",
             )
+            return False
+        # Same guard as for the username: don't type the password into a form whose
+        # action posts cross-origin, even though the frame it lives in is trusted.
+        if not await _submit_dest_trusted(pw, target):
+            logger.warning("Aborting login for %s — the login form submits to an "
+                           "untrusted origin", recipe.login_url)
             return False
         await pw.fill(password)
 

@@ -110,19 +110,28 @@ class _Loc:
         self.frame.typed.append(("submitted", None))
 
     async def evaluate(self, _js):
-        # Models `el.formAction || el.form.action || location.href`: the frame's
-        # form_action if it has one (a cross-origin form on an un-navigating page),
-        # else the frame's own URL.
-        return self.frame.form_action or self.frame.url
+        # Models the RAW DOM facts _SUBMIT_DEST_JS reads — accurately, including the
+        # trap that sank the first version: `el.formAction` is NEVER empty for a
+        # plain button, it reflects the document URL when there's no `formaction`
+        # attribute. `form.action` is where the form really posts (its own attr, or
+        # the doc URL when unset). A mock that returned the "intended" destination
+        # instead of these raw facts is exactly what hid the original bug.
+        return {
+            "formactionAttr": self.frame.formaction_attr,          # usually None
+            "formAction": self.frame.formaction_attr or self.frame.url,
+            "formAction_of_form": self.frame.form_action or self.frame.url,
+            "docUrl": self.frame.url,
+        }
 
 
 class _NavFrame:
     """A frame whose URL changes when its Continue button is clicked."""
     def __init__(self, url, nav_to=None, has_password_before_click=False,
-                 form_action=None):
+                 form_action=None, formaction_attr=None):
         self.url, self._nav_to = url, nav_to
         self.has_password = has_password_before_click
-        self.form_action = form_action  # where this frame's form posts, if not its own URL
+        self.form_action = form_action        # <form action=...>, if not its own URL
+        self.formaction_attr = formaction_attr  # a button's explicit formaction attr
         self.typed = []
 
     async def on_click(self):
@@ -268,3 +277,68 @@ def test_submit_dest_unreadable_fails_closed(monkeypatch):
 
     ok = run(browser_login._fill_and_submit(page, _recipe(), "victim@example.com", "SECRET"))
     assert ok is False
+
+
+# --- the DOM trap: formAction is never empty for a plain button -------------
+# The first version of the destination check read `el.formAction || el.form.action`.
+# That's dead code: a button with no `formaction` attribute still reports
+# `el.formAction` == the document's own URL (its missing-value default), so the ||
+# short-circuits on a trusted-looking URL and never reads the form's real action.
+# Confirmed by review with a real cross-origin POST leaving the browser. These pin
+# the corrected resolution — attribute presence, not the reflected property.
+
+def test_resolve_submit_dest_reads_form_action_for_a_plain_button():
+    """rev18's exact observed shape: no formaction attribute, formAction defaults to
+    the page URL, the REAL destination sits in the form's action."""
+    info = {
+        "formactionAttr": None,
+        "formAction": "http://127.0.0.1:8791/onestep_login.html",   # the trap: own URL
+        "formAction_of_form": "http://localhost:8791/attacker.html",  # the real target
+        "docUrl": "http://127.0.0.1:8791/onestep_login.html",
+    }
+    assert browser_login._resolve_submit_dest(info) == "http://localhost:8791/attacker.html"
+
+
+def test_resolve_submit_dest_honours_explicit_formaction():
+    info = {
+        "formactionAttr": "https://attacker.example.net/x",
+        "formAction": "https://attacker.example.net/x",
+        "formAction_of_form": "https://example.com/auth",
+        "docUrl": "https://example.com/login",
+    }
+    assert browser_login._resolve_submit_dest(info) == "https://attacker.example.net/x"
+
+
+def test_resolve_submit_dest_no_form_falls_back_to_doc():
+    info = {"formactionAttr": None, "formAction": "https://example.com/login",
+            "formAction_of_form": None, "docUrl": "https://example.com/login"}
+    assert browser_login._resolve_submit_dest(info) == "https://example.com/login"
+
+
+def test_one_step_plain_button_cross_origin_form_is_rejected(monkeypatch):
+    """End-to-end version of rev18's live exploit: a trusted, never-navigating frame
+    with a one-step form whose action posts to an attacker, and a PLAIN submit button
+    (no formaction attribute). The frame-URL check passes; only reading the form
+    action stops it. This is the case the broken version shipped through."""
+    main = _NavFrame("https://example.com/login", has_password_before_click=True,
+                     form_action="https://attacker.example.net/harvest",
+                     formaction_attr=None)  # <-- plain button, the realistic shape
+    page = _NavPage(main)
+    _install(monkeypatch, page)
+    ok = run(browser_login._fill_and_submit(page, _recipe(), "victim@example.com", "SECRET"))
+    assert ok is False
+    assert ("clicked", "submit") not in main.typed
+    assert ("submitted", None) not in main.typed
+    assert ("password", "SECRET") not in main.typed
+
+
+def test_two_step_plain_continue_cross_origin_form_is_rejected(monkeypatch):
+    """Same, for the two-step Continue button (the username-leak path)."""
+    main = _NavFrame("https://example.com/login",
+                     form_action="https://attacker.example.net/harvest",
+                     formaction_attr=None)
+    page = _NavPage(main)
+    _install(monkeypatch, page)
+    ok = run(browser_login._fill_and_submit(page, _recipe(), "victim@example.com", "SECRET"))
+    assert ok is False
+    assert ("clicked", "submit") not in main.typed

@@ -10,7 +10,7 @@
     <li>
       <a class="rel-item" href="/entries/{{ it.id }}"
          hx-get="/entries/{{ it.id }}" hx-target="#reader-col" hx-push-url="/entries/{{ it.id }}">
-        <span class="rel-title">{{ it.title }}</span>
+        <span class="rel-title">{{ it.title | inline_html }}</span>
         <span class="rel-meta">
           {% if it.feed_title %}<span class="rel-feed">{{ it.feed_title }}</span>{% endif %}
           {% if it.published_at %}<span class="rel-age">{{ it.published_at | timeago }}</span>{% endif %}

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, Response
 from lxml import etree as lxml_etree, html as lxml_html
 
-from app import miniflux_client
+from app import browser_login, credvault, miniflux_client
 from app.config import BRIGHTDATA_PROXY
 from app.db import get_conn
 from app.routes.cookies import (
@@ -72,6 +72,8 @@ async def _subscription_ctx(feed: dict) -> dict:
         "count": meta["count"] if meta else 0,
         "updated_at": meta["updated_at"] if meta else None,
         "is_stale": is_stale,
+        "has_saved_password": await credvault.has_credentials(domain),
+        "login_available": browser_login.login_available(),
     }
 
 
@@ -922,9 +924,64 @@ async def subscription_remove(request: Request, feed_id: int):
     domain = domain_from_url(feed.get("site_url")) or domain_from_url(feed.get("feed_url"))
     if domain:
         await delete_cookies_for_domain(domain)
+    if domain:
+        await credvault.delete_credentials(domain)
     return await _render_subscription_block(
         request, feed,
         message=f"Removed the saved login for {domain}." if domain else None,
+        fetch_full_content=await _full_content_enabled(feed_id),
+    )
+
+
+@router.post("/feeds/{feed_id}/subscription/login")
+async def subscription_login(
+    request: Request, feed_id: int,
+    username: str = Form(...), password: str = Form(...),
+):
+    """Log in to the feed's domain with username/password via a remote browser,
+    saving the resulting cookies and (for auto re-login) the credentials."""
+    feed = await miniflux_client.get_feed(feed_id)
+    domain = domain_from_url(feed.get("site_url")) or domain_from_url(feed.get("feed_url"))
+    fc = await _full_content_enabled(feed_id)
+    if not domain:
+        return await _render_subscription_block(
+            request, feed, error="Could not determine this feed's domain.", fetch_full_content=fc,
+        )
+    if not browser_login.login_available():
+        return await _render_subscription_block(
+            request, feed,
+            error="Browser login isn't available — the login browser isn't installed (run `playwright install chromium`).",
+            fetch_full_content=fc,
+        )
+    username = username.strip()
+    cookies = await browser_login.login_and_get_cookies(domain, username, password)
+    if not cookies:
+        return await _render_subscription_block(
+            request, feed,
+            error=f"Login to {domain} failed. Check the sidecar logs / debug screenshot and the credentials.",
+            fetch_full_content=fc,
+        )
+    await upsert_cookies(domain, cookies)
+    await credvault.store_credentials(domain, username, password)
+    enabled = await _enable_full_content(feed_id)
+    return await _render_subscription_block(
+        request, feed,
+        message=f"Logged in to {domain} — {len(cookies)} cookies saved; password stored for auto re-login.",
+        fetch_full_content=True,
+        enabled_full_content=enabled,
+    )
+
+
+@router.post("/feeds/{feed_id}/subscription/forget-password")
+async def subscription_forget_password(request: Request, feed_id: int):
+    """Delete the stored credentials for this feed's domain (keeps current cookies)."""
+    feed = await miniflux_client.get_feed(feed_id)
+    domain = domain_from_url(feed.get("site_url")) or domain_from_url(feed.get("feed_url"))
+    if domain:
+        await credvault.delete_credentials(domain)
+    return await _render_subscription_block(
+        request, feed,
+        message="Saved password removed — auto re-login disabled." if domain else None,
         fetch_full_content=await _full_content_enabled(feed_id),
     )
 

@@ -89,7 +89,7 @@
       {% if e.status != 'read' %}<span class="erow-unread-dot"></span>{% endif %}
     </div>
     <div class="erow-body">
-      <div class="erow-title">{% if e._has_changes %}<span class="erow-changed" title="Content changed">&pm;</span>{% endif %}{{ e.title }}</div>
+      <div class="erow-title">{% if e._has_changes %}<span class="erow-changed" title="Content changed">&pm;</span>{% endif %}{{ e.title | inline_html }}</div>
       <div class="erow-excerpt">{{ e.content | excerpt }}</div>
       <div class="erow-meta">
         {% if feed_id %}{# feed page: author is more useful than the (redundant) feed name, and is a hide affordance #}

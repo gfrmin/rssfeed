@@ -1,16 +1,100 @@
 import asyncio
 import hashlib
 import logging
+import time
+from datetime import datetime, timedelta, timezone
 
+import httpx
 import psycopg
 
-from app import miniflux_client
-from app.config import WORKER_POLL_INTERVAL
+from app import browser_login, credvault, miniflux_client
+from app.config import WORKER_BACKFILL_MAX_AGE_DAYS, WORKER_POLL_INTERVAL
 from app.db import get_conn
 from app.extractor import fetch_and_extract
-from app.routes.cookies import get_cookies_for_url
+from app.routes.cookies import (
+    cookie_meta_for_domain,
+    domain_from_url,
+    get_cookies_for_url,
+    upsert_cookies,
+)
 
 logger = logging.getLogger(__name__)
+
+# Auto re-login: refresh a domain's paywall session when its cookies are missing
+# or older than this, but no more than once per cooldown (browser logins are slow
+# and metered). Throttle state is per-process and intentionally not persisted.
+_RELOGIN_STALE_AFTER = timedelta(days=25)
+_RELOGIN_COOLDOWN_S = 3 * 3600
+_last_login_attempt: dict[str, float] = {}
+
+# Feeds whose feed_config row outlived their Miniflux feed (deleted upstream).
+# Miniflux answers /v1/feeds/<id>/entries with 400 "invalid feed ID" (or 404),
+# which otherwise spams an ERROR every poll. We skip them for the rest of the
+# process — non-destructively: the local feed_config and any collected snapshots
+# are left untouched (a feed can be re-subscribed and resume). Cleared on restart.
+_missing_feeds: set[int] = set()
+
+
+def _feed_gone_from_miniflux(exc: Exception) -> bool:
+    """True if ``exc`` is Miniflux reporting that a feed no longer exists."""
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (400, 404)
+
+
+_BACKFILL_MAX_AGE = (
+    timedelta(days=WORKER_BACKFILL_MAX_AGE_DAYS) if WORKER_BACKFILL_MAX_AGE_DAYS > 0 else None
+)
+
+
+def _too_old_to_backfill(entry: dict) -> bool:
+    """True if a never-fetched entry is old enough to skip (avoid archive backfill
+    when a feed is newly enabled). Entries with an unparseable/absent date fetch."""
+    if _BACKFILL_MAX_AGE is None:
+        return False
+    pub = entry.get("published_at")
+    if not pub:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(pub).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return False
+    return datetime.now(timezone.utc) - dt > _BACKFILL_MAX_AGE
+
+
+async def ensure_fresh_login(domain: str | None) -> None:
+    """Re-login a domain (from saved credentials) if its cookies are missing/stale.
+
+    Fail-soft and throttled: any error leaves existing cookies untouched, and a
+    domain is retried at most once per cooldown regardless of outcome.
+    """
+    if not domain or not browser_login.login_available():
+        return
+    now = time.monotonic()
+    if now - _last_login_attempt.get(domain, 0.0) < _RELOGIN_COOLDOWN_S:
+        return
+    meta = await cookie_meta_for_domain(domain)
+    if meta and meta["updated_at"] and (
+        datetime.now(timezone.utc) - meta["updated_at"] < _RELOGIN_STALE_AFTER
+    ):
+        return  # cookies still fresh
+    creds = await credvault.get_credentials(domain)
+    if not creds:
+        return
+    _last_login_attempt[domain] = now
+    logger.info("Auto re-login for %s (cookies missing/stale)", domain)
+    try:
+        cookies = await browser_login.login_and_get_cookies(
+            domain, creds["username"], creds["password"]
+        )
+    except Exception:
+        logger.exception("Auto re-login crashed for %s", domain)
+        return
+    if cookies:
+        await upsert_cookies(domain, cookies)
+        logger.info("Auto re-login for %s refreshed %d cookies", domain, len(cookies))
+    else:
+        logger.warning("Auto re-login for %s failed (kept existing cookies)", domain)
 
 
 async def _get_enabled_feeds(conn: psycopg.AsyncConnection) -> dict[int, dict]:
@@ -75,15 +159,30 @@ async def process_new_entries() -> int:
             return 0
 
         for feed_id, config in enabled.items():
+            if feed_id in _missing_feeds:
+                continue  # deleted from Miniflux earlier this run — skip silently
             extract_rules = config["extract_rules"]
 
             try:
                 data = await miniflux_client.get_entries(feed_id=feed_id, limit=50)
-            except Exception:
-                logger.exception("Failed to fetch entries for feed %d", feed_id)
+            except Exception as e:
+                if _feed_gone_from_miniflux(e):
+                    logger.warning(
+                        "Feed %d no longer exists in Miniflux (deleted upstream); "
+                        "skipping full-content fetch. Local config and snapshots are "
+                        "retained.", feed_id)
+                    _missing_feeds.add(feed_id)
+                else:
+                    logger.exception("Failed to fetch entries for feed %d", feed_id)
                 continue
 
-            for entry in data.get("entries", []):
+            entries = data.get("entries", [])
+            # Refresh a stored paywall login before fetching this feed's articles.
+            first_url = next((e.get("url") for e in entries if e.get("url")), None)
+            if first_url:
+                await ensure_fresh_login(domain_from_url(first_url))
+
+            for entry in entries:
                 entry_id = entry["id"]
                 url = entry.get("url", "")
                 if not url:
@@ -91,6 +190,9 @@ async def process_new_entries() -> int:
 
                 source_hash = hashlib.sha256(entry.get("content", "").encode()).hexdigest()
                 exists, stored_hash, stored_content_hash, max_version = await _get_snapshot_info(conn, entry_id)
+
+                if not exists and _too_old_to_backfill(entry):
+                    continue  # never fetched + old → don't backfill the archive
 
                 if exists and stored_hash == source_hash:
                     continue  # No change in RSS content

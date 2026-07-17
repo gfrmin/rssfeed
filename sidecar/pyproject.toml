@@ -10,9 +10,18 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "trafilatura>=2.0",
     "readability-lxml>=0.8",
+    # HTML sanitiser (Rust/ammonia binding). Trust boundary for any feed- or
+    # web-supplied HTML we render: strict inline allowlist for titles, a richer
+    # allowlist for article bodies. readability/lxml allowlist tags but not
+    # attributes, so event handlers / javascript: URLs need scrubbing here.
+    "nh3>=0.2.17",
     "python-multipart>=0.0.18",
     "humanize>=4.0",
     "credence-skin-client",
+    # Drives a self-hosted headless Chromium for server-side paywall login
+    # (BrightData's Scraping Browser forbids password typing). REQUIRES a one-time
+    # `playwright install chromium` on the host to provision the browser binary.
+    "playwright>=1.40",
 ]
 
 # The thin JSON-RPC wire client for the Credence skin engine (Part C). Pure stdlib,

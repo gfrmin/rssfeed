@@ -13,19 +13,31 @@ restriction. If a paywall ever blocks steel's IP, route the browser through
 ``LOGIN_BROWSER_PROXY`` (a plain proxy — proxies don't block password entry).
 
 Per-site quirks live in ``LOGIN_RECIPES``; everything else falls back to
-heuristic field detection across the page and its iframes. On failure we save a
-screenshot to ``/tmp/rssfeed-login-debug`` so the recipe can be tuned live.
+heuristic field detection across the page and its *trusted* frames — the main
+frame, same-site frames, and the ``_AUTH_FRAME_HOSTS`` allowlist. Credentials are
+never typed into an arbitrary third-party iframe. On failure we save a screenshot
+to ``/tmp/rssfeed-login-debug`` so the recipe can be tuned live.
 """
 import glob
 import logging
 import os
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 from app.config import LOGIN_BROWSER_PROXY
 
 logger = logging.getLogger(__name__)
 
 _DEBUG_DIR = "/tmp/rssfeed-login-debug"
+
+# Cross-origin iframes we'll type credentials into. These paywall auth providers
+# host the real login form themselves, so refusing all cross-origin frames would
+# break login on the very sites this feature exists for. Anything not listed here
+# (and not same-site) is never offered the user's credentials.
+_AUTH_FRAME_HOSTS = (
+    "tinypass.com",
+    "piano.io",
+)
 
 # Realistic context so the headless browser isn't trivially fingerprinted.
 _UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -138,13 +150,55 @@ async def _first_visible(scope, selectors: list[str]):
     return None
 
 
+def _frame_host(url: str) -> str:
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except Exception:
+        return ""
+
+
+def _same_site(host: str, target: str) -> bool:
+    """Same registrable-ish site: exact host, or a subdomain of the target."""
+    if not host or not target:
+        return False
+    return host == target or host.endswith("." + target)
+
+
+def trusted_login_frames(page, login_url: str) -> list:
+    """The frames we're willing to type credentials into.
+
+    The login form legitimately lives in a cross-origin iframe on some paywalls
+    (Piano/tinypass hosts the form itself), so we can't simply refuse all of them.
+    But scanning *every* frame means a third-party iframe that merely happens to
+    contain matching inputs — a newsletter widget's `input[type=email]`, say —
+    can win the heuristic race and receive the user's real subscription
+    credentials, which are then submitted to that third party. The user just sees
+    "login failed" and never learns where their details went.
+
+    So: the main frame and same-site frames are trusted, plus an explicit
+    allowlist of known auth providers. Everything else is skipped.
+    """
+    target = _frame_host(login_url)
+    out = [page.main_frame]
+    for f in page.frames:
+        if f is page.main_frame:
+            continue
+        host = _frame_host(f.url)
+        if _same_site(host, target) or any(_same_site(host, p) for p in _AUTH_FRAME_HOSTS):
+            out.append(f)
+        elif host:
+            logger.debug("skipping untrusted login frame: %s", host)
+    return out
+
+
 async def _fill_and_submit(page, recipe: LoginRecipe, username: str, password: str) -> bool:
     user_sel = recipe.username_selectors or _DEFAULT_USER_SEL
     pass_sel = recipe.password_selectors or _DEFAULT_PASS_SEL
     submit_sel = recipe.submit_selectors or _DEFAULT_SUBMIT_SEL
 
-    # The login form may live in the page or any (Piano) iframe.
-    for scope in [page, *page.frames]:
+    # Only the main frame, same-site frames, and known auth providers — never an
+    # arbitrary third-party iframe. See trusted_login_frames().
+    for scope in trusted_login_frames(page, recipe.login_url):
         user = await _first_visible(scope, user_sel)
         if not user:
             continue
@@ -166,7 +220,7 @@ async def _fill_and_submit(page, recipe: LoginRecipe, username: str, password: s
         else:
             await pw.press("Enter")
         logger.info("Submitted login form for %s (scope=%s)", recipe.login_url,
-                    "page" if scope is page else "frame")
+                    "page" if scope is page.main_frame else _frame_host(scope.url))
         return True
     return False
 

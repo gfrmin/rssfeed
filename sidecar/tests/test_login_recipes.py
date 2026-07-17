@@ -155,3 +155,17 @@ def test_a_bad_field_only_skips_its_own_recipe(tmp_path):
         "good.example.com": {"login_url": "https://good.example.com/in"},
     })
     assert set(browser_login.load_recipes(path)) == {"good.example.com"}
+
+
+# --- hermeticity -----------------------------------------------------------
+
+def test_suite_does_not_load_the_developers_real_recipes():
+    """The suite must never read whatever is in ~/.config/rssfeed.
+
+    conftest pins LOGIN_RECIPES_FILE to a nonexistent path. Without that the tests
+    load real operator config — passing on the maintainer's laptop and behaving
+    differently in CI — which is exactly the coupling this feature exists to break.
+    """
+    import os
+    assert os.environ["LOGIN_RECIPES_FILE"] == "/nonexistent/test-login-recipes.json"
+    assert browser_login.LOGIN_RECIPES == {}

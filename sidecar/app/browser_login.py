@@ -318,7 +318,12 @@ async def _fill_and_submit(page, recipe: LoginRecipe, username: str, password: s
             return False
         await pw.fill(password)
 
-        submit = await _first_visible(scope, submit_sel)
+        # Submit from the frame holding the password, not from `scope`. They're the
+        # same in the ordinary case; where they differ (the two-step fallback found
+        # the field on the main frame) the password's own form is the one we mean to
+        # submit — looking in a `scope` that may have drifted would mean clicking a
+        # button on someone else's page and then reporting success.
+        submit = await _first_visible(pw_frame, submit_sel)
         if not frame_trusted_now(pw_frame, target):
             logger.warning("Aborting login for %s — origin changed before submit",
                            recipe.login_url)
@@ -328,7 +333,7 @@ async def _fill_and_submit(page, recipe: LoginRecipe, username: str, password: s
         else:
             await pw.press("Enter")
         logger.info("Submitted login form for %s (scope=%s)", recipe.login_url,
-                    _frame_host(scope.url) or "page")
+                    _frame_host(pw_frame.url) or "page")
         return True
     return False
 

@@ -2,7 +2,7 @@ import asyncio
 import difflib
 import logging
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -158,7 +158,7 @@ def _time_filter_params(time_filter: str | None) -> dict[str, str]:
     """Convert a time filter name to after/before timestamps."""
     if not time_filter:
         return {}
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if time_filter == "today":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     elif time_filter == "24h":
@@ -294,7 +294,7 @@ async def build_sidebar(*, active_view: str | None, active_feed_id: int | None) 
 async def _build_sidebar_data() -> dict:
     """The expensive, view-independent part of the sidebar (feeds-by-tier, counts).
     Hits Miniflux + DB; cached by _sidebar_data()."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     feeds, counters, starred_data = await asyncio.gather(
         miniflux_client.get_feeds(),
         miniflux_client.get_feed_counters(),
@@ -368,7 +368,7 @@ async def entry_list(
     order: str | None = None,
 ):
     limit = 50
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Normalize the smart-view selector (sidebar uses ?view=…; legacy params still work).
     if view == "starred":
@@ -729,6 +729,7 @@ async def fetch_full_content(entry_id: int):
         return HTMLResponse('<span class="text-danger text-detail">Extraction failed — no content found</span>')
 
     import hashlib
+
     import psycopg.types.json
 
     source_hash = hashlib.sha256(entry.get("content", "").encode()).hexdigest()
@@ -829,7 +830,9 @@ async def entry_diff(request: Request, entry_id: int):
         snapshots = await cur.fetchall()
 
     sets = []
-    for prev, curr in zip(snapshots, snapshots[1:]):
+    # strict=False: pairing each snapshot with its successor is a sliding window —
+    # the operands are deliberately unequal in length.
+    for prev, curr in zip(snapshots, snapshots[1:], strict=False):
         lines = _structured_diff_lines(prev["content_text"], curr["content_text"])
         sets.append({
             "from": prev["version"],
@@ -950,7 +953,7 @@ async def why_ranked(entry_id: int, request: Request):
             row = await cur.fetchone()
         if row and row["priority"] is not None:
             prio = row["priority"]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with get_conn() as conn:
         sims = await embeddings.embed_sims(conn, [entry_id])
     article = {"entry_id": entry_id,

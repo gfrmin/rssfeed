@@ -6,9 +6,8 @@ names are stable string keys; values are in [0, 1]. This module is pure Python a
 has no dependency on the runner being up — it just shapes data for the contract.
 """
 
-import math
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 _SANITIZE = re.compile(r"[^a-z0-9]+")
 
@@ -43,7 +42,7 @@ def _recency(published_at, now: datetime) -> float:
         dt = (published_at if isinstance(published_at, datetime)
               else datetime.fromisoformat(str(published_at).replace("Z", "+00:00")))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
     except Exception:
         return 0.0
     age_h = max(0.0, (now - dt).total_seconds() / 3600.0)

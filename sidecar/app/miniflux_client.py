@@ -6,7 +6,6 @@ import httpx
 
 from app.config import MINIFLUX_API_KEY, MINIFLUX_URL
 
-
 _client: httpx.AsyncClient | None = None
 
 _FEEDS_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}

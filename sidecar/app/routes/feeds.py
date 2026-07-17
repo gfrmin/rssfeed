@@ -2,25 +2,26 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin
 
 import httpx
-from fastapi import APIRouter, Form, Request, UploadFile, File
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
-from lxml import etree as lxml_etree, html as lxml_html
+from lxml import etree as lxml_etree
+from lxml import html as lxml_html
 
 from app import browser_login, credvault, miniflux_client
 from app.config import BRIGHTDATA_PROXY
 from app.db import get_conn
 from app.routes.cookies import (
+    _parse_cookie_string,
     cookie_meta_for_domain,
     delete_cookies_for_domain,
     domain_from_url,
     read_firefox_cookies,
     upsert_cookies,
-    _parse_cookie_string,
 )
 from app.templating import templates
 
@@ -65,7 +66,7 @@ async def _subscription_ctx(feed: dict) -> dict:
     meta = await cookie_meta_for_domain(domain) if domain else None
     is_stale = False
     if meta and meta["updated_at"]:
-        is_stale = (datetime.now(timezone.utc) - meta["updated_at"]) > _COOKIE_STALE_AFTER
+        is_stale = (datetime.now(UTC) - meta["updated_at"]) > _COOKIE_STALE_AFTER
     return {
         "domain": domain,
         "has_cookies": meta is not None,
@@ -773,7 +774,7 @@ async def set_feed_url(request: Request, feed_id: int, feed_url: str = Form(...)
 @router.get("/feeds/{feed_id}", response_class=HTMLResponse)
 async def feed_settings(request: Request, feed_id: int):
     feed = await miniflux_client.get_feed(feed_id)
-    _annotate_health(feed, datetime.now(timezone.utc))
+    _annotate_health(feed, datetime.now(UTC))
     async with get_conn() as conn:
         cur = await conn.execute(
             "SELECT fetch_full_content, priority, extract_rules, "
@@ -1097,8 +1098,8 @@ async def set_priority(feed_id: int, priority: int = Form(2)):
         await conn.commit()
     labels = {1: "Must Read", 2: "Normal", 3: "Low"}
     options = "".join(
-        f'<option value="{v}" {"selected" if v == priority else ""}>{l}</option>'
-        for v, l in labels.items()
+        f'<option value="{v}" {"selected" if v == priority else ""}>{label}</option>'
+        for v, label in labels.items()
     )
     return HTMLResponse(
         f'<select class="ti" name="priority" hx-post="/feeds/{feed_id}/set-priority" hx-swap="outerHTML" style="width:auto;">{options}</select>'

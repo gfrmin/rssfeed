@@ -193,7 +193,7 @@ def test_explain_ranks_contributions(monkeypatch):
     def call(function, args):
         assert function == "contributions"
         means, vals = args
-        return [m * v for m, v in zip(means, vals)]  # mean*feature
+        return [m * v for m, v in zip(means, vals, strict=True)]  # mean*feature
 
     _patch(monkeypatch, weights={
         "author:a": {"type": "gaussian", "mu": 0.9, "sigma": 0.4},

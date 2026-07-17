@@ -5,7 +5,6 @@ formatting while stripping every XSS vector. These tests lock in that contract.
 """
 from app.templating import _clean_body, _inline_html
 
-
 # --- inline_html (titles) ---------------------------------------------------
 
 def test_inline_html_keeps_italics():

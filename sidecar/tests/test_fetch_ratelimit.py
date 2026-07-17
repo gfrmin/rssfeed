@@ -9,7 +9,6 @@ import time
 
 from app import extractor
 
-
 # --- _needs_browser_render (gating the expensive tier) ----------------------
 
 def _force_browser(monkeypatch, available=True):

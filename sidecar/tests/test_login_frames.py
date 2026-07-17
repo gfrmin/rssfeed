@@ -103,17 +103,26 @@ class _Loc:
         self.frame.typed.append((self.kind, value))
 
     async def click(self):
+        self.frame.typed.append(("clicked", self.kind))
         await self.frame.on_click()
 
     async def press(self, _key):
-        pass
+        self.frame.typed.append(("submitted", None))
+
+    async def evaluate(self, _js):
+        # Models `el.formAction || el.form.action || location.href`: the frame's
+        # form_action if it has one (a cross-origin form on an un-navigating page),
+        # else the frame's own URL.
+        return self.frame.form_action or self.frame.url
 
 
 class _NavFrame:
     """A frame whose URL changes when its Continue button is clicked."""
-    def __init__(self, url, nav_to=None, has_password_before_click=False):
+    def __init__(self, url, nav_to=None, has_password_before_click=False,
+                 form_action=None):
         self.url, self._nav_to = url, nav_to
         self.has_password = has_password_before_click
+        self.form_action = form_action  # where this frame's form posts, if not its own URL
         self.typed = []
 
     async def on_click(self):
@@ -195,3 +204,67 @@ def test_two_step_still_works_via_allowlisted_auth_provider(monkeypatch):
     ok = run(browser_login._fill_and_submit(page, _recipe(), "user@example.com", "SECRET"))
     assert ok is True
     assert ("password", "SECRET") in main.typed
+
+
+# --- form action, not just frame URL ---------------------------------------
+# Frame trust judges where a form *lives*; a trusted, never-navigating frame can
+# still host <form action="https://attacker/"> and post the credentials there on
+# submit — invisible to a frame-URL check. These pin the destination check.
+
+def test_username_not_submitted_when_continue_posts_cross_origin(monkeypatch):
+    """Two-step: the frame never navigates, but its Continue button submits the
+    email form to an attacker origin. Must abort before the click."""
+    main = _NavFrame("https://example.com/login",
+                     form_action="https://attacker.example.net/harvest")
+    page = _NavPage(main)
+    _install(monkeypatch, page)
+    ok = run(browser_login._fill_and_submit(page, _recipe(), "victim@example.com", "SECRET"))
+    assert ok is False
+    assert ("clicked", "submit") not in main.typed  # the continue click never happened
+
+
+def test_credentials_not_submitted_when_one_step_form_posts_cross_origin(monkeypatch):
+    """One-step: both fields present in a trusted frame, but the form posts to an
+    attacker. The password re-check passes (frame is on example.com) — the
+    destination check is what must stop it."""
+    main = _NavFrame("https://example.com/login", has_password_before_click=True,
+                     form_action="https://attacker.example.net/harvest")
+    page = _NavPage(main)
+    _install(monkeypatch, page)
+    ok = run(browser_login._fill_and_submit(page, _recipe(), "victim@example.com", "SECRET"))
+    assert ok is False
+    assert ("submitted", None) not in main.typed
+
+
+def test_same_site_form_action_still_submits(monkeypatch):
+    """A form that posts back to its own site must still work."""
+    main = _NavFrame("https://example.com/login", has_password_before_click=True,
+                     form_action="https://example.com/auth")
+    page = _NavPage(main)
+    _install(monkeypatch, page)
+    ok = run(browser_login._fill_and_submit(page, _recipe(), "victim@example.com", "SECRET"))
+    assert ok is True
+    assert ("password", "SECRET") in main.typed
+
+
+def test_submit_dest_unreadable_fails_closed(monkeypatch):
+    """If the destination can't be read, don't submit credentials."""
+    class _BrokenLoc(_Loc):
+        async def evaluate(self, _js):
+            raise RuntimeError("cannot evaluate")
+
+    main = _NavFrame("https://example.com/login", has_password_before_click=True)
+    page = _NavPage(main)
+
+    async def first_visible(scope, selectors):
+        frame = scope.main_frame if isinstance(scope, _NavPage) else scope
+        sel = selectors[0]
+        if "pass" in sel:
+            return _BrokenLoc(frame, "password") if frame.has_password else None
+        if "submit" in sel or "button" in sel:
+            return _BrokenLoc(frame, "submit")
+        return _BrokenLoc(frame, "username")
+    monkeypatch.setattr(browser_login, "_first_visible", first_visible)
+
+    ok = run(browser_login._fill_and_submit(page, _recipe(), "victim@example.com", "SECRET"))
+    assert ok is False

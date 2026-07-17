@@ -243,6 +243,32 @@ def frame_trusted_now(frame, target: str) -> bool:
     return _host_trusted(_frame_host(frame.url), target)
 
 
+async def _submit_dest_trusted(handle, target: str) -> bool:
+    """Would activating this element submit a form to a trusted origin?
+
+    Frame trust judges where a form *lives*; this judges where it *posts*. They
+    differ: a trusted, never-navigating frame can host ``<form action="https://
+    attacker/">``, and submitting it sends the credentials there while the frame's
+    URL never changes — invisible to frame_trusted_now. So before any click that
+    can submit, read the effective destination: a submit button's ``formAction``
+    wins, else the enclosing form's ``action``, else the current document URL (a
+    JS-only button that doesn't post a form — trusted, since we're in a trusted
+    frame).
+
+    Fails CLOSED: if the destination can't be read, we don't submit credentials.
+
+    Residual: a JS onsubmit/click handler that fetch()es the fields to an arbitrary
+    endpoint exposes no inspectable destination and can't be caught here.
+    """
+    try:
+        dest = await handle.evaluate(
+            "el => el.formAction || (el.form && el.form.action) || location.href"
+        )
+    except Exception:
+        return False
+    return _host_trusted(_frame_host(dest), target)
+
+
 def trusted_login_frames(page, login_url: str) -> list:
     """The frames we're willing to type credentials into, judged right now.
 
@@ -299,6 +325,15 @@ async def _fill_and_submit(page, recipe: LoginRecipe, username: str, password: s
         if not pw:
             cont = await _first_visible(scope, submit_sel)
             if cont:
+                # The click submits the current form, carrying the username we just
+                # typed. If that form posts cross-origin the username leaks — and no
+                # post-click check can help, because the click IS the navigation. So
+                # vet the destination first and abort before clicking if untrusted.
+                if not await _submit_dest_trusted(cont, target):
+                    logger.warning(
+                        "Aborting login for %s — the continue step submits to an "
+                        "untrusted origin", recipe.login_url)
+                    return False
                 await cont.click()
                 await page.wait_for_timeout(2500)
                 if frame_trusted_now(scope, target):
@@ -327,6 +362,14 @@ async def _fill_and_submit(page, recipe: LoginRecipe, username: str, password: s
         if not frame_trusted_now(pw_frame, target):
             logger.warning("Aborting login for %s — origin changed before submit",
                            recipe.login_url)
+            return False
+        # Also vet where the form posts, not just where it lives: a trusted frame
+        # can still carry a cross-origin form action that would send both fields to
+        # an attacker. Check the submit button (or, for the Enter fallback, the
+        # password field's own form).
+        if not await _submit_dest_trusted(submit or pw, target):
+            logger.warning("Aborting login for %s — the login form submits to an "
+                           "untrusted origin", recipe.login_url)
             return False
         if submit:
             await submit.click()

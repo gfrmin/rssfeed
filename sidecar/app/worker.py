@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import psycopg
@@ -56,10 +56,10 @@ def _too_old_to_backfill(entry: dict) -> bool:
     try:
         dt = datetime.fromisoformat(str(pub).replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
     except Exception:
         return False
-    return datetime.now(timezone.utc) - dt > _BACKFILL_MAX_AGE
+    return datetime.now(UTC) - dt > _BACKFILL_MAX_AGE
 
 
 async def ensure_fresh_login(domain: str | None) -> None:
@@ -75,7 +75,7 @@ async def ensure_fresh_login(domain: str | None) -> None:
         return
     meta = await cookie_meta_for_domain(domain)
     if meta and meta["updated_at"] and (
-        datetime.now(timezone.utc) - meta["updated_at"] < _RELOGIN_STALE_AFTER
+        datetime.now(UTC) - meta["updated_at"] < _RELOGIN_STALE_AFTER
     ):
         return  # cookies still fresh
     creds = await credvault.get_credentials(domain)

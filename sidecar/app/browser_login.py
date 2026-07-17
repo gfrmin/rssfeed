@@ -257,6 +257,7 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
     if not _CHROMIUM_AVAILABLE:
         return None
     from urllib.parse import urlparse
+
     from playwright.async_api import async_playwright
 
     proxy = {"server": LOGIN_BROWSER_PROXY} if LOGIN_BROWSER_PROXY else None

@@ -27,11 +27,11 @@ def test_whitespace_only_text_is_empty():
 
 
 # --- _content_block_ctx: show empty full + RSS for toggle, never silent-swap ---
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.routes.entries import _content_block_ctx
 
-_FETCHED = datetime(2026, 6, 23, tzinfo=timezone.utc)
+_FETCHED = datetime(2026, 6, 23, tzinfo=UTC)
 
 
 def test_ctx_empty_snapshot_is_full_empty_with_rss_available():

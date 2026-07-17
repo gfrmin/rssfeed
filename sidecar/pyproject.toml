@@ -67,3 +67,9 @@ select = [
 # B008 fires on FastAPI's Depends()/Query() defaults, which is the framework's
 # intended idiom, not a bug.
 ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests group their imports under the section they belong to, and use semicolons
+# for compact setup lines. Both are readable choices in a test file and neither is
+# a defect, so don't churn them to satisfy a layout rule.
+"tests/*" = ["E402", "E702"]

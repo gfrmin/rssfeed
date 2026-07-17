@@ -1,9 +1,9 @@
 """Unit tests for ranker feature extraction + observation building (Part C)."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app import ranker
 
-NOW = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC)
 
 
 def test_feature_key_sanitizes():

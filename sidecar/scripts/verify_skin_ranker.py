@@ -76,6 +76,7 @@ def fail_open() -> None:
     os.environ["CREDENCE_SKIN_COMMAND"] = '["false"]'  # exits immediately, never ready
     sys.path.insert(0, str(SIDE))
     import importlib
+
     import app.config as cfg
     importlib.reload(cfg)
     import app.ranker_client as rc

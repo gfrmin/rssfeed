@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
 from app import miniflux_client
 from app.db import run_migrations
 from app.routes import cookies, entries, feeds, proxy

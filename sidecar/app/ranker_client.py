@@ -17,7 +17,7 @@ breaks the reader.
 import asyncio
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from psycopg.types.json import Jsonb
@@ -267,7 +267,7 @@ async def score(articles: list[dict]) -> dict[int, float] | None:
         res = await _call("score-batch", [means, vectors])
         if res is None or len(res) != len(articles):
             return None
-        return {int(a["entry_id"]): float(s) for a, s in zip(articles, res)}
+        return {int(a["entry_id"]): float(s) for a, s in zip(articles, res, strict=True)}
     except Exception as exc:  # never break the reader on a ranking hiccup
         logger.debug("score failed open: %s", exc)
         return None
@@ -289,7 +289,7 @@ async def explain(article: dict, top: int = 4) -> list[dict] | None:
         res = await _call("contributions", [means, values])
         if res is None or len(res) != len(names):
             return None
-        pairs = [(n, float(c)) for n, c in zip(names, res) if abs(float(c)) > 1e-6]
+        pairs = [(n, float(c)) for n, c in zip(names, res, strict=True) if abs(float(c)) > 1e-6]
         pairs.sort(key=lambda p: abs(p[1]), reverse=True)
         return [{"name": n, "value": c, "dir": "up" if c > 0 else "down"}
                 for n, c in pairs[:top]]
@@ -327,7 +327,7 @@ async def observe(events: list[dict], base_weights: dict | None = None) -> dict 
         if out is None or len(out[0]) != len(names):
             return None  # fail open — don't lose events
         mus, variances = out
-        for name, mu, var in zip(names, mus, variances):
+        for name, mu, var in zip(names, mus, variances, strict=True):
             weights[name] = _to_spec(mu, var)
         applied += 1
     return {"weights": weights, "obs_count": applied}
@@ -364,7 +364,7 @@ async def sync_observations(limit: int = 200) -> int:
     async with get_conn() as conn:
         sims = await embeddings.embed_sims(conn, list({r["entry_id"] for r in rows}))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     entry_cache: dict[int, dict] = {}
     events, max_id = [], last_id
     for r in rows:

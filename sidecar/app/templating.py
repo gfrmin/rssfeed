@@ -1,5 +1,5 @@
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import humanize
@@ -83,8 +83,8 @@ def _timeago(value) -> str:
         else:
             dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
+        now = datetime.now(UTC)
         delta = now - dt
         if delta.total_seconds() < 86400:
             return humanize.naturaltime(delta)

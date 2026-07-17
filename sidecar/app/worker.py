@@ -263,6 +263,9 @@ async def worker_loop() -> None:
             # No-op / fail-open when Ollama is disabled or unreachable.
             from app import embeddings
             await embeddings.embed_pending()
+            # Sweep the archive a page at a time so related-articles works across
+            # history. No-op once the walk is done.
+            await embeddings.embed_backfill()
             await embeddings.recompute_centroid()
         except Exception:
             logger.exception("Embedding pass error")

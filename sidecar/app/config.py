@@ -58,3 +58,12 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 EMBED_ENABLED = os.environ.get("EMBED_ENABLED", "1") not in ("0", "false", "")
 
+# Archive backfill: the worker embeds older articles a page per cycle so that
+# related-articles reaches across history rather than only recent items.
+#   BATCH        — entries per worker cycle. 150 at a 60s poll ≈ 9k/hour, which keeps
+#                  each pass well inside the poll interval. 0 disables the sweep.
+#   MAX_AGE_DAYS — how far back to reach; default ~2 years. 0 means the whole archive.
+#                  Raising it later just resumes the walk from the stored cursor.
+EMBED_BACKFILL_BATCH = int(os.environ.get("EMBED_BACKFILL_BATCH", "150"))
+EMBED_BACKFILL_MAX_AGE_DAYS = int(os.environ.get("EMBED_BACKFILL_MAX_AGE_DAYS", "730"))
+

@@ -9,7 +9,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from lxml import html as lxml_html
 from psycopg.types.json import Jsonb
 
-from app import browser_login, embeddings, miniflux_client, ranker, ranker_client
+from app import browser_login, db, embeddings, miniflux_client, ranker, ranker_client
+from app.config import EMBED_ENABLED
 from app.db import get_conn
 from app.extractor import fetch_and_extract
 from app.routes.cookies import (
@@ -627,6 +628,7 @@ async def entry_detail(request: Request, entry_id: int):
         "next_entry_id": next_entry_id,
         "content_block": content_block,
         "title": entry.get("title", "Article"),
+        "related_enabled": EMBED_ENABLED and db.VECTOR_READY,
     }
     # HTMX row-click loads only the reader pane; a direct visit renders the full shell.
     if request.headers.get("HX-Target") == "reader-col":
@@ -964,6 +966,35 @@ async def why_ranked(entry_id: int, request: Request):
         for r in (reasons or [])
     ]
     return templates.TemplateResponse(request, "_why.html", {"items": items})
+
+
+@router.get("/entries/{entry_id}/related", response_class=HTMLResponse)
+async def related(entry_id: int, request: Request):
+    """'Related' — nearest neighbours of this entry by embedding cosine, loaded
+    lazily below the article body. Renders nothing at all when embeddings are off,
+    the entry has no vector yet, or nothing clears the similarity floor."""
+    if not (EMBED_ENABLED and db.VECTOR_READY):
+        return HTMLResponse("")
+    try:
+        async with get_conn() as conn:
+            candidates, target_title = await embeddings.related_candidates(conn, entry_id)
+        picks = embeddings.pick_related(candidates, target_title)
+        if not picks:
+            return HTMLResponse("")
+        feeds = {f["id"]: f.get("title") for f in await miniflux_client.get_feeds()}
+        items = [
+            {
+                "id": p["entry_id"],
+                "title": p.get("title") or "(untitled)",
+                "feed_title": feeds.get(p.get("feed_id")) or "",
+                "published_at": p.get("published_at"),
+            }
+            for p in picks
+        ]
+    except Exception as exc:  # a related list is a nicety — never break the reader
+        logger.debug("related failed open: %s", exc)
+        return HTMLResponse("")
+    return templates.TemplateResponse(request, "_related.html", {"items": items})
 
 
 @router.post("/entries/mark-all-read")

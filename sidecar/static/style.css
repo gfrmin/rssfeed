@@ -822,3 +822,22 @@ body.ov-lock { overflow:hidden; }
   #add-feed-form > * { min-width:0; }
   #feed-search, #add-feed-url { width:100% !important; flex:1 1 100%; }
 }
+
+/* ---- Related articles ---------------------------------------------------- */
+/* Nearest neighbours by embedding, under the article body. Styled as a quiet
+   footer to the reading experience: it should be findable when you've finished
+   an article, and invisible while you're still reading one. */
+.related-slot:empty { display:none; }
+.related { margin-top:34px; padding-top:16px; border-top:1px solid var(--border-2); }
+.related-h { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--faint); margin:0 0 10px; }
+.related-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.rel-item { display:flex; flex-direction:column; gap:2px; padding:7px 9px; margin:0 -9px;
+  border-radius:7px; text-decoration:none; color:inherit; cursor:pointer; }
+.rel-item:hover { background:var(--hover); }
+.rel-title { font-size:13px; line-height:1.35; color:var(--text); }
+.rel-item:hover .rel-title { color:var(--link); }
+.rel-meta { display:flex; gap:8px; align-items:center; font-family:"Geist Mono",ui-monospace,monospace;
+  font-size:10.5px; color:var(--faint); }
+.rel-feed { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; }
+.rel-age { flex-shrink:0; }

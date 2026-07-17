@@ -49,3 +49,95 @@ def test_embed_sims_empty_without_centroid(monkeypatch):
 
     monkeypatch.setattr(embeddings, "_centroid", no_centroid)
     assert run(embeddings.embed_sims(None, [1, 2])) == {}
+
+
+# ---- pick_related: turning nearest-neighbours into a useful list ----
+
+def _cand(entry_id, title, sim, feed_id=1):
+    return {"entry_id": entry_id, "title": title, "sim": sim, "feed_id": feed_id}
+
+
+def test_pick_related_drops_the_same_story_back():
+    """The nearest vector to an article is often the article itself, syndicated or
+    re-snapshotted. Technically similar, useless to offer as further reading."""
+    cands = [
+        _cand(2, "Same Headline", 0.99, feed_id=9),
+        _cand(3, "A Different Story", 0.8, feed_id=9),
+    ]
+    got = embeddings.pick_related(cands, "same headline")   # case/space-insensitive
+    assert [c["entry_id"] for c in got] == [3]
+
+
+def test_pick_related_dedupes_cross_posts_keeping_best():
+    cands = [
+        _cand(2, "Wire Story", 0.9, feed_id=1),
+        _cand(3, "Wire Story", 0.85, feed_id=2),   # same headline elsewhere
+        _cand(4, "Other", 0.8, feed_id=3),
+    ]
+    got = embeddings.pick_related(cands, "Target")
+    assert [c["entry_id"] for c in got] == [2, 4]
+
+
+def test_pick_related_caps_per_feed():
+    cands = [_cand(i, f"Story {i}", 0.9, feed_id=7) for i in range(2, 8)]
+    got = embeddings.pick_related(cands, "Target", per_feed=2)
+    assert len(got) == 2
+
+
+def test_pick_related_applies_similarity_floor():
+    cands = [_cand(2, "Close", 0.75), _cand(3, "Distant", 0.4, feed_id=2)]
+    got = embeddings.pick_related(cands, "Target", min_sim=0.7)
+    assert [c["entry_id"] for c in got] == [2]
+
+
+def test_pick_related_caps_and_preserves_order():
+    cands = [_cand(i, f"S{i}", 0.9 - i / 100, feed_id=i) for i in range(2, 12)]
+    got = embeddings.pick_related(cands, "Target", k=5)
+    assert len(got) == 5
+    assert [c["entry_id"] for c in got] == [2, 3, 4, 5, 6]
+
+
+def test_pick_related_skips_untitled_candidates():
+    got = embeddings.pick_related([_cand(2, None, 0.9), _cand(3, "Real", 0.85, 2)], "T")
+    assert [c["entry_id"] for c in got] == [3]
+
+
+# ---- _backfill_plan: what gets embedded, what only needs metadata ----
+
+def test_backfill_plan_prefers_snapshot_text_over_rss_body():
+    """The extracted article is the whole point of this app; the RSS body is often
+    a truncated teaser. Embed the good text when we have it."""
+    entries = [{"id": 1, "title": "T", "content": "<p>rss teaser</p>"}]
+    to_embed, meta_only = embeddings._backfill_plan(
+        entries, have_emb=set(), snapshot_texts={1: "the full extracted article"}
+    )
+    assert meta_only == []
+    (_eid, text, _entry), = to_embed
+    assert "full extracted article" in text and "teaser" not in text
+
+
+def test_backfill_plan_falls_back_to_rss_when_no_snapshot():
+    entries = [{"id": 1, "title": "T", "content": "<p>rss body</p>"}]
+    to_embed, _ = embeddings._backfill_plan(entries, set(), {})
+    assert "rss body" in to_embed[0][1]
+
+
+def test_backfill_plan_already_embedded_needs_metadata_only():
+    """Rows embedded before feed_id/title/published_at existed get them attached as
+    the cursor sweeps past — without paying for a re-embed."""
+    entries = [{"id": 1, "title": "T", "content": "x"}]
+    to_embed, meta_only = embeddings._backfill_plan(entries, have_emb={1}, snapshot_texts={})
+    assert to_embed == []
+    assert [e["id"] for e in meta_only] == [1]
+
+
+def test_backfill_plan_skips_entries_with_no_text():
+    entries = [{"id": 1, "title": "", "content": ""}]
+    to_embed, meta_only = embeddings._backfill_plan(entries, set(), {})
+    assert to_embed == [] and meta_only == []
+
+
+def test_backfill_plan_ignores_blank_snapshot():
+    entries = [{"id": 1, "title": "T", "content": "<p>rss body</p>"}]
+    to_embed, _ = embeddings._backfill_plan(entries, set(), {1: "   "})
+    assert "rss body" in to_embed[0][1]

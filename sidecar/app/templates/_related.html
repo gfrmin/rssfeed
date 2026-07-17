@@ -1,0 +1,23 @@
+{# Lazy 'Related' list under the article body: nearest neighbours by embedding
+   cosine. Ordering conveys similarity, so no score is shown — a raw cosine is
+   noise to read and the numbers sit in a narrow band anyway. Renders nothing at
+   all when there's no good match, rather than an empty header. #}
+{% if items %}
+<div class="related">
+  <h2 class="related-h">Related</h2>
+  <ul class="related-list">
+    {% for it in items %}
+    <li>
+      <a class="rel-item" href="/entries/{{ it.id }}"
+         hx-get="/entries/{{ it.id }}" hx-target="#reader-col" hx-push-url="/entries/{{ it.id }}">
+        <span class="rel-title">{{ it.title | inline_html }}</span>
+        <span class="rel-meta">
+          {% if it.feed_title %}<span class="rel-feed">{{ it.feed_title }}</span>{% endif %}
+          {% if it.published_at %}<span class="rel-age">{{ it.published_at | timeago }}</span>{% endif %}
+        </span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}

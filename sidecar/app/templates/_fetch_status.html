@@ -1,0 +1,24 @@
+{# What recent automatic full-content fetches brought back. Shared by both
+   settings surfaces. Context: recent_fetches{items:[{words,fetched_at,url}], health} #}
+{% set rf = recent_fetches %}
+<div class="ffetch">
+  {% if rf and rf.samples %}
+  {% set latest = rf.samples[0] %}
+  <div class="ffetch-main">
+    Last fetch: <strong>{{ "{:,}".format(latest.words) }} word{{ '' if latest.words == 1 else 's' }}</strong>
+    <span class="fsub-dim">&middot; {{ latest.fetched_at | timeago }}</span>
+  </div>
+  <div class="ffetch-spark">
+    {% for f in rf.samples %}
+    <span class="ffetch-chip {{ 'lo' if f.words < 200 else 'ok' }}" title="{{ '{:,}'.format(f.words) }} words &middot; {{ f.fetched_at | timeago }}">{{ "{:,}".format(f.words) }}</span>
+    {% endfor %}
+  </div>
+  {% if rf.health == 'short' %}
+  <div class="fsub-note warn">Recent fetches are short &mdash; the source may be returning only a teaser. If this is a paywalled site you subscribe to, import your login below.</div>
+  {% else %}
+  <div class="fsub-dim">Full articles are coming through.</div>
+  {% endif %}
+  {% else %}
+  <span class="fsub-dim">Nothing fetched yet &mdash; new articles are fetched on the next poll.</span>
+  {% endif %}
+</div>

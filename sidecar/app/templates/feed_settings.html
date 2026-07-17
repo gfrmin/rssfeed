@@ -52,54 +52,14 @@
 </div>
 {% endif %}
 
+<h2 class="mt-8 mb-1 text-caption font-semibold uppercase tracking-wider text-text-muted border-b border-border pb-1">General</h2>
+
 <div class="my-6 flex items-center gap-4 flex-wrap">
   <label class="text-text-muted min-w-[180px]">Title</label>
   <form hx-post="/feeds/{{ feed.id }}/rename" hx-swap="afterend" class="flex gap-2 items-center">
     <input type="text" name="title" value="{{ feed.title }}" class="input px-2.5 py-1.5 w-[300px]">
     <button type="submit" class="btn">Rename</button>
   </form>
-</div>
-
-<div class="my-6 flex items-start gap-4 flex-wrap">
-  <label class="text-text-muted min-w-[180px] pt-1.5">Feed URL</label>
-  <div class="flex flex-col gap-2 flex-1 min-w-[300px]">
-    <form id="set-url-form-{{ feed.id }}"
-          hx-post="/feeds/{{ feed.id }}/set-url"
-          hx-target="#feed-discover-results-{{ feed.id }}"
-          hx-swap="innerHTML"
-          class="flex flex-col gap-2">
-      <input type="url" name="feed_url" id="feed-url-input-{{ feed.id }}" value="{{ feed.feed_url }}"
-             class="input px-2.5 py-1.5 w-full font-mono text-body-sm"
-             required>
-      <div class="flex gap-2 items-center flex-wrap">
-        <button type="submit" class="btn">Update URL</button>
-        <span class="text-detail text-text-muted">Paste a feed URL, or a page URL to discover feeds on it. Entries are preserved.</span>
-      </div>
-    </form>
-    <div id="feed-discover-results-{{ feed.id }}"></div>
-    {% if url_history %}
-    <details class="mt-1">
-      <summary class="cursor-pointer text-text-muted text-detail">URL history ({{ url_history|length }})</summary>
-      <table class="mt-2 w-full border-collapse text-detail">
-        <thead>
-          <tr><th class="th">When</th><th class="th">Previous URL</th><th class="th">Source</th></tr>
-        </thead>
-        <tbody>
-          {% for h in url_history %}
-          <tr>
-            <td class="td whitespace-nowrap text-text-muted">{{ h.changed_at | timeago }}</td>
-            <td class="td font-mono break-all">{{ h.old_url }}</td>
-            <td class="td text-text-muted whitespace-nowrap">{{ h.source or '—' }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      <p class="text-detail text-text-muted mt-1">
-        Past URLs are kept so imported legacy posts (e.g. NewsBlur export) can be matched back to this feed.
-      </p>
-    </details>
-    {% endif %}
-  </div>
 </div>
 
 <div class="my-6 flex items-center gap-4 flex-wrap">
@@ -111,15 +71,36 @@
   </select>
 </div>
 
+<h2 class="mt-8 mb-1 text-caption font-semibold uppercase tracking-wider text-text-muted border-b border-border pb-1">Full content &amp; subscription</h2>
+
 <div class="my-6 flex items-center gap-4 flex-wrap">
   <label class="text-text-muted min-w-[180px]">Fetch full article content</label>
   <button
+    id="fc-toggle-{{ feed.id }}"
     hx-post="/feeds/{{ feed.id }}/toggle-full-content"
     hx-swap="outerHTML"
     class="toggle border-none px-3 py-1.5 rounded-lg cursor-pointer font-semibold text-caption hover:opacity-85 {{ 'on' if fetch_full_content else 'off' }}"
   >
     {{ 'ON' if fetch_full_content else 'OFF' }}
   </button>
+  <span class="text-detail text-text-muted">Fetch the full article from the source instead of the RSS summary.</span>
+</div>
+
+{% if fetch_full_content %}
+<div class="my-6 flex items-start gap-4 flex-wrap">
+  <label class="text-text-muted min-w-[180px] pt-1.5">Recent fetches</label>
+  <div class="flex flex-col gap-2 flex-1 min-w-[300px]">
+    {% include "_fetch_status.html" %}
+  </div>
+</div>
+{% endif %}
+
+<div class="my-6 flex items-start gap-4 flex-wrap">
+  <label class="text-text-muted min-w-[180px] pt-1.5">Subscription login</label>
+  <div class="flex flex-col gap-2 flex-1 min-w-[300px]">
+    {% include "_subscription_block.html" %}
+    <span class="text-detail text-text-muted">For paywalled sites you pay for: import your logged-in browser session so full articles can be fetched.</span>
+  </div>
 </div>
 
 <div class="my-6 flex items-center gap-4 flex-wrap">
@@ -137,36 +118,82 @@
   </span>
 </div>
 
-<div class="my-6 flex items-center gap-4 flex-wrap">
-  <label class="text-text-muted min-w-[180px]">TLS verification</label>
-  <button
-    hx-post="/feeds/{{ feed.id }}/toggle-tls-verify"
-    hx-swap="outerHTML"
-    class="toggle border-none px-3 py-1.5 rounded-lg cursor-pointer font-semibold text-caption hover:opacity-85 {{ 'on' if feed.allow_self_signed_certificates else 'off' }}"
-  >
-    {{ 'SKIP' if feed.allow_self_signed_certificates else 'VERIFY' }}
-  </button>
-  <span class="text-detail text-text-muted">
-    <code>SKIP</code> disables <strong>all</strong> TLS verification for this feed (hostname, chain, expiry). Use only when the site has a misconfigured chain (e.g. missing intermediate) you've verified by hand. Mapped to Miniflux's <code>allow_self_signed_certificates</code> — misleadingly named; it's really <code>InsecureSkipVerify</code>.
-  </span>
-</div>
+<details class="mt-8">
+  <summary class="cursor-pointer text-caption font-semibold uppercase tracking-wider text-text-muted border-b border-border pb-1 block">Advanced</summary>
 
-<div class="my-6 flex items-center gap-4 flex-wrap">
-  <label class="text-text-muted min-w-[180px]">Extract rules (JSON)</label>
-  <form hx-post="/feeds/{{ feed.id }}/set-extract-rules" hx-swap="afterend">
-    <textarea name="extract_rules" rows="6" cols="50" class="input font-mono text-body-sm">{{ extract_rules_json }}</textarea>
-    <br>
-    <button type="submit" class="btn mt-2">Save rules</button>
-  </form>
-  <details class="mt-2">
-    <summary class="cursor-pointer text-text-muted text-detail">Available rules</summary>
-    <ul class="mt-2 text-detail text-text-muted list-disc pl-5 space-y-1">
-      <li><code class="bg-surface px-1 rounded text-detail">&#34;unwrap_tags&#34;: [&#34;template&#34;]</code> — promote children of matched elements (e.g. Vue.js slots)</li>
-      <li><code class="bg-surface px-1 rounded text-detail">&#34;remove_tags&#34;: [&#34;widget-*&#34;]</code> — remove elements by tag name glob pattern</li>
-      <li><code class="bg-surface px-1 rounded text-detail">&#34;content_xpath&#34;: &#34;//article&#34;</code> — XPath selector for main content (bypasses readability auto-detection)</li>
-    </ul>
-  </details>
-</div>
+  <div class="my-6 flex items-start gap-4 flex-wrap">
+    <label class="text-text-muted min-w-[180px] pt-1.5">Feed URL</label>
+    <div class="flex flex-col gap-2 flex-1 min-w-[300px]">
+      <form id="set-url-form-{{ feed.id }}"
+            hx-post="/feeds/{{ feed.id }}/set-url"
+            hx-target="#feed-discover-results-{{ feed.id }}"
+            hx-swap="innerHTML"
+            class="flex flex-col gap-2">
+        <input type="url" name="feed_url" id="feed-url-input-{{ feed.id }}" value="{{ feed.feed_url }}"
+               class="input px-2.5 py-1.5 w-full font-mono text-body-sm"
+               required>
+        <div class="flex gap-2 items-center flex-wrap">
+          <button type="submit" class="btn">Update URL</button>
+          <span class="text-detail text-text-muted">Paste a feed URL, or a page URL to discover feeds on it. Entries are preserved.</span>
+        </div>
+      </form>
+      <div id="feed-discover-results-{{ feed.id }}"></div>
+      {% if url_history %}
+      <details class="mt-1">
+        <summary class="cursor-pointer text-text-muted text-detail">URL history ({{ url_history|length }})</summary>
+        <table class="mt-2 w-full border-collapse text-detail">
+          <thead>
+            <tr><th class="th">When</th><th class="th">Previous URL</th><th class="th">Source</th></tr>
+          </thead>
+          <tbody>
+            {% for h in url_history %}
+            <tr>
+              <td class="td whitespace-nowrap text-text-muted">{{ h.changed_at | timeago }}</td>
+              <td class="td font-mono break-all">{{ h.old_url }}</td>
+              <td class="td text-text-muted whitespace-nowrap">{{ h.source or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="text-detail text-text-muted mt-1">
+          Past URLs are kept so imported legacy posts (e.g. NewsBlur export) can be matched back to this feed.
+        </p>
+      </details>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="my-6 flex items-center gap-4 flex-wrap">
+    <label class="text-text-muted min-w-[180px]">TLS verification</label>
+    <button
+      hx-post="/feeds/{{ feed.id }}/toggle-tls-verify"
+      hx-swap="outerHTML"
+      class="toggle border-none px-3 py-1.5 rounded-lg cursor-pointer font-semibold text-caption hover:opacity-85 {{ 'on' if feed.allow_self_signed_certificates else 'off' }}"
+    >
+      {{ 'SKIP' if feed.allow_self_signed_certificates else 'VERIFY' }}
+    </button>
+    <span class="text-detail text-text-muted">
+      <code>SKIP</code> disables <strong>all</strong> TLS verification for this feed (hostname, chain, expiry). Use only when the site has a misconfigured chain (e.g. missing intermediate) you've verified by hand. Mapped to Miniflux's <code>allow_self_signed_certificates</code> — misleadingly named; it's really <code>InsecureSkipVerify</code>.
+    </span>
+  </div>
+
+  <div class="my-6 flex items-center gap-4 flex-wrap">
+    <label class="text-text-muted min-w-[180px]">Extract rules (JSON)</label>
+    <form hx-post="/feeds/{{ feed.id }}/set-extract-rules" hx-swap="afterend">
+      <textarea name="extract_rules" rows="6" cols="50" class="input font-mono text-body-sm">{{ extract_rules_json }}</textarea>
+      <br>
+      <button type="submit" class="btn mt-2">Save rules</button>
+    </form>
+    <details class="mt-2">
+      <summary class="cursor-pointer text-text-muted text-detail">Available rules</summary>
+      <ul class="mt-2 text-detail text-text-muted list-disc pl-5 space-y-1">
+        <li><code class="bg-surface px-1 rounded text-detail">&#34;unwrap_tags&#34;: [&#34;template&#34;]</code> — promote children of matched elements (e.g. Vue.js slots)</li>
+        <li><code class="bg-surface px-1 rounded text-detail">&#34;remove_tags&#34;: [&#34;widget-*&#34;]</code> — remove elements by tag name glob pattern</li>
+        <li><code class="bg-surface px-1 rounded text-detail">&#34;content_xpath&#34;: &#34;//article&#34;</code> — XPath selector for main content (bypasses readability auto-detection)</li>
+      </ul>
+    </details>
+  </div>
+</details>
 
 {% if not feed.disabled %}
 <div class="my-6 flex items-center gap-4 flex-wrap">

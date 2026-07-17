@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
+import psycopg.types.json
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
@@ -68,6 +69,14 @@ def _parse_cookie_string(raw: str) -> dict[str, str]:
     return cookies
 
 
+def domain_from_url(url: str | None) -> str | None:
+    """Extract the bare (www-stripped) hostname from a URL, or None."""
+    if not url:
+        return None
+    host = urlparse(url).hostname or ""
+    return host.removeprefix("www.") or None
+
+
 async def get_cookies_for_url(url: str) -> dict[str, str] | None:
     """Look up stored cookies matching the domain of a URL."""
     domain = urlparse(url).hostname or ""
@@ -81,6 +90,43 @@ async def get_cookies_for_url(url: str) -> dict[str, str] | None:
         )
         row = await cur.fetchone()
         return row["cookies"] if row else None
+
+
+async def upsert_cookies(domain: str, cookies: dict[str, str]) -> None:
+    """Insert or replace the stored cookie set for a domain."""
+    async with get_conn() as conn:
+        await conn.execute(
+            """INSERT INTO site_cookies (domain, cookies)
+               VALUES (%s, %s::jsonb)
+               ON CONFLICT (domain) DO UPDATE SET cookies = %s::jsonb, updated_at = NOW()""",
+            (domain, psycopg.types.json.Json(cookies), psycopg.types.json.Json(cookies)),
+        )
+        await conn.commit()
+
+
+async def cookie_meta_for_domain(domain: str | None) -> dict | None:
+    """Return {count, updated_at} for a domain's stored cookies, or None if absent."""
+    if not domain:
+        return None
+    async with get_conn() as conn:
+        cur = await conn.execute(
+            "SELECT cookies, updated_at FROM site_cookies WHERE domain = %s OR domain = %s LIMIT 1",
+            (domain, domain.removeprefix("www.")),
+        )
+        row = await cur.fetchone()
+    if not row:
+        return None
+    return {"count": len(row["cookies"] or {}), "updated_at": row["updated_at"]}
+
+
+async def delete_cookies_for_domain(domain: str) -> None:
+    """Delete the stored cookie set for a domain (exact + www-stripped)."""
+    async with get_conn() as conn:
+        await conn.execute(
+            "DELETE FROM site_cookies WHERE domain = %s OR domain = %s",
+            (domain, domain.removeprefix("www.")),
+        )
+        await conn.commit()
 
 
 @router.get("/cookies", response_class=HTMLResponse)
@@ -102,15 +148,7 @@ async def save_cookies(domain: str = Form(...), cookies_raw: str = Form(...)):
     if not cookies:
         return HTMLResponse('<span class="error">No valid cookies found</span>', status_code=400)
 
-    import psycopg.types.json
-    async with get_conn() as conn:
-        await conn.execute(
-            """INSERT INTO site_cookies (domain, cookies)
-               VALUES (%s, %s::jsonb)
-               ON CONFLICT (domain) DO UPDATE SET cookies = %s::jsonb, updated_at = NOW()""",
-            (domain, psycopg.types.json.Json(cookies), psycopg.types.json.Json(cookies)),
-        )
-        await conn.commit()
+    await upsert_cookies(domain, cookies)
     return HTMLResponse(f'<span class="success">Saved {len(cookies)} cookies for {domain}</span>')
 
 
@@ -123,15 +161,7 @@ async def import_from_firefox(domain: str = Form(...)):
     if not cookies:
         return HTMLResponse(f'<span class="error">No Firefox cookies found for {domain}</span>')
 
-    import psycopg.types.json
-    async with get_conn() as conn:
-        await conn.execute(
-            """INSERT INTO site_cookies (domain, cookies)
-               VALUES (%s, %s::jsonb)
-               ON CONFLICT (domain) DO UPDATE SET cookies = %s::jsonb, updated_at = NOW()""",
-            (domain, psycopg.types.json.Json(cookies), psycopg.types.json.Json(cookies)),
-        )
-        await conn.commit()
+    await upsert_cookies(domain, cookies)
     return HTMLResponse(
         f'<span class="success">Imported {len(cookies)} cookies for {domain} from Firefox</span>'
     )
@@ -139,7 +169,5 @@ async def import_from_firefox(domain: str = Form(...)):
 
 @router.post("/cookies/{domain}/delete", response_class=HTMLResponse)
 async def delete_cookies(domain: str):
-    async with get_conn() as conn:
-        await conn.execute("DELETE FROM site_cookies WHERE domain = %s", (domain,))
-        await conn.commit()
+    await delete_cookies_for_domain(domain)
     return HTMLResponse(f'<span class="success">Deleted cookies for {domain}</span>')

@@ -91,6 +91,22 @@ class LoginRecipe:
     submit_selectors: list[str] = field(default_factory=list)
 
 
+def _selector_list(spec: dict, key: str) -> list[str]:
+    """A recipe's selector list, validated.
+
+    Rejects a bare string explicitly: `"username_selectors": "#login-email"` is the
+    natural thing to write instead of a list, and `list()` would silently splay it
+    into ['#','l','o','g',...]. That "works" — no error, no warning — and then the
+    login just mysteriously never finds the field. Better to skip the recipe loudly.
+    """
+    v = spec.get(key) or []
+    if not isinstance(v, list):
+        raise TypeError(f"{key} must be a list of CSS selectors")
+    if not all(isinstance(s, str) for s in v):
+        raise TypeError(f"{key} must contain only strings")
+    return v
+
+
 def load_recipes(path: str) -> dict[str, LoginRecipe]:
     """Load per-site login overrides from a JSON file.
 
@@ -124,11 +140,14 @@ def load_recipes(path: str) -> dict[str, LoginRecipe]:
         if str(domain).startswith("__"):
             continue  # JSON has no comments; `__`-prefixed keys are documentation
         try:
+            url = spec["login_url"]
+            if not isinstance(url, str) or not url.strip():
+                raise TypeError("login_url must be a non-empty string")
             out[str(domain).lower()] = LoginRecipe(
-                login_url=spec["login_url"],
-                username_selectors=list(spec.get("username_selectors") or []),
-                password_selectors=list(spec.get("password_selectors") or []),
-                submit_selectors=list(spec.get("submit_selectors") or []),
+                login_url=url,
+                username_selectors=_selector_list(spec, "username_selectors"),
+                password_selectors=_selector_list(spec, "password_selectors"),
+                submit_selectors=_selector_list(spec, "submit_selectors"),
             )
         except (KeyError, TypeError, AttributeError) as exc:
             logger.warning("login recipes: skipping %s (%s)", domain, exc)

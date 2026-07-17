@@ -115,3 +115,43 @@ def test_recipe_matches_with_and_without_www(monkeypatch):
     })
     assert browser_login.has_login_recipe("www.example.com") is True
     assert browser_login.recipe_for("www.example.com").login_url == "https://example.com/in"
+
+
+# --- validation of recipe fields -------------------------------------------
+
+def test_selectors_as_bare_string_is_rejected_not_splayed(tmp_path):
+    """`"username_selectors": "#login-email"` is the natural mistake. list() on a
+    string yields ['#','l','o','g',...] — no error, no warning, and the login then
+    silently never finds the field. Skip the recipe loudly instead."""
+    path = _write(tmp_path, {
+        "a.example.com": {"login_url": "https://a.example.com/in",
+                          "username_selectors": "#login-email"},
+    })
+    assert browser_login.load_recipes(path) == {}
+
+
+def test_selector_list_with_non_strings_is_rejected(tmp_path):
+    path = _write(tmp_path, {
+        "a.example.com": {"login_url": "https://a.example.com/in",
+                          "submit_selectors": ["#ok", 42, None]},
+    })
+    assert browser_login.load_recipes(path) == {}
+
+
+def test_non_string_login_url_is_rejected(tmp_path):
+    path = _write(tmp_path, {"a.example.com": {"login_url": 42}})
+    assert browser_login.load_recipes(path) == {}
+
+
+def test_blank_login_url_is_rejected(tmp_path):
+    path = _write(tmp_path, {"a.example.com": {"login_url": "   "}})
+    assert browser_login.load_recipes(path) == {}
+
+
+def test_a_bad_field_only_skips_its_own_recipe(tmp_path):
+    path = _write(tmp_path, {
+        "bad.example.com": {"login_url": "https://bad.example.com/in",
+                            "username_selectors": "#oops"},
+        "good.example.com": {"login_url": "https://good.example.com/in"},
+    })
+    assert set(browser_login.load_recipes(path)) == {"good.example.com"}

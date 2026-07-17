@@ -214,14 +214,37 @@ def _frame_host(url: str) -> str:
 
 
 def _same_site(host: str, target: str) -> bool:
-    """Same registrable-ish site: exact host, or a subdomain of the target."""
+    """Same registrable-ish site: exact host, or a subdomain of the target.
+
+    `www.` is stripped from the target so a recipe pointing at
+    ``https://www.example.com/login`` still trusts a form frame on the bare
+    ``example.com`` — the same site by any sane reading; refusing it would break
+    real logins and buy no safety.
+    """
     if not host or not target:
         return False
+    target = target.removeprefix("www.")
     return host == target or host.endswith("." + target)
 
 
+def _host_trusted(host: str, target: str) -> bool:
+    """May this host be shown the user's credentials?"""
+    return _same_site(host, target) or any(_same_site(host, p) for p in _AUTH_FRAME_HOSTS)
+
+
+def frame_trusted_now(frame, target: str) -> bool:
+    """Is this frame trusted *at this instant*, judged by its current URL?
+
+    Deliberately re-read rather than remembered. A Frame is a live handle:
+    navigating it swaps the document but keeps the object valid, so a trust
+    decision made when the frame was listed says nothing about where it is by the
+    time we type into it.
+    """
+    return _host_trusted(_frame_host(frame.url), target)
+
+
 def trusted_login_frames(page, login_url: str) -> list:
-    """The frames we're willing to type credentials into.
+    """The frames we're willing to type credentials into, judged right now.
 
     The login form legitimately lives in a cross-origin iframe on some paywalls
     (Piano/tinypass hosts the form itself), so we can't simply refuse all of them.
@@ -231,19 +254,20 @@ def trusted_login_frames(page, login_url: str) -> list:
     credentials, which are then submitted to that third party. The user just sees
     "login failed" and never learns where their details went.
 
-    So: the main frame and same-site frames are trusted, plus an explicit
-    allowlist of known auth providers. Everything else is skipped.
+    So: same-site frames plus an explicit allowlist of known auth providers.
+
+    The main frame gets **no** special pass. It used to be trusted
+    unconditionally, which meant that once a click navigated it off-site it stayed
+    "trusted" and would still be handed the password. It is judged by its current
+    URL like every other frame.
     """
     target = _frame_host(login_url)
-    out = [page.main_frame]
-    for f in page.frames:
-        if f is page.main_frame:
-            continue
-        host = _frame_host(f.url)
-        if _same_site(host, target) or any(_same_site(host, p) for p in _AUTH_FRAME_HOSTS):
+    out = []
+    for f in page.frames:  # page.frames[0] is the main frame
+        if frame_trusted_now(f, target):
             out.append(f)
-        elif host:
-            logger.debug("skipping untrusted login frame: %s", host)
+        elif _frame_host(f.url):
+            logger.debug("skipping untrusted login frame: %s", _frame_host(f.url))
     return out
 
 
@@ -252,31 +276,59 @@ async def _fill_and_submit(page, recipe: LoginRecipe, username: str, password: s
     pass_sel = recipe.password_selectors or _DEFAULT_PASS_SEL
     submit_sel = recipe.submit_selectors or _DEFAULT_SUBMIT_SEL
 
-    # Only the main frame, same-site frames, and known auth providers — never an
-    # arbitrary third-party iframe. See trusted_login_frames().
+    target = _frame_host(recipe.login_url)
+
+    # Only same-site frames and known auth providers — never an arbitrary
+    # third-party iframe. See trusted_login_frames().
     for scope in trusted_login_frames(page, recipe.login_url):
         user = await _first_visible(scope, user_sel)
         if not user:
             continue
+        if not frame_trusted_now(scope, target):
+            continue  # drifted between listing and now
         await user.fill(username)
-        pw = await _first_visible(scope, pass_sel)
+
+        # Track which frame the password field came from — it isn't always `scope`
+        # (the two-step path falls back to the main frame), and the trust re-check
+        # has to apply to the frame we're actually about to type into.
+        pw, pw_frame = await _first_visible(scope, pass_sel), scope
+
         # Two-step flows (email → Continue → password) reveal the password later.
+        # This click can NAVIGATE — an SSO bounce, an open redirect, a hop through
+        # an auth provider — so where we land is not where we vetted.
         if not pw:
             cont = await _first_visible(scope, submit_sel)
             if cont:
                 await cont.click()
                 await page.wait_for_timeout(2500)
-                pw = await _first_visible(scope, pass_sel) or await _first_visible(page, pass_sel)
+                if frame_trusted_now(scope, target):
+                    pw, pw_frame = await _first_visible(scope, pass_sel), scope
+                if not pw and frame_trusted_now(page.main_frame, target):
+                    pw, pw_frame = await _first_visible(page, pass_sel), page.main_frame
         if not pw:
             continue
+
+        # The password is about to be typed: re-verify the frame holding the field,
+        # whatever happened above.
+        if not frame_trusted_now(pw_frame, target):
+            logger.warning(
+                "Aborting login for %s — the form moved to an untrusted origin (%s)",
+                recipe.login_url, _frame_host(pw_frame.url) or "unknown",
+            )
+            return False
         await pw.fill(password)
+
         submit = await _first_visible(scope, submit_sel)
+        if not frame_trusted_now(pw_frame, target):
+            logger.warning("Aborting login for %s — origin changed before submit",
+                           recipe.login_url)
+            return False
         if submit:
             await submit.click()
         else:
             await pw.press("Enter")
         logger.info("Submitted login form for %s (scope=%s)", recipe.login_url,
-                    "page" if scope is page.main_frame else _frame_host(scope.url))
+                    _frame_host(scope.url) or "page")
         return True
     return False
 

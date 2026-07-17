@@ -74,13 +74,25 @@ async def get_entries(
     category_id: int | None = None,
     after: str | None = None,
     before: str | None = None,
+    after_entry_id: int | None = None,
+    published_after: int | None = None,
 ) -> dict[str, Any]:
+    """Entries from Miniflux.
+
+    `after_entry_id` + order="id"/direction="asc" gives a stable cursor walk over the
+    whole archive: unlike offset paging, newly-arrived entries can't shift the window
+    under you. `published_after` (Unix seconds) floors how far back that walk reaches.
+    """
     params: dict[str, Any] = {
         "limit": limit,
         "offset": offset,
         "direction": direction,
         "order": order,
     }
+    if after_entry_id is not None:
+        params["after_entry_id"] = after_entry_id
+    if published_after is not None:
+        params["published_after"] = published_after
     if status:
         params["status"] = status
     if search:

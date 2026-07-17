@@ -159,6 +159,6 @@ Changes by file:
 
 ## Reproduce
 ```bash
-NODE_PATH=/home/g/.npm-global/lib/node_modules node /tmp/rssfeed-audit/drive.cjs      # main drive + measurements
-NODE_PATH=/home/g/.npm-global/lib/node_modules node /tmp/rssfeed-audit/capture2.cjs    # overlays + legacy pages
+NODE_PATH="$(npm root -g)" node /tmp/rssfeed-audit/drive.cjs      # main drive + measurements
+NODE_PATH="$(npm root -g)" node /tmp/rssfeed-audit/capture2.cjs    # overlays + legacy pages
 ```

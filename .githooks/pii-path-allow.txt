@@ -1,0 +1,61 @@
+# Placeholder + system path roots that may legitimately appear in tracked text.
+# One prefix per line. A tracked filesystem path whose prefix is NOT listed here is
+# flagged by .githooks/pii_check.py. NEVER add a personal data root (e.g. a real
+# home or mount path) here — this file is public. Real machine prefixes are rejected
+# automatically from the environment ($HOME); they are never enumerated in-tree.
+
+# --- HTTP route namespaces -------------------------------------------------
+# This is a web app, so most "paths" in the tree are URL routes, not filesystem
+# paths — public API surface that can never carry personal data. They trip the
+# path-shape heuristic simply by having two segments.
+/entries
+/feeds
+/cookies
+/api
+/static
+/proxy
+/subscription
+/opml
+/v1
+/health
+
+# --- build / container paths ----------------------------------------------
+/build
+/app
+/ms-playwright
+
+# --- system roots ----------------------------------------------------------
+/tmp
+/etc
+/usr
+/var
+/opt
+/bin
+/run
+/proc
+/sys
+/dev
+/srv
+/data
+/path/to
+
+# f-string tails: `f"{_HOME}/git/credence/..."` (config.py, verify_skin_ranker.py)
+# leaves the literal `/git/credence/...` in the source. The home part is resolved at
+# runtime via expanduser, so nothing personal is in the tree — the regex just can't
+# see the `{_HOME}` before it. Allowlisted here rather than with a PII-OK marker,
+# which would exempt those whole lines from every rule including the denylist.
+/git
+
+# --- documented dev-machine conventions ------------------------------------
+# Tilde-rooted and therefore anonymous: they describe where a developer keeps
+# checkouts (README/CLAUDE.md reference the sibling credence checkout and the
+# worktree layout), and reveal no identity. A *real* rooted path like
+# /home/<user>/... is still rejected automatically via $HOME.
+~/git
+~/.cache
+~/.config
+~/.local
+~/.npm-global
+# The guard's own documented default KB root (pii_check.kb_root). Anonymous:
+# tilde-rooted, and a public default rather than anyone's real location.
+~/.life-agent

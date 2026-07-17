@@ -56,6 +56,14 @@
         </audio>
       </div>
       {% endif %}
+
+      {% if related_enabled %}
+      {# Loads on render rather than on reveal: the query is HNSW-indexed and takes
+         single-digit ms, so deferring would only add a scroll-triggered flicker.
+         Returns empty markup when nothing clears the similarity floor. #}
+      <div class="related-slot" hx-get="/entries/{{ entry.id }}/related"
+           hx-trigger="load" hx-swap="innerHTML"></div>
+      {% endif %}
     </div>
   </div>
 </section>

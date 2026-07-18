@@ -195,29 +195,36 @@
   </div>
 </details>
 
-{% if not feed.disabled %}
-<div class="my-6 flex items-center gap-4 flex-wrap">
-  <label class="text-text-muted min-w-[180px]">Polling</label>
-  <form hx-post="/feeds/pause-polling" hx-swap="afterend">
-    <input type="hidden" name="feed_ids" value="{{ feed.id }}">
-    <button type="submit" class="btn">&#9208; Pause polling</button>
-  </form>
-  <span class="text-detail text-text-muted">Miniflux stops fetching new items; existing entries are preserved. Resume any time.</span>
-</div>
-{% endif %}
-
-<div class="mt-8 pt-4 border-t border-border flex justify-between items-center">
-  <div class="text-body-sm">
-    <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">&larr; Entries</a>
-    &middot;
-    <a href="/" class="text-link no-underline hover:underline">All feeds</a>
+<div class="mt-8 pt-4 border-t border-border">
+  <div class="flex justify-between items-center gap-3 flex-wrap">
+    <div class="text-body-sm">
+      <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">&larr; Entries</a>
+      &middot;
+      <a href="/" class="text-link no-underline hover:underline">All feeds</a>
+    </div>
+    {% if not feed.disabled %}
+    <form hx-post="/feeds/pause-polling" hx-swap="afterend" class="inline">
+      <input type="hidden" name="feed_ids" value="{{ feed.id }}">
+      <button type="submit" class="btn" title="Stops polling; every entry is kept. Resume any time.">&#9208; Disable feed (keep entries)</button>
+    </form>
+    {% endif %}
   </div>
-  <button
-    hx-post="/feeds/{{ feed.id }}/delete"
-    hx-confirm="Delete feed &quot;{{ feed.title }}&quot;? This removes all entries."
-    hx-swap="innerHTML"
-    hx-target="closest div"
-    class="text-danger text-caption cursor-pointer bg-transparent border border-danger rounded px-2 py-1 hover:bg-danger hover:text-white transition-colors"
-  >Delete feed</button>
+  <details class="mt-3">
+    <summary class="cursor-pointer text-caption text-text-muted">Delete this feed permanently&hellip;</summary>
+    <div class="mt-2 p-3 rounded-lg border border-danger flex items-center justify-between gap-3 flex-wrap">
+      <p class="text-detail text-text-muted m-0" style="max-width:48em;">
+        Deleting removes this feed <strong>and every one of its entries</strong> from Miniflux.
+        Feed records are also the attachment points for matching up historical imports,
+        so a broken or noisy feed is better <em>disabled</em>: polling stops, entries stay.
+      </p>
+      <button
+        hx-post="/feeds/{{ feed.id }}/delete"
+        hx-confirm="Permanently delete &quot;{{ feed.title }}&quot; and all its entries? This cannot be undone."
+        hx-swap="innerHTML"
+        hx-target="closest div"
+        class="text-danger text-caption cursor-pointer bg-transparent border border-danger rounded px-2 py-1 hover:bg-danger hover:text-white transition-colors"
+      >Delete feed and entries</button>
+    </div>
+  </details>
 </div>
 {% endblock %}

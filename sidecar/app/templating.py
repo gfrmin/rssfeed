@@ -1,11 +1,15 @@
 import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import humanize
 import nh3
 from fastapi.templating import Jinja2Templates
+from lxml import html as lxml_html
 from markupsafe import Markup
+
+from app import config
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -48,13 +52,84 @@ _BODY_TAGS = {
     "pre", "code", "sup", "sub", "video", "audio", "source",
 }
 _BODY_ATTRS = {
-    "a": {"href", "title"},
+    "a": {"href", "title", "target"},
     "img": {"src", "alt", "title"},
     "video": {"src", "controls", "poster", "width", "height"},
     "audio": {"src", "controls"},
     "source": {"src", "type"},
 }
 _URL_SCHEMES = {"http", "https", "mailto"}
+
+# --- Embeds: convert <iframe> to click-through links ----------------------------
+# We never render inline third-party frames (nh3 strips <iframe> anyway). The
+# extractor preserves the embed in content_html; here, at render, each iframe
+# becomes a plain link the reader chooses to follow — YouTube routed to the
+# configured Invidious instance (or youtube.com), other embeds to their source.
+_YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com",
+                  "youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com"}
+
+
+def _youtube_id(src: str) -> str | None:
+    """Video id from a YouTube embed/watch/short URL, else None (not YouTube)."""
+    try:
+        u = urlparse(src)
+    except ValueError:
+        return None
+    host = (u.hostname or "").lower()
+    if host not in _YOUTUBE_HOSTS:
+        return None
+    if host == "youtu.be":
+        vid = u.path.lstrip("/").split("/")[0]
+    elif "/embed/" in u.path:
+        vid = u.path.split("/embed/", 1)[1].split("/")[0]
+    elif u.path.rstrip("/") == "/watch":
+        vid = parse_qs(u.query).get("v", [""])[0]
+    else:
+        return None
+    return vid.strip() or None
+
+
+def _embed_anchor(src: str) -> lxml_html.HtmlElement | None:
+    """Build the click-through <a> for an embed src, or None to drop it."""
+    src = (src or "").strip()
+    if urlparse(src).scheme not in ("http", "https"):
+        return None
+    a = lxml_html.Element("a")
+    a.set("target", "_blank")
+    vid = _youtube_id(src)
+    if vid:
+        base = config.INVIDIOUS_URL or "https://www.youtube.com"
+        a.set("href", f"{base}/watch?v={vid}")
+        a.text = "▶ Watch on Invidious" if config.INVIDIOUS_URL else "▶ Watch on YouTube"
+    else:
+        a.set("href", src)
+        a.text = "↗ Open embedded content"
+    return a
+
+
+def _render_embeds(html: str) -> str:
+    """Replace every <iframe> with a click-through link (must run before nh3,
+    which strips iframes outright). Frames with a non-web src are dropped."""
+    if "<iframe" not in html.lower():
+        return html
+    try:
+        root = lxml_html.fromstring(f"<div>{html}</div>")
+    except Exception:
+        return html
+    for ifr in root.xpath("//iframe"):
+        parent = ifr.getparent()
+        if parent is None:
+            continue
+        anchor = _embed_anchor(ifr.get("src") or "")
+        if anchor is None:
+            parent.remove(ifr)
+        else:
+            anchor.tail = ifr.tail  # keep any text that followed the frame
+            parent.replace(ifr, anchor)
+    parts = [root.text or ""]
+    for child in root:
+        parts.append(lxml_html.tostring(child, encoding="unicode"))
+    return "".join(parts)
 
 
 def _inline_html(value) -> Markup:
@@ -65,12 +140,15 @@ def _inline_html(value) -> Markup:
 
 
 def _clean_body(value) -> Markup:
-    """Sanitise article-body HTML for rendering (replaces a raw `| safe`)."""
+    """Sanitise article-body HTML for rendering (replaces a raw `| safe`).
+
+    Embeds are turned into click-through links first (nh3 would otherwise strip the
+    <iframe> and leave nothing); rel=noopener is forced on every link for safety."""
     if not value:
         return Markup("")
     return Markup(nh3.clean(
-        str(value), tags=_BODY_TAGS, attributes=_BODY_ATTRS,
-        url_schemes=_URL_SCHEMES,
+        _render_embeds(str(value)), tags=_BODY_TAGS, attributes=_BODY_ATTRS,
+        url_schemes=_URL_SCHEMES, link_rel="noopener noreferrer",
     ))
 
 

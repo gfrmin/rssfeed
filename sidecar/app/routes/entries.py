@@ -654,12 +654,15 @@ async def _show_login_affordance(url: str | None) -> bool:
     return bool(await cookie_meta_for_domain(domain))
 
 
-def _snapshot_has_text(snapshot: dict | None) -> bool:
-    """True if a snapshot holds real article prose (not an empty SPA shell).
+def _snapshot_has_content(snapshot: dict | None) -> bool:
+    """True if a snapshot holds real article content — prose *or* media — rather
+    than an empty SPA shell.
 
     Early paywalled-SPA fetches (pre browser-render tier) stored a 0-char shell.
-    We don't hide those — the reader shows the (empty) full state with a toggle
-    to the original RSS body — but this flags them so it can be labelled.
+    We don't hide those — the reader shows the (empty) full state with a toggle to
+    the original RSS body — but this flags them so it can be labelled. A text-free
+    photo/comic/video post is NOT empty: its content is the img/embed, so media
+    counts (a YouTube embed renders as a click-through "Watch" link).
     """
     if not snapshot:
         return False
@@ -669,9 +672,14 @@ def _snapshot_has_text(snapshot: dict | None) -> bool:
     if not html:
         return False
     try:
-        return bool(lxml_html.fromstring(html).text_content().strip())
+        tree = lxml_html.fromstring(html)
     except Exception:
         return False
+    if tree.text_content().strip():
+        return True
+    return bool(tree.xpath(
+        "//img[@src] | //iframe[@src] | //video[@src] | //audio[@src] | //source[@src]"
+    ))
 
 
 def _content_block_ctx(entry_id: int, snapshot: dict | None, version_count: int,
@@ -690,7 +698,7 @@ def _content_block_ctx(entry_id: int, snapshot: dict | None, version_count: int,
         return {
             **base,
             "has_full": True,
-            "full_empty": not _snapshot_has_text(snapshot),
+            "full_empty": not _snapshot_has_content(snapshot),
             "version": snapshot.get("version"),
             "fetched": snapshot["fetched_at"].strftime("%Y-%m-%d %H:%M") if snapshot.get("fetched_at") else "unknown",
             "version_count": version_count,

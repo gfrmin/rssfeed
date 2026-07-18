@@ -76,3 +76,10 @@ EMBED_ENABLED = os.environ.get("EMBED_ENABLED", "1") not in ("0", "false", "")
 EMBED_BACKFILL_BATCH = int(os.environ.get("EMBED_BACKFILL_BATCH", "150"))
 EMBED_BACKFILL_MAX_AGE_DAYS = int(os.environ.get("EMBED_BACKFILL_MAX_AGE_DAYS", "730"))
 
+# Where to point YouTube "Watch" links in article bodies. Empty (the default, so no
+# private host lands in this public repo) sends them to youtube.com; set it to your
+# own Invidious instance — INVIDIOUS_URL=http://<host>:<port> in the systemd unit —
+# to route watch links there instead. Embeds render as click-through links, never
+# inline third-party frames.
+INVIDIOUS_URL = os.environ.get("INVIDIOUS_URL", "").rstrip("/")
+

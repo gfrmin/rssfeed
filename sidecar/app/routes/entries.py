@@ -13,6 +13,7 @@ from app import browser_login, db, embeddings, miniflux_client, ranker, ranker_c
 from app.config import EMBED_ENABLED
 from app.db import get_conn
 from app.extractor import fetch_and_extract
+from app.feed_health import classify
 from app.routes.cookies import (
     cookie_meta_for_domain,
     domain_from_url,
@@ -183,25 +184,6 @@ VIEW_TITLES = {
     "t:today": "Today", "t:24h": "Last 24 hours", "t:week": "This week",
 }
 
-_STALE_SECONDS = 24 * 3600
-
-
-def _feed_health_state(feed: dict, now: datetime) -> str:
-    """Collapse Miniflux feed state into a dot state: ok/stale/error/paused."""
-    if feed.get("disabled"):
-        return "paused"
-    if feed.get("parsing_error_message") or (feed.get("parsing_error_count") or 0) >= 1:
-        return "error"
-    checked = feed.get("checked_at", "")
-    if checked:
-        try:
-            dt = datetime.fromisoformat(checked.replace("Z", "+00:00"))
-            if (now - dt).total_seconds() > _STALE_SECONDS:
-                return "stale"
-        except Exception:
-            pass
-    return "ok"
-
 
 async def _snapshot_versions(conn, entry_ids: list[int]) -> dict[int, dict]:
     """Map entry_id -> {version, count} for entries that have full-text snapshots."""
@@ -312,7 +294,7 @@ async def _build_sidebar_data() -> dict:
         cfg = configs.get(f["id"], {})
         f["_priority"] = cfg.get("priority", 2)
         f["_proxy"] = bool(cfg.get("fetch_full_content"))
-        f["_health"] = _feed_health_state(f, now)
+        f["_health"] = classify(f, now).state
         f["_unread"] = unreads.get(str(f["id"]), 0)
 
     groups = [

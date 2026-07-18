@@ -15,6 +15,7 @@ from lxml import html as lxml_html
 from app import browser_login, credvault, egress, miniflux_client
 from app.config import BRIGHTDATA_PROXY
 from app.db import get_conn
+from app.feed_health import annotate
 from app.routes.cookies import (
     _parse_cookie_string,
     cookie_meta_for_domain,
@@ -147,64 +148,6 @@ async def feed_list(request: Request):
         len(feeds),
     )
     return response
-
-
-_STALE_SECONDS = 24 * 3600
-_PERSISTENT_ERROR_THRESHOLD = 3
-
-
-def _error_bucket(msg: str) -> str:
-    m = msg or ""
-    if not m:
-        return ""
-    if "not found" in m and "resource" in m:
-        return "http_404"
-    if "Unable to detect feed format" in m:
-        return "not_a_feed"
-    if "bot protection" in m or "forbidden" in m:
-        return "bot_blocked"
-    if "server error" in m:
-        return "server_5xx"
-    if "not authorized" in m or "bad username" in m:
-        return "auth"
-    if "TLS" in m or "tls:" in m:
-        return "tls"
-    if "unsupported" in m.lower():
-        return "unsupported_scheme"
-    if "dial tcp" in m and "lookup" in m:
-        return "dns_fail"
-    if "dial tcp" in m:
-        return "connect_fail"
-    return "other"
-
-
-def _annotate_health(feed: dict, now: datetime) -> None:
-    checked = feed.get("checked_at", "")
-    if checked:
-        try:
-            dt = datetime.fromisoformat(checked.replace("Z", "+00:00"))
-            feed["_checked_ago"] = (now - dt).total_seconds()
-        except Exception:
-            feed["_checked_ago"] = None
-    else:
-        feed["_checked_ago"] = None
-
-    feed["_error_count"] = feed.get("parsing_error_count", 0)
-    feed["_has_error"] = bool(feed.get("parsing_error_message"))
-    feed["_is_persistent"] = feed["_error_count"] >= _PERSISTENT_ERROR_THRESHOLD
-    feed["_is_stale"] = (
-        feed["_checked_ago"] is not None and feed["_checked_ago"] > _STALE_SECONDS
-    )
-    feed["_is_paused"] = bool(feed.get("disabled"))
-
-    if feed["_is_paused"]:
-        feed["_bucket"] = "paused"
-    elif feed["_has_error"]:
-        feed["_bucket"] = _error_bucket(feed.get("parsing_error_message", ""))
-    elif feed["_is_stale"]:
-        feed["_bucket"] = "stale"
-    else:
-        feed["_bucket"] = "ok"
 
 
 _DISCOVERY_TYPES = (
@@ -777,7 +720,7 @@ async def set_feed_url(request: Request, feed_id: int, feed_url: str = Form(...)
 @router.get("/feeds/{feed_id}", response_class=HTMLResponse)
 async def feed_settings(request: Request, feed_id: int):
     feed = await miniflux_client.get_feed(feed_id)
-    _annotate_health(feed, datetime.now(UTC))
+    annotate(feed, datetime.now(UTC))
     async with get_conn() as conn:
         cur = await conn.execute(
             "SELECT fetch_full_content, priority, extract_rules, "

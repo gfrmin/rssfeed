@@ -53,7 +53,7 @@
 <div id="discover-results" class="mb-5"></div>
 
 <details class="mb-4">
-  <summary class="cursor-pointer text-text-muted text-detail">OPML import/export</summary>
+  <summary class="cursor-pointer text-text-muted text-detail">OPML &amp; tools</summary>
   <div class="flex gap-2 mt-2">
     <a href="/opml/export" class="btn" download>Export OPML</a>
     <form hx-post="/opml/import" hx-encoding="multipart/form-data" hx-swap="afterend" class="inline">
@@ -63,13 +63,29 @@
                onchange="this.closest('form').requestSubmit()">
       </label>
     </form>
+    <form hx-post="/feeds/fix-author-titles" hx-swap="afterend" class="inline">
+      <button type="submit" class="btn" title="Rename /author/ feeds to 'Author | Publication'">Fix author feed titles</button>
+    </form>
   </div>
 </details>
 
+<div id="bulk-bar" class="mb-4 gap-2 items-center flex-wrap" style="display:none;">
+  <span id="bulk-count" class="text-detail text-text-muted"></span>
+  <button class="btn" hx-post="/feeds/bulk-refresh"      hx-include="#bulk-form" hx-target="#bulk-status" hx-swap="innerHTML">Refresh</button>
+  <button class="btn" hx-post="/feeds/pause-polling"     hx-include="#bulk-form" hx-target="#bulk-status" hx-swap="innerHTML">Pause</button>
+  <button class="btn" hx-post="/feeds/resume-polling"    hx-include="#bulk-form" hx-target="#bulk-status" hx-swap="innerHTML">Resume</button>
+  <button class="btn" hx-post="/feeds/set-proxy"         hx-include="#bulk-form" hx-target="#bulk-status" hx-swap="innerHTML">Proxy on</button>
+  <button class="btn" hx-post="/feeds/unset-proxy"       hx-include="#bulk-form" hx-target="#bulk-status" hx-swap="innerHTML">Proxy off</button>
+  <button class="btn" hx-post="/feeds/allow-self-signed" hx-include="#bulk-form" hx-target="#bulk-status" hx-swap="innerHTML">Allow self-signed</button>
+  <button class="btn" hx-post="/feeds/auto-discover"     hx-include="#bulk-form" hx-target="#discover-results" hx-swap="innerHTML">Probe URL repair</button>
+  <span id="bulk-status" class="text-detail"></span>
+</div>
+<form id="bulk-form">
 <div class="overflow-x-auto">
 <table class="w-full border-collapse">
   <thead>
     <tr>
+      <th class="th"><input type="checkbox" id="select-all" title="Select all visible"></th>
       <th class="th">Feed</th>
       <th class="th hidden sm:table-cell">Category</th>
       <th class="th hidden sm:table-cell whitespace-nowrap">Latest</th>
@@ -79,6 +95,7 @@
   <tbody>
     {% for feed in feeds %}
     <tr data-health="{{ feed._health }}" data-priority="{{ feed.priority }}" data-latest-age="{{ feed.latest_age_s }}">
+      <td class="td"><input type="checkbox" class="feed-check" name="feed_ids" value="{{ feed.id }}"></td>
       <td class="td break-words {% if feed.disabled %}opacity-60{% endif %}">
         {{ health_dot(feed._health) }}
         <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
@@ -103,6 +120,7 @@
   </tbody>
 </table>
 </div>
+</form>
 <p id="no-match" class="text-text-muted mt-4 hidden">No feeds match your filter.</p>
 
 <script>
@@ -153,6 +171,28 @@
       e.preventDefault();
       input.focus();
     }
+  });
+
+  const bar = document.getElementById('bulk-bar');
+  const bulkCount = document.getElementById('bulk-count');
+  const selectAll = document.getElementById('select-all');
+
+  function updateBar() {
+    const n = document.querySelectorAll('.feed-check:checked').length;
+    bar.style.display = n ? 'flex' : 'none';
+    bulkCount.textContent = n + ' selected';
+  }
+  tbody.addEventListener('change', function (e) {
+    if (e.target.classList.contains('feed-check')) updateBar();
+  });
+  selectAll.addEventListener('change', function () {
+    originalOrder.forEach(function (row) {
+      if (row.style.display !== 'none') {
+        const cb = row.querySelector('.feed-check');
+        if (cb) cb.checked = selectAll.checked;
+      }
+    });
+    updateBar();
   });
 })();
 </script>

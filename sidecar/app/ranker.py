@@ -128,3 +128,24 @@ def build_observation(entry: dict, signal: str, value: float,
         "value": value,
         "features": entry_features(entry, priority, now, embed_sim),
     }
+
+
+# Mutes are evidence about an author/tag, not about any particular article — see
+# build_mute_observation.
+_MUTE_SIGNALS = {"mute_author": "author", "mute_tag": "tag",
+                 "unmute_author": "author", "unmute_tag": "tag"}
+
+
+def is_mute_signal(signal: str) -> bool:
+    return signal in _MUTE_SIGNALS
+
+
+def build_mute_observation(signal: str, detail: str | None) -> dict | None:
+    """A mute/unmute is evidence about ONE dimension — the muted author/tag —
+    never about the article it happened to be clicked on. Returns None when the
+    detail is missing (nothing to attach the evidence to)."""
+    kind = _MUTE_SIGNALS.get(signal)
+    if not kind or not (detail or "").strip():
+        return None
+    return {"signal": signal, "value": 1.0,
+            "features": [[feature_key(kind, detail), 1.0]]}

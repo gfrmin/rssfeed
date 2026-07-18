@@ -117,6 +117,14 @@ CREATE TABLE IF NOT EXISTS ranker_taste (
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     CHECK (id = 1)
 );
+
+-- Mutes as ranker evidence: muting an author/tag on a feed also logs a negative
+-- engagement event so the cross-feed ranker learns the aversion (it previously
+-- only hard-hid/sank muted items without learning). These rows describe a
+-- config action, not an article: entry_id is optional provenance and `detail`
+-- carries the muted author/tag string the observation is built from.
+ALTER TABLE engagement_events ALTER COLUMN entry_id DROP NOT NULL;
+ALTER TABLE engagement_events ADD COLUMN IF NOT EXISTS detail TEXT;
 """
 
 # Vector storage, kept OUT of SCHEMA_SQL so a plain postgres:17 deployment still boots.

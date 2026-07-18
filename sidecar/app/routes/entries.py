@@ -10,7 +10,7 @@ from lxml import html as lxml_html
 from psycopg.types.json import Jsonb
 
 from app import browser_login, db, embeddings, lenses, miniflux_client, ranker, ranker_client
-from app.config import EMBED_ENABLED
+from app.config import EMBED_ENABLED, MUTE_SIGNALS_ENABLED
 from app.db import get_conn
 from app.extractor import fetch_and_extract
 from app.feed_health import classify
@@ -133,15 +133,17 @@ async def _upsert_feed_config(conn, feed_id: int, col: str, val) -> None:
 
 # Quality-of-attention signals for the learning ranker (Part B). Deliberately
 # excludes plain reads — see the engagement_events table comment.
-async def _log_engagement(entry_id: int, signal: str, value: float = 1.0,
-                          feed_id: int | None = None) -> None:
-    """Best-effort insert of an engagement event. Never raises into the request."""
+async def _log_engagement(entry_id: int | None, signal: str, value: float = 1.0,
+                          feed_id: int | None = None, detail: str | None = None) -> None:
+    """Best-effort insert of an engagement event. Never raises into the request.
+    entry_id is optional: mute/unmute events describe a feed-level config action,
+    not an article, and carry the muted author/tag in `detail` instead."""
     try:
         async with get_conn() as conn:
             await conn.execute(
-                "INSERT INTO engagement_events (entry_id, feed_id, signal, value) "
-                "VALUES (%s, %s, %s, %s)",
-                (entry_id, feed_id, signal, value),
+                "INSERT INTO engagement_events (entry_id, feed_id, signal, value, detail) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (entry_id, feed_id, signal, value, detail),
             )
             await conn.commit()
     except Exception:
@@ -517,7 +519,8 @@ async def toggle_show_read(request: Request, feed_id: int):
 
 @router.post("/feeds/{feed_id}/mute", response_class=HTMLResponse)
 async def add_mute(request: Request, feed_id: int,
-                   kind: str = Form(...), value: str = Form(...)):
+                   kind: str = Form(...), value: str = Form(...),
+                   entry_id: int | None = Form(None)):
     """Hide an author or tag on this feed (and down-rank it cross-feed)."""
     if kind not in ("author", "tag"):
         return JSONResponse({"ok": False, "error": "bad kind"}, status_code=400)
@@ -531,6 +534,10 @@ async def add_mute(request: Request, feed_id: int,
         await _upsert_feed_config(conn, feed_id, col, Jsonb(cur_list))
         await conn.commit()
     _invalidate_sidebar_cache()
+    if MUTE_SIGNALS_ENABLED and value:
+        # entry_id is provenance only (which article the mute was clicked from) —
+        # the observation itself is about the author/tag, never that article.
+        await _log_engagement(entry_id, f"mute_{kind}", 1.0, feed_id, detail=value)
     return await _render_after_pref_change(request, feed_id)
 
 
@@ -547,6 +554,8 @@ async def remove_mute(request: Request, feed_id: int,
         await _upsert_feed_config(conn, feed_id, col, Jsonb(cur_list))
         await conn.commit()
     _invalidate_sidebar_cache()
+    if MUTE_SIGNALS_ENABLED and value:
+        await _log_engagement(None, f"unmute_{kind}", 1.0, feed_id, detail=value)
     return await _render_after_pref_change(request, feed_id)
 
 

@@ -3,7 +3,8 @@
 `inline_html` (titles) and `clean_body` (article bodies) must preserve benign
 formatting while stripping every XSS vector. These tests lock in that contract.
 """
-from app.templating import _clean_body, _inline_html
+from app import config
+from app.templating import _clean_body, _inline_html, _youtube_id
 
 # --- inline_html (titles) ---------------------------------------------------
 
@@ -57,3 +58,46 @@ def test_clean_body_keeps_good_links_and_media():
     assert 'href="https://ok.com"' in str(_clean_body('<a href="https://ok.com">ok</a>'))
     out = str(_clean_body('<audio controls><source src="https://x/a.mp3" type="audio/mp3"></audio>'))
     assert "https://x/a.mp3" in out
+
+
+# --- embeds: <iframe> becomes a click-through link (never an inline frame) ---
+
+def test_youtube_id_forms():
+    assert _youtube_id("https://www.youtube.com/embed/ABC123?rel=0") == "ABC123"
+    assert _youtube_id("https://youtu.be/ABC123") == "ABC123"
+    assert _youtube_id("https://www.youtube.com/watch?v=ABC123&t=5") == "ABC123"
+    assert _youtube_id("https://www.youtube-nocookie.com/embed/ABC123") == "ABC123"
+    assert _youtube_id("https://www.scribd.com/embeds/1") is None
+    assert _youtube_id("https://example.com/x") is None
+
+
+def test_clean_body_youtube_embed_defaults_to_youtube_link():
+    out = str(_clean_body('<p><iframe src="https://www.youtube.com/embed/ABC123?rel=0"></iframe></p>'))
+    assert "iframe" not in out.lower()                       # no inline frame
+    assert 'href="https://www.youtube.com/watch?v=ABC123"' in out
+    assert "/embed/" not in out                               # frame src not leaked
+
+
+def test_clean_body_youtube_embed_routes_to_invidious(monkeypatch):
+    monkeypatch.setattr(config, "INVIDIOUS_URL", "http://invidious.example")
+    out = str(_clean_body('<iframe src="https://youtu.be/ABC123"></iframe>'))
+    assert 'href="http://invidious.example/watch?v=ABC123"' in out
+    assert "Invidious" in out
+
+
+def test_clean_body_non_youtube_iframe_becomes_open_link():
+    out = str(_clean_body('<iframe src="https://www.scribd.com/embeds/42/content"></iframe>'))
+    assert "iframe" not in out.lower()
+    assert 'href="https://www.scribd.com/embeds/42/content"' in out
+
+
+def test_clean_body_embed_link_opens_new_tab_safely():
+    out = str(_clean_body('<iframe src="https://www.youtube.com/embed/ABC123"></iframe>'))
+    assert 'target="_blank"' in out
+    assert "noopener" in out                                 # link_rel forces rel=noopener
+
+
+def test_clean_body_srcless_iframe_is_dropped():
+    out = str(_clean_body("<p>text</p><iframe></iframe>"))
+    assert "iframe" not in out.lower()
+    assert "<p>text</p>" in out

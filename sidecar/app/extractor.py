@@ -11,7 +11,7 @@ import httpx
 from lxml import html as lxml_html
 from trafilatura import extract
 
-from app import browser_login
+from app import browser_login, egress
 from app.config import (
     BRIGHTDATA_PROXY,
     BRIGHTDATA_UNLOCKER_PROXY,
@@ -113,17 +113,28 @@ async def _get_via(
     if cookies:
         kwargs["cookies"] = cookies
     if proxy:
+        # DNS + connect happen at the remote proxy, so IP-range checks here
+        # would be meaningless — scheme/host sanity is the applicable policy.
+        egress.check_scheme_host(url)
         kwargs["proxy"] = proxy
-    async with httpx.AsyncClient(**kwargs) as client:
-        r = await client.get(url)
-        r.raise_for_status()
-        return r.text
+        async with httpx.AsyncClient(**kwargs) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            return r.text
+    r = await egress.guarded_get(kwargs, url)
+    return r.text
 
 
 async def _fetch_html(
     url: str, cookies: dict[str, str] | None = None,
 ) -> tuple[str | None, str | None]:
     """Return (html, source_tier) trying progressively heavier fetch methods."""
+    try:
+        egress.check_scheme_host(url)
+    except egress.EgressBlockedError as exc:
+        logger.warning("egress blocked %s: %s", url, exc)
+        return None, None
+
     # 1. Direct (free)
     try:
         return await _get_via(_HTTP_KWARGS, url, proxy=None, cookies=cookies), "direct"
@@ -158,21 +169,29 @@ async def _fetch_html(
 async def fetch_proxied_image(url: str) -> tuple[bytes, str] | None:
     """Fetch an image, returning (bytes, content_type) or None.
 
+    Raises EgressBlockedError when the URL fails the egress policy — the
+    /proxy/image route turns that into a 403 rather than a soft 404.
+
     Images only try direct + static proxy — never the web_unlocker (per-request
     billing makes it prohibitive for the dozens of images per article).
     """
+    egress.check_scheme_host(url)
+
     async def _get(client_kwargs: dict, proxy: str | None) -> tuple[bytes, str] | None:
-        kwargs = {**client_kwargs}
         if proxy:
-            kwargs["proxy"] = proxy
-        async with httpx.AsyncClient(**kwargs) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            ct = r.headers.get("content-type", "image/jpeg")
-            return r.content, ct
+            kwargs = {**client_kwargs, "proxy": proxy}
+            async with httpx.AsyncClient(**kwargs) as client:
+                r = await client.get(url)
+                r.raise_for_status()
+        else:
+            r = await egress.guarded_get(client_kwargs, url)
+        ct = r.headers.get("content-type", "image/jpeg")
+        return r.content, ct
 
     try:
         return await _get(_HTTP_KWARGS, proxy=None)
+    except egress.EgressBlockedError:
+        raise  # blocked is blocked — don't hand the URL to the proxy either
     except Exception:
         pass
     if BRIGHTDATA_PROXY:

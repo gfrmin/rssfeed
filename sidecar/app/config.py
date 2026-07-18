@@ -37,6 +37,13 @@ LOGIN_RECIPES_FILE = os.environ.get(
 FETCH_MIN_INTERVAL_S = float(os.environ.get("FETCH_MIN_INTERVAL_S", "2"))
 RENDER_MIN_INTERVAL_S = float(os.environ.get("RENDER_MIN_INTERVAL_S", "8"))
 
+# SSRF egress guard for server-side fetches (/proxy/image, article extraction,
+# feed discovery). Direct fetches resolve the target and refuse loopback/private/
+# link-local/reserved answers, re-checking every redirect hop; proxy-routed
+# fetches (connect happens at the remote proxy) get scheme/host sanity only.
+# Set 0 to disable — local debugging only.
+EGRESS_GUARD = os.environ.get("EGRESS_GUARD", "1") not in ("0", "false", "")
+
 # Don't auto-backfill a feed's whole archive when full-content is first enabled:
 # the worker only fetches never-seen entries published within this window. Older
 # unfetched entries are left for on-demand "Fetch full text". 0 = no limit.

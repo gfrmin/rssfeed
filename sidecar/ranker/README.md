@@ -23,7 +23,7 @@ arithmetic — every update/score goes through `call_dsl` into the pure model
 positional indices, and maps each engagement signal to a signed evidence scalar.
 
 ```
-engagement_events ──(worker)──▶ ranker_client.observe ──call_dsl observe-batch──▶ skin
+engagement_events ──(worker)──▶ ranker_client.observe ──call_dsl observe──▶ skin
         feed_config priorities                                   │
 ranker_state.weights ◀── persist (atomic w/ high-water mark) ◀───┘
 entry_list (cross-feed) ── ranker_client.score ──call_dsl score-batch──▶ skin ──▶ order
@@ -31,7 +31,7 @@ entry_list (cross-feed) ── ranker_client.score ──call_dsl score-batch─
 
 - `app/ranker.py` — feature extraction (entries → `[name, value]` vectors; events → observations).
 - `app/ranker_client.py` — the warm `SkinClient`, the weight store, `score`/`observe`/`sync_observations`, fail-open.
-- `model.bdsl` — the pure model (`observe-batch`, `score-batch`).
+- `model.bdsl` — the pure model (`observe`, `score-batch`, `contributions`).
 
 ## Runtime
 

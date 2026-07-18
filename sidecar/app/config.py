@@ -94,6 +94,13 @@ EMBED_ENABLED = os.environ.get("EMBED_ENABLED", "1") not in ("0", "false", "")
 EMBED_BACKFILL_BATCH = int(os.environ.get("EMBED_BACKFILL_BATCH", "150"))
 EMBED_BACKFILL_MAX_AGE_DAYS = int(os.environ.get("EMBED_BACKFILL_MAX_AGE_DAYS", "730"))
 
+# Deep candidate pool: union the newest-200 unread with the top unread articles by
+# embedding-cosine to the taste centroid, so Smart/Deep-dive can resurface an old
+# high-affinity item that fell off the newest-200 window. Needs pgvector + Ollama;
+# degrades to newest-only silently when either is off.
+DEEP_POOL_ENABLED = os.environ.get("DEEP_POOL_ENABLED", "1") not in ("0", "false", "")
+DEEP_POOL_LIMIT = int(os.environ.get("DEEP_POOL_LIMIT", "100"))
+
 # Where to point YouTube "Watch" links in article bodies. Empty (the default, so no
 # private host lands in this public repo) sends them to youtube.com; set it to your
 # own Invidious instance — INVIDIOUS_URL=http://<host>:<port> in the systemd unit —

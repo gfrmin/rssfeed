@@ -149,6 +149,34 @@ async def embed_sims(conn, entry_ids: list[int]) -> dict[int, float]:
     return {eid: max(0.0, cosine(vec, centroid)) for eid, vec in embs.items()}
 
 
+async def taste_candidates(conn, exclude_ids: list[int], limit: int = 100) -> list[int]:
+    """Unread entry ids closest to the taste centroid — the 'deep' half of the
+    smart candidate pool (WP5). Joins Miniflux's own entries table for the unread
+    filter (nearest-to-taste in the archive is mostly already-read, so filtering
+    over REST would starve). Fails open to [] on any error, including the join
+    target not existing on a non-Miniflux database."""
+    centroid = await _centroid(conn)
+    if not centroid:
+        return []
+    try:
+        cur = await conn.execute(
+            """
+            SELECT ee.entry_id
+              FROM entry_embeddings ee
+              JOIN entries e ON e.id = ee.entry_id
+             WHERE e.status = 'unread' AND ee.emb IS NOT NULL
+               AND NOT (ee.entry_id = ANY(%s))
+             ORDER BY ee.emb <=> %s::vector
+             LIMIT %s
+            """,
+            (list(exclude_ids), _vec_literal(centroid), limit),
+        )
+        return [r["entry_id"] for r in await cur.fetchall()]
+    except Exception as exc:
+        logger.debug("taste_candidates failed open: %s", exc)
+        return []
+
+
 # ---- related articles ----
 
 # Calibrated against the real corpus rather than guessed: nomic-embed-text cosines are

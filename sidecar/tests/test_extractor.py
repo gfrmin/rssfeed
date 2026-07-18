@@ -4,7 +4,17 @@ Regression: a paywalled / JS-app page whose body is only empty React mount point
 must be treated as a *failed* extraction — returning None — not stored as a blank
 snapshot that wipes the visible RSS content.
 """
-from app.extractor import _extract, _has_media
+import lxml.html as L
+
+from app.extractor import (
+    NormalizedCandidate,
+    _clean_html,
+    _extract,
+    _has_media,
+    _normalize,
+    _score,
+    _strip_boilerplate,
+)
 
 # The shape a paywalled SPA serves before its JS runs: page scaffolding present,
 # carrying zero article text.
@@ -107,3 +117,145 @@ def test_has_media_requires_a_src():
     assert _has_media("<div><p>text</p></div>") is False
     assert _has_media("") is False
     assert _has_media(None) is False
+
+
+# --- pipeline internals: the pieces the scored-candidate design is built from ---
+# These are the fast, deterministic core (synthetic HTML, no network, no corpus
+# blobs). The real-world corpus in test_extraction_corpus.py is the backstop.
+
+# _normalize -----------------------------------------------------------------
+
+def test_normalize_resolves_relative_anchor():
+    base = "https://example.com/section/index.html"
+    nc = _normalize('<p>see <a href="/story/x">this</a></p>', base, "t", 1, proxy_images=False)  # PII-OK: synthetic
+    assert nc.anchors == 1
+    assert 'href="https://example.com/story/x"' in nc.html
+
+
+def test_normalize_drops_bad_scheme_href_but_keeps_text():
+    nc = _normalize('<p><a href="javascript:evil()">click</a></p>', "https://example.com/", "t", 1, proxy_images=False)
+    assert nc.anchors == 0
+    assert "click" in nc.text
+    assert "javascript:" not in nc.html
+
+
+def test_normalize_unwraps_disallowed_tag_keeping_text():
+    nc = _normalize("<p><marquee>hello</marquee> world</p>", "https://example.com/", "t", 1, proxy_images=False)
+    assert "hello world" in nc.text
+    assert "<marquee" not in nc.html
+
+
+# _strip_boilerplate ---------------------------------------------------------
+
+def test_strip_boilerplate_removes_ad_div():
+    tree = L.fromstring(
+        '<div><p id="div-gpt-ad-1">advert</p>'
+        "<p>The genuine article body text that is the real content here.</p></div>"
+    )
+    hits = _strip_boilerplate(tree)
+    assert hits == 1
+    assert not tree.xpath('//*[@id="div-gpt-ad-1"]')
+    assert "genuine article body" in tree.text_content()
+
+
+def test_strip_boilerplate_guard_never_empties_body():
+    # The whole body wears a widget-ish class — the guard must NOT nuke it.
+    tree = L.fromstring('<body><div class="related">'
+                        "<p>the entire article body lives here and only here</p></div></body>")
+    _strip_boilerplate(tree)
+    assert "entire article body" in tree.text_content()
+
+
+def test_clean_html_strips_custom_widget_and_tracking_noscript():
+    raw = (
+        "<html><body><article><p>Body text of the actual story goes here.</p>"
+        "<widget-qotd><p>Quote of the day filler that is not article content</p></widget-qotd>"
+        '<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-X"></iframe></noscript>'
+        "</article></body></html>"
+    )
+    cleaned = _clean_html(raw, {})
+    assert "Quote of the day" not in cleaned
+    assert "googletagmanager" not in cleaned
+    assert "Body text of the actual story" in cleaned
+
+
+# _score ---------------------------------------------------------------------
+
+def test_score_prefers_link_retaining_candidate():
+    ref = "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu. " * 3
+    linky = NormalizedCandidate("trafilatura_html", 2, "<p>x</p>", anchors=3, media=0, text=ref)
+    linkless = NormalizedCandidate("readability", 1, "<p>x</p>", anchors=0, media=0, text=ref)
+    kw = dict(reference_text=ref, dom_anchors=3, dom_media=0, max_anchors=3, max_media=0)
+    assert _score(linky, **kw) > _score(linkless, **kw)
+
+
+# end-to-end pipeline behaviours ---------------------------------------------
+
+INLINE_LINK_ARTICLE = (
+    "<html><body><article><h1>T</h1>"
+    '<p>The full report is available <a href="https://example.org/report">here</a>, and a good '
+    "deal more context follows in this deliberately long paragraph so the extractor treats it as a "
+    "genuine article body rather than a stray navigation fragment from the page chrome.</p>"
+    "</article></body></html>"
+)
+
+
+def test_inline_link_survives_extraction():
+    """The headline fix: inline anchors must reach content_html (the old trafilatura
+    fallback stripped them by omitting include_links)."""
+    r = _extract(INLINE_LINK_ARTICLE, "https://example.org/a", {}, proxy_images=False)
+    assert r is not None
+    assert 'href="https://example.org/report"' in r["content_html"]
+
+
+VIDEO_ONLY_POST = (
+    "<html><body><article><p>"
+    '<iframe src="https://www.youtube.com/embed/ABC123"></iframe></p></article></body></html>'
+)
+
+
+def test_video_embed_is_reinjected():
+    """A text-free video post: the libraries drop the iframe, so re-injection must
+    carry it through — otherwise the article renders empty."""
+    r = _extract(VIDEO_ONLY_POST, "https://example.com/v", {}, proxy_images=False)
+    assert r is not None
+    assert "youtube.com/embed/ABC123" in r["content_html"]
+
+
+def test_tracking_iframe_is_not_kept_as_media():
+    html = (
+        "<html><body><article><p>A short but genuine article body sentence for length here.</p>"
+        '<iframe src="https://www.googletagmanager.com/ns.html?id=GTM-X"></iframe>'
+        "</article></body></html>"
+    )
+    r = _extract(html, "https://example.com/a", {}, proxy_images=False)
+    assert r is not None
+    assert "googletagmanager" not in r["content_html"]
+
+
+def test_share_wrapped_embed_survives_boilerplate_strip():
+    """An article's own video wrapped in a share-classed container must not be
+    stripped as furniture — the media guard protects a 'soft' wrapper that holds
+    all the page's media even when the page also has text (a caption)."""
+    html = (
+        "<html><body><article><p>Watch the clip below.</p>"
+        '<div class="video-share"><iframe src="https://www.youtube.com/embed/XYZ"></iframe></div>'
+        "</article></body></html>"
+    )
+    r = _extract(html, "https://example.com/v", {}, proxy_images=False)
+    assert r is not None
+    assert "youtube.com/embed/XYZ" in r["content_html"]
+
+
+def test_related_video_block_is_still_stripped():
+    """A 'hard' furniture block (related recirculation) is removed even when it
+    carries the page's only media — a related-video widget is not the article."""
+    html = (
+        "<html><body><article>"
+        "<p>A genuine article body sentence that runs on for a reasonable length here.</p>"
+        '<div class="related-videos"><iframe src="https://www.youtube.com/embed/REL"></iframe></div>'
+        "</article></body></html>"
+    )
+    r = _extract(html, "https://example.com/a", {}, proxy_images=False)
+    assert r is not None
+    assert "youtube.com/embed/REL" not in r["content_html"]

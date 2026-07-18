@@ -1,6 +1,8 @@
 """Unit tests for ranker feature extraction + observation building (Part C)."""
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from app import ranker
 
 NOW = datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC)
@@ -100,3 +102,9 @@ def test_build_articles_payload():
     arts = ranker.build_articles(es, {3: 1}, NOW)
     assert arts[0]["entry_id"] == 1
     assert ["feed:3", 1.0] in arts[0]["features"]
+
+
+def test_recency_public_alias_custom_halflife():
+    six_hours_old = NOW - timedelta(hours=6)
+    assert ranker.recency(six_hours_old.isoformat(), NOW, half_life_hours=6.0) == \
+        pytest.approx(0.5, abs=0.01)

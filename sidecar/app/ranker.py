@@ -35,7 +35,8 @@ def _tag_names(entry: dict) -> list[str]:
     return out
 
 
-def _recency(published_at, now: datetime) -> float:
+def _recency(published_at, now: datetime,
+            half_life_hours: float = RECENCY_HALFLIFE_HOURS) -> float:
     if not published_at:
         return 0.0
     try:
@@ -46,7 +47,16 @@ def _recency(published_at, now: datetime) -> float:
     except Exception:
         return 0.0
     age_h = max(0.0, (now - dt).total_seconds() / 3600.0)
-    return 0.5 ** (age_h / RECENCY_HALFLIFE_HOURS)
+    return 0.5 ** (age_h / half_life_hours)
+
+
+def recency(published_at, now: datetime,
+           half_life_hours: float = RECENCY_HALFLIFE_HOURS) -> float:
+    """Public alias — the lenses blend on recency at other half-lives."""
+    return _recency(published_at, now, half_life_hours)
+
+
+PRIORITY_SCALAR = _PRIORITY_SCALAR
 
 
 def entry_features(entry: dict, priority: int, now: datetime,

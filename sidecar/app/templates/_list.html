@@ -33,10 +33,14 @@
   {% if smart_eligible and not feed_id %}
   <div class="list-filters">
     <span class="lf-seg">
-      <button class="lf-seg-btn {{ 'on' if order != 'new' else '' }}" type="button" title="Order by learned preference"
-              hx-get="/entries?view={{ view or 'unread' }}&order=smart" hx-target="#list-col" hx-push-url="true">Smart</button>
-      <button class="lf-seg-btn {{ 'on' if order == 'new' else '' }}" type="button" title="Plain reverse-chronological"
-              hx-get="/entries?view={{ view or 'unread' }}&order=new" hx-target="#list-col" hx-push-url="true">Newest</button>
+      {% for lkey, llabel, ltip in [
+          ("smart", "Smart", "Order by learned preference"),
+          ("new", "Newest", "Plain reverse-chronological"),
+          ("catchup", "Catch up", "Freshest first, lightly personalised"),
+          ("dive", "Deep dive", "Closest to your taste, whatever the age")] %}
+      <button class="lf-seg-btn {{ 'on' if order == lkey else '' }}" type="button" title="{{ ltip }}"
+              hx-get="/entries?view={{ view or 'unread' }}&order={{ lkey }}" hx-target="#list-col" hx-push-url="true">{{ llabel }}</button>
+      {% endfor %}
     </span>
     {% if order != 'new' %}
     {% set sig = ranker_signals or 0 %}

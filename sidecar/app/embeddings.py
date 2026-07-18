@@ -10,6 +10,7 @@ embedding yet, embed_sim is simply absent and the structured ranker is unaffecte
 import json
 import logging
 import math
+import random
 import re
 from datetime import UTC, datetime, timedelta
 
@@ -33,6 +34,15 @@ _WS_RE = re.compile(r"\s+")
 _TIMEOUT = httpx.Timeout(20.0, connect=2.0)
 _POSITIVE = ("star", "thumb_up", "open_original", "dwell")
 _MAX_CHARS = 1800
+
+# Multi-centroid taste (WP6): k-means over positively-engaged embeddings, so
+# "similar to your taste" can mean any of several distinct interests rather than
+# one blurred average. Pure Python — no numpy/scikit dependency for one small
+# k-means; _KMEANS_SAMPLE keeps the input bounded so a worker-cycle run stays ~1s.
+_KMEANS_K = 4
+_KMEANS_MIN = 12       # < 3 per cluster → stay single-centroid
+_KMEANS_ITERS = 12
+_KMEANS_SAMPLE = 400   # newest positives only; pure-Python k-means stays ~1s
 
 
 def _text_of(entry: dict) -> str:
@@ -79,6 +89,43 @@ def cosine(a: list[float], b: list[float]) -> float:
     if na == 0.0 or nb == 0.0:
         return 0.0
     return dot / (na * nb)
+
+
+def _mean_vec(vecs: list[list[float]]) -> list[float]:
+    n = len(vecs)
+    return [sum(col) / n for col in zip(*vecs, strict=True)]
+
+
+def _kmeans(vecs: list[list[float]], k: int,
+            iters: int = _KMEANS_ITERS, seed: int = 0) -> list[list[float]]:
+    """Plain Lloyd k-means, deterministic (seeded init), pure Python. Small-n by
+    construction (_KMEANS_SAMPLE); an empty cluster is reseeded with the point
+    farthest from its assigned center so k centroids always come back.
+
+    Assignment is by cosine (not Euclidean distance) to match the cosine scoring
+    geometry — nomic vectors are near-unit-norm, so this is effectively spherical
+    k-means.
+    """
+    if k <= 1 or len(vecs) <= k:
+        return [_mean_vec(vecs)] if vecs else []
+    rng = random.Random(seed)
+    centers = [list(v) for v in rng.sample(vecs, k)]
+    for _ in range(iters):
+        assign = [max(range(k), key=lambda c, v=v: cosine(v, centers[c]))
+                  for v in vecs]
+        new_centers = []
+        for c in range(k):
+            members = [v for v, a in zip(vecs, assign, strict=True) if a == c]
+            if members:
+                new_centers.append(_mean_vec(members))
+            else:   # empty cluster: reseed with the worst-fitting point
+                worst = min(range(len(vecs)),
+                            key=lambda i: cosine(vecs[i], centers[assign[i]]))
+                new_centers.append(list(vecs[worst]))
+        if new_centers == centers:
+            break
+        centers = new_centers
+    return centers
 
 
 # ---- storage ----
@@ -139,39 +186,70 @@ async def _centroid(conn) -> list | None:
     return (row or {}).get("centroid")
 
 
+async def _centroids(conn) -> list[list[float]]:
+    """Taste centroids, plural (WP6). Falls back to the legacy single centroid so
+    a half-migrated row (or a rollback) keeps working."""
+    cur = await conn.execute(
+        "SELECT centroid, centroids FROM ranker_taste WHERE id = 1")
+    row = await cur.fetchone()
+    if not row:
+        return []
+    if row.get("centroids"):
+        return row["centroids"]
+    return [row["centroid"]] if row.get("centroid") else []
+
+
 async def embed_sims(conn, entry_ids: list[int]) -> dict[int, float]:
-    """embed_sim (cosine to the taste centroid, clamped to [0,1]) for each given
-    entry that has an embedding. Empty if there's no centroid yet."""
-    centroid = await _centroid(conn)
-    if not centroid:
+    """embed_sim (max cosine over the taste centroids, clamped to [0,1]) for each
+    given entry that has an embedding. Empty if there are no centroids yet.
+
+    Max, not mean: k-means labels are unstable across recomputes (label
+    switching), so a stable per-centroid feature would attach to shifting
+    semantics. Max-sim keeps one stable meaning — "close to *some* taste
+    cluster" — and needs no ranker weight migration.
+    """
+    cents = await _centroids(conn)
+    if not cents:
         return {}
     embs = await _stored(conn, entry_ids)
-    return {eid: max(0.0, cosine(vec, centroid)) for eid, vec in embs.items()}
+    return {eid: max(0.0, max(cosine(vec, c) for c in cents))
+            for eid, vec in embs.items()}
 
 
 async def taste_candidates(conn, exclude_ids: list[int], limit: int = 100) -> list[int]:
-    """Unread entry ids closest to the taste centroid — the 'deep' half of the
-    smart candidate pool (WP5). Joins Miniflux's own entries table for the unread
-    filter (nearest-to-taste in the archive is mostly already-read, so filtering
-    over REST would starve). Fails open to [] on any error, including the join
-    target not existing on a non-Miniflux database."""
-    centroid = await _centroid(conn)
-    if not centroid:
+    """Unread entry ids closest to any taste centroid — the 'deep' half of the
+    smart candidate pool (WP5/WP6). Queries per centroid and merges preserving
+    each centroid's best-rank order, so a niche cluster still surfaces its own
+    nearest items rather than being drowned out by a dominant one. Joins
+    Miniflux's own entries table for the unread filter (nearest-to-taste in the
+    archive is mostly already-read, so filtering over REST would starve). Fails
+    open to [] on any error, including the join target not existing on a
+    non-Miniflux database."""
+    cents = await _centroids(conn)
+    if not cents:
         return []
     try:
-        cur = await conn.execute(
-            """
-            SELECT ee.entry_id
-              FROM entry_embeddings ee
-              JOIN entries e ON e.id = ee.entry_id
-             WHERE e.status = 'unread' AND ee.emb IS NOT NULL
-               AND NOT (ee.entry_id = ANY(%s))
-             ORDER BY ee.emb <=> %s::vector
-             LIMIT %s
-            """,
-            (list(exclude_ids), _vec_literal(centroid), limit),
-        )
-        return [r["entry_id"] for r in await cur.fetchall()]
+        per = max(10, limit // len(cents))
+        out: list[int] = []
+        seen: set[int] = set(exclude_ids)
+        for c in cents:
+            cur = await conn.execute(
+                """
+                SELECT ee.entry_id
+                  FROM entry_embeddings ee
+                  JOIN entries e ON e.id = ee.entry_id
+                 WHERE e.status = 'unread' AND ee.emb IS NOT NULL
+                   AND NOT (ee.entry_id = ANY(%s))
+                 ORDER BY ee.emb <=> %s::vector
+                 LIMIT %s
+                """,
+                (list(seen), _vec_literal(c), per),
+            )
+            for r in await cur.fetchall():
+                if r["entry_id"] not in seen:
+                    seen.add(r["entry_id"])
+                    out.append(r["entry_id"])
+        return out[:limit]
     except Exception as exc:
         logger.debug("taste_candidates failed open: %s", exc)
         return []
@@ -468,15 +546,31 @@ def _backfill_floor() -> int | None:
 
 
 async def recompute_centroid() -> int:
-    """Rebuild the taste centroid from the embeddings of positively-engaged
-    articles. Returns the number of vectors averaged.
+    """Rebuild the taste centroid(s) from the embeddings of positively-engaged
+    articles. Returns the number of vectors averaged (0 when skipped/empty).
 
     Membership stays limited to _POSITIVE signals: the centroid is what "your taste"
-    means, so a plain read shouldn't drag it around.
+    means, so a plain read shouldn't drag it around. Also clusters those same
+    embeddings into up to _KMEANS_K taste centroids (WP6) alongside the legacy
+    single mean, which stays written every recompute so a rollback keeps working.
     """
     if not (EMBED_ENABLED and db.VECTOR_READY):
         return 0
     async with get_conn() as conn:
+        # Throttle: only re-cluster when a new positive engagement arrived —
+        # the pure-Python k-means is cheap but not free, and unread views don't
+        # need it recomputed if nothing has changed.
+        cur = await conn.execute(
+            "SELECT COALESCE(MAX(id), 0) AS m FROM engagement_events "
+            "WHERE signal = ANY(%s)", (list(_POSITIVE),),
+        )
+        max_ev = (await cur.fetchone())["m"]
+        cur = await conn.execute(
+            "SELECT last_event_id, centroids FROM ranker_taste WHERE id = 1")
+        throttle_row = await cur.fetchone()
+        if throttle_row and throttle_row["last_event_id"] == max_ev and throttle_row["centroids"]:
+            return 0
+
         # pgvector has a native vector avg(), so the mean is one aggregate rather
         # than pulling every 768-float vector into Python to average by hand.
         cur = await conn.execute(
@@ -489,11 +583,26 @@ async def recompute_centroid() -> int:
         if not row or not row["n"] or not row["centroid"]:
             return 0
         centroid, n_vecs = json.loads(row["centroid"]), row["n"]
+
+        # The vectors to cluster, newest engagements first (bounded sample).
+        cur = await conn.execute(
+            "SELECT emb::text AS emb FROM entry_embeddings "
+            "WHERE emb IS NOT NULL AND entry_id IN (SELECT DISTINCT entry_id "
+            "FROM engagement_events WHERE signal = ANY(%s)) "
+            "ORDER BY entry_id DESC LIMIT %s",
+            (list(_POSITIVE), _KMEANS_SAMPLE),
+        )
+        vecs = [json.loads(r["emb"]) for r in await cur.fetchall()]
+        cents = (_kmeans(vecs, _KMEANS_K) if len(vecs) >= _KMEANS_MIN
+                 else ([_mean_vec(vecs)] if vecs else []))
+
         await conn.execute(
-            "INSERT INTO ranker_taste (id, centroid, n, updated_at) VALUES (1, %s, %s, NOW()) "
+            "INSERT INTO ranker_taste (id, centroid, centroids, n, last_event_id, updated_at) "
+            "VALUES (1, %s, %s, %s, %s, NOW()) "
             "ON CONFLICT (id) DO UPDATE SET centroid = EXCLUDED.centroid, "
-            "n = EXCLUDED.n, updated_at = NOW()",
-            (Jsonb(centroid), n_vecs),
+            "centroids = EXCLUDED.centroids, n = EXCLUDED.n, "
+            "last_event_id = EXCLUDED.last_event_id, updated_at = NOW()",
+            (Jsonb(centroid), Jsonb(cents), n_vecs, max_ev),
         )
         await conn.commit()
     return n_vecs

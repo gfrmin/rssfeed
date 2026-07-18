@@ -125,6 +125,13 @@ CREATE TABLE IF NOT EXISTS ranker_taste (
 -- carries the muted author/tag string the observation is built from.
 ALTER TABLE engagement_events ALTER COLUMN entry_id DROP NOT NULL;
 ALTER TABLE engagement_events ADD COLUMN IF NOT EXISTS detail TEXT;
+
+-- Multi-centroid taste: k-means clusters over positively-engaged embeddings.
+-- `centroids` is a JSONB list of vectors; `centroid` stays the overall mean for
+-- one release so a rollback keeps working. last_event_id throttles the k-means
+-- to runs where a new positive engagement actually arrived.
+ALTER TABLE ranker_taste ADD COLUMN IF NOT EXISTS centroids JSONB;
+ALTER TABLE ranker_taste ADD COLUMN IF NOT EXISTS last_event_id BIGINT NOT NULL DEFAULT 0;
 """
 
 # Vector storage, kept OUT of SCHEMA_SQL so a plain postgres:17 deployment still boots.

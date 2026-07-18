@@ -29,13 +29,13 @@ def test_text_of_strips_and_truncates():
 
 
 def test_embed_sims_clamps_and_maps(monkeypatch):
-    async def fake_centroid(conn):
-        return [1.0, 0.0]
+    async def fake_centroids(conn):
+        return [[1.0, 0.0]]
 
     async def fake_stored(conn, ids):
         return {1: [1.0, 0.0], 2: [0.0, 1.0], 3: [-1.0, 0.0]}
 
-    monkeypatch.setattr(embeddings, "_centroid", fake_centroid)
+    monkeypatch.setattr(embeddings, "_centroids", fake_centroids)
     monkeypatch.setattr(embeddings, "_stored", fake_stored)
     out = run(embeddings.embed_sims(None, [1, 2, 3]))
     assert out[1] == 1.0            # identical → 1
@@ -44,30 +44,65 @@ def test_embed_sims_clamps_and_maps(monkeypatch):
 
 
 def test_embed_sims_empty_without_centroid(monkeypatch):
-    async def no_centroid(conn):
-        return None
+    async def no_centroids(conn):
+        return []
 
-    monkeypatch.setattr(embeddings, "_centroid", no_centroid)
+    monkeypatch.setattr(embeddings, "_centroids", no_centroids)
     assert run(embeddings.embed_sims(None, [1, 2])) == {}
 
 
-# ---- taste_candidates: the deep pool's SQL-side candidate discovery (WP5) ----
+def test_embed_sims_max_over_centroids(monkeypatch):
+    async def cents(conn):
+        return [[1.0, 0.0], [0.0, 1.0]]
+
+    async def stored(conn, ids):
+        return {1: [0.0, 1.0], 2: [0.7, 0.7]}
+
+    monkeypatch.setattr(embeddings, "_centroids", cents)
+    monkeypatch.setattr(embeddings, "_stored", stored)
+    out = run(embeddings.embed_sims(None, [1, 2]))
+    assert out[1] == 1.0                       # exact match to second centroid
+    assert 0.70 < out[2] < 0.71                # max of the two ≈ 0.7071
+
+
+# ---- taste_candidates: the deep pool's SQL-side candidate discovery (WP5/WP6) ----
 
 def test_taste_candidates_no_centroid(monkeypatch):
-    async def no_centroid(conn):
-        return None
+    async def no_centroids(conn):
+        return []
 
-    monkeypatch.setattr(embeddings, "_centroid", no_centroid)
+    monkeypatch.setattr(embeddings, "_centroids", no_centroids)
     assert run(embeddings.taste_candidates(None, [], limit=10)) == []
 
 
 def test_taste_candidates_fails_open_on_query_error(monkeypatch):
-    async def centroid(conn):
-        return [1.0, 0.0]
+    async def centroids(conn):
+        return [[1.0, 0.0]]
 
-    monkeypatch.setattr(embeddings, "_centroid", centroid)
+    monkeypatch.setattr(embeddings, "_centroids", centroids)
     # conn=None → conn.execute raises → caught → []
     assert run(embeddings.taste_candidates(None, [1], limit=10)) == []
+
+
+# ---- _kmeans: pure-Python k-means over embedding vectors (WP6) ----
+
+def test_kmeans_separates_obvious_clusters():
+    a = [[1.0, 0.0, 0.0]] * 6
+    b = [[0.0, 1.0, 0.0]] * 6
+    c = [[0.0, 0.0, 1.0]] * 6
+    cents = embeddings._kmeans(a + b + c, 3)
+    assert len(cents) == 3
+    # each true direction is some centroid's dominant axis
+    for axis in range(3):
+        assert any(ct[axis] > 0.99 for ct in cents)
+
+
+def test_kmeans_deterministic_and_degenerate():
+    vecs = [[1.0, 0.0], [0.9, 0.1], [0.0, 1.0], [0.1, 0.9], [0.5, 0.5]]
+    assert embeddings._kmeans(vecs, 2) == embeddings._kmeans(vecs, 2)   # seeded
+    assert embeddings._kmeans(vecs, 1) == [embeddings._mean_vec(vecs)]  # k=1 → mean
+    assert embeddings._kmeans([[1.0, 0.0]], 4) == [[1.0, 0.0]]          # n <= k → mean
+    assert embeddings._kmeans([], 4) == []
 
 
 # ---- pick_related: turning nearest-neighbours into a useful list ----

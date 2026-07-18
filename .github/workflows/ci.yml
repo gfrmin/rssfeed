@@ -1,0 +1,38 @@
+# Lint + tests for the sidecar.
+#
+# The PII guard (.githooks/) deliberately does NOT run here: it fail-closes
+# without the private $LIFE_AGENT_KB denylist, which never leaves the
+# operator's machine. It runs in the local pre-commit/pre-push hooks instead.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # rssfeed and credence side by side: sidecar/pyproject.toml sources
+      # credence-skin-client from ../../credence/apps/skin/clients/python
+      # (a path dependency on the sibling checkout).
+      - uses: actions/checkout@v4
+        with:
+          path: rssfeed
+      - uses: actions/checkout@v4
+        with:
+          repository: gfrmin/credence
+          path: credence
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"   # matches sidecar/Dockerfile (python:3.12-slim)
+          enable-cache: true
+          cache-dependency-glob: "rssfeed/sidecar/uv.lock"
+      - name: Lint
+        working-directory: rssfeed/sidecar
+        run: uv run ruff check .
+      - name: Test
+        working-directory: rssfeed/sidecar
+        run: uv run pytest

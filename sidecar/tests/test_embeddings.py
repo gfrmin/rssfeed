@@ -51,6 +51,25 @@ def test_embed_sims_empty_without_centroid(monkeypatch):
     assert run(embeddings.embed_sims(None, [1, 2])) == {}
 
 
+# ---- taste_candidates: the deep pool's SQL-side candidate discovery (WP5) ----
+
+def test_taste_candidates_no_centroid(monkeypatch):
+    async def no_centroid(conn):
+        return None
+
+    monkeypatch.setattr(embeddings, "_centroid", no_centroid)
+    assert run(embeddings.taste_candidates(None, [], limit=10)) == []
+
+
+def test_taste_candidates_fails_open_on_query_error(monkeypatch):
+    async def centroid(conn):
+        return [1.0, 0.0]
+
+    monkeypatch.setattr(embeddings, "_centroid", centroid)
+    # conn=None → conn.execute raises → caught → []
+    assert run(embeddings.taste_candidates(None, [1], limit=10)) == []
+
+
 # ---- pick_related: turning nearest-neighbours into a useful list ----
 
 def _cand(entry_id, title, sim, feed_id=1):

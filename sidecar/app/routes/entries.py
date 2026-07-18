@@ -10,7 +10,7 @@ from lxml import html as lxml_html
 from psycopg.types.json import Jsonb
 
 from app import browser_login, db, embeddings, lenses, miniflux_client, ranker, ranker_client
-from app.config import EMBED_ENABLED, MUTE_SIGNALS_ENABLED
+from app.config import DEEP_POOL_ENABLED, DEEP_POOL_LIMIT, EMBED_ENABLED, MUTE_SIGNALS_ENABLED
 from app.db import get_conn
 from app.extractor import fetch_and_extract
 from app.feed_health import classify
@@ -113,6 +113,13 @@ def _apply_mutes(entries: list[dict], author_mutes, tag_mutes) -> list[dict]:
     if not author_mutes and not tag_mutes:
         return entries
     return [e for e in entries if not _is_muted(e, author_mutes, tag_mutes)]
+
+
+def _dedup_by_id(entries: list[dict]) -> list[dict]:
+    """Keep first occurrence — used after merging the deep pool into the
+    newest-200 pool, belt-and-braces on top of the SQL-side exclusion."""
+    seen: set[int] = set()
+    return [e for e in entries if not (e["id"] in seen or seen.add(e["id"]))]
 
 
 async def _upsert_feed_config(conn, feed_id: int, col: str, val) -> None:
@@ -347,6 +354,30 @@ def _smart_eligible(*, starred: bool, changed: bool, search: str | None,
     return not starred and not changed and not search and status in (None, "unread")
 
 
+_DEEP_POOL_FETCH = 30   # REST-fetch cap per render; localhost Miniflux, gathered
+
+
+async def _deep_pool_entries(exclude_ids: list[int]) -> list[dict]:
+    """Older unread articles near the taste centroid, fully hydrated via the
+    Miniflux API. Best-effort: any failure yields [] and the newest-200 pool
+    stands alone."""
+    try:
+        async with get_conn() as conn:
+            ids = await embeddings.taste_candidates(
+                conn, exclude_ids, limit=DEEP_POOL_LIMIT)
+        ids = ids[:_DEEP_POOL_FETCH]
+        if not ids:
+            return []
+        fetched = await asyncio.gather(
+            *(miniflux_client.get_entry(i) for i in ids), return_exceptions=True)
+        # Re-check unread over REST: the SQL view can lag a just-read click.
+        return [e for e in fetched
+                if isinstance(e, dict) and e.get("status") == "unread"]
+    except Exception:
+        logger.debug("deep pool failed open", exc_info=True)
+        return []
+
+
 @router.get("/entries", response_class=HTMLResponse)
 async def entry_list(
     request: Request,
@@ -421,6 +452,15 @@ async def entry_list(
         )
         entries = data.get("entries", [])
         total = data.get("total", 0)
+        # Deep pool: union in older unread articles near the taste centroid so
+        # Smart/Deep-dive can resurface something that fell off the newest-200
+        # window. Narrowly gated — only the views where "older but on-taste" is
+        # actually wanted; fails open to a no-op via _deep_pool_entries.
+        if (use_scores and lens in ("smart", "dive") and status == "unread"
+                and not time_filter and offset == 0
+                and DEEP_POOL_ENABLED and EMBED_ENABLED and db.VECTOR_READY):
+            entries.extend(await _deep_pool_entries([e["id"] for e in entries]))
+            entries = _dedup_by_id(entries)
 
     async with get_conn() as conn:
         await _enrich_entries(conn, entries, now)

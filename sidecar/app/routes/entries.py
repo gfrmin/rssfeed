@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from lxml import html as lxml_html
 from psycopg.types.json import Jsonb
 
-from app import browser_login, db, embeddings, miniflux_client, ranker, ranker_client
+from app import browser_login, db, embeddings, lenses, miniflux_client, ranker, ranker_client
 from app.config import EMBED_ENABLED
 from app.db import get_conn
 from app.extractor import fetch_and_extract
@@ -337,6 +337,14 @@ def _wants_list_fragment(request: Request) -> bool:
         request.headers.get("HX-Target") == "list-col"
 
 
+def _smart_eligible(*, starred: bool, changed: bool, search: str | None,
+                    status: str | None) -> bool:
+    """Learned ranking applies to plain cross-feed lists: Unread/All and the
+    time-window views. Starred/changed/search stay chronological — those are
+    lookup surfaces, not triage surfaces."""
+    return not starred and not changed and not search and status in (None, "unread")
+
+
 @router.get("/entries", response_class=HTMLResponse)
 async def entry_list(
     request: Request,
@@ -381,8 +389,9 @@ async def entry_list(
     elif status is None and not starred:
         status = "unread"
     time_params = _time_filter_params(time_filter)
+    lens = lenses.normalize(order, request.cookies.get("lens"))
 
-    smart_eligible = use_smart = ranked = False
+    smart_eligible = use_scores = ranked = False
     ranker_signals = 0   # quality-signal count, surfaced as the cross-feed warmth meter
 
     feed = None
@@ -395,15 +404,15 @@ async def entry_list(
         entries = data.get("entries", [])
         total = data.get("total", 0)
     else:
-        # The learned ranker applies to the plain cross-feed Unread/All lists.
-        smart_eligible = (
-            not starred and not changed and not search and not time_filter
-            and status in (None, "unread")
+        # The learned ranker applies to plain cross-feed lists: Unread/All and the
+        # time-window views (Starred/Changed/Search stay chronological).
+        smart_eligible = _smart_eligible(
+            starred=starred, changed=changed, search=search, status=status
         )
-        use_smart = smart_eligible and order != "new"
+        use_scores = smart_eligible and lens in ("smart", "catchup", "dive")
         # Over-fetch a candidate pool when ranking (so the ranker can promote an
         # older high-affinity item) or when client-side "changed" pruning will cut it.
-        fetch_limit = 200 if (changed or use_smart) else limit
+        fetch_limit = 200 if (changed or use_scores) else limit
         data = await miniflux_client.get_entries(
             status=status, limit=fetch_limit, offset=offset,
             search=search, starred=starred, **time_params,
@@ -437,26 +446,15 @@ async def entry_list(
             e["_muted"] = bool(m and _is_muted(e, m["author_mutes"], m["tag_mutes"]))
 
         scores = None
-        if use_smart:
+        sims: dict[int, float] = {}
+        if use_scores:
             priorities = {e.get("feed_id"): e.get("_priority", 2) for e in entries}
             async with get_conn() as conn:
                 sims = await embeddings.embed_sims(conn, [e["id"] for e in entries])
             scores = await ranker_client.score(
                 ranker.build_articles(entries, priorities, now, sims)
             )
-
-        if scores:
-            for e in entries:
-                e["_score"] = scores.get(e["id"], 0.0)
-            # Smart order: muted sink, then by learned score, newest as tiebreak.
-            entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
-            entries.sort(key=lambda e: (e.get("_muted", False), -e.get("_score", 0.0)))
-            ranked = True
-        else:
-            # Fallback (ranker off / cold / unreachable): priority tier, then newest.
-            entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
-            entries.sort(key=lambda e: (e.get("_muted", False), e.get("_priority", 2)))
-            ranked = False
+        entries, ranked = lenses.order_entries(lens, entries, scores, sims, now)
         entries = entries[:limit]
 
     active_view = _active_view(
@@ -484,12 +482,15 @@ async def entry_list(
         "feed_prefs": feed_prefs,
         "show_read": feed_prefs["show_read_default"] if feed_id else None,
         "smart_eligible": smart_eligible,
-        "order": "new" if order == "new" else ("smart" if smart_eligible else None),
+        "order": lens if smart_eligible else None,
         "ranked": ranked,
         "ranker_signals": ranker_signals,
     }
     template = "entries_fragment.html" if _wants_list_fragment(request) else "entries.html"
-    return templates.TemplateResponse(request, template, ctx)
+    resp = templates.TemplateResponse(request, template, ctx)
+    if order in lenses.LENSES:   # explicit choice → persist for future navigations
+        resp.set_cookie("lens", order, max_age=31536000, path="/", samesite="lax")
+    return resp
 
 
 async def _render_after_pref_change(request: Request, feed_id: int):

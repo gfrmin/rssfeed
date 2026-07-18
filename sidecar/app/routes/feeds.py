@@ -33,6 +33,9 @@ router = APIRouter()
 # Subscription cookies older than this are flagged "may be stale" — login
 # sessions for paywalled sites typically expire within a month.
 _COOKIE_STALE_AFTER = timedelta(days=30)
+# Sort sentinel for feeds with no entries (or an unfetched Latest column) so
+# they land at the bottom of the "most recent first" ordering.
+_EPOCH = datetime.min.replace(tzinfo=UTC)
 
 
 async def _recent_fetches(conn, feed_id: int, limit: int = 5) -> dict:
@@ -86,22 +89,18 @@ async def _feed_configs(conn) -> dict[int, dict]:
     return {row["feed_id"]: row for row in await cur.fetchall()}
 
 
-async def _latest_entry_dates_all() -> dict[int, str]:
-    """Derive per-feed latest published_at from a single bulk /v1/entries call.
+async def _latest_entry_dates_all() -> dict[int, datetime]:
+    """Per-feed latest published_at, straight from the shared Miniflux DB.
 
-    Feeds whose latest entry is older than the top-1000 window get an empty
-    date — they sort to the bottom of their priority bucket, matching the
-    pre-existing behavior for feeds with zero entries.
+    One GROUP BY replaces the old bulk /v1/entries top-1000 window, which
+    blanked the Latest column for any feed whose newest entry fell outside
+    the global newest 1000 — low-volume feeds looked dead when they weren't.
     """
-    data = await miniflux_client.get_entries(
-        limit=1000, direction="desc", order="published_at",
-    )
-    latest: dict[int, str] = {}
-    for e in data.get("entries") or []:
-        fid = e.get("feed_id") or (e.get("feed") or {}).get("id")
-        if fid is not None and fid not in latest:
-            latest[fid] = e.get("published_at", "") or ""
-    return latest
+    async with get_conn() as conn:
+        cur = await conn.execute(
+            "SELECT feed_id, MAX(published_at) AS latest FROM entries GROUP BY feed_id"
+        )
+        return {row["feed_id"]: row["latest"] for row in await cur.fetchall()}
 
 
 async def _fetch_feed_configs() -> dict[int, dict]:
@@ -128,10 +127,10 @@ async def feed_list(request: Request):
         feed["fetch_full_content"] = cfg.get("fetch_full_content", False)
         feed["priority"] = cfg.get("priority", 2)
         feed["unread_count"] = unreads.get(str(feed["id"]), 0)
-        feed["latest_entry_at"] = latest_dates.get(feed["id"], "")
+        feed["latest_entry_at"] = latest_dates.get(feed["id"])
 
     # Stable sort: first by latest entry (most recent first), then by priority
-    feeds.sort(key=lambda f: f.get("latest_entry_at", ""), reverse=True)
+    feeds.sort(key=lambda f: f.get("latest_entry_at") or _EPOCH, reverse=True)
     feeds.sort(key=lambda f: f["priority"])
     t_sort = time.perf_counter()
 

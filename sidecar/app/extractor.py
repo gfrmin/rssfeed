@@ -3,6 +3,7 @@ import fnmatch
 import hashlib
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote, urljoin, urlparse
 
@@ -235,6 +236,12 @@ def _clean_html(raw_html: str, rules: dict[str, Any]) -> str:
             if el.getparent() is not None:
                 el.getparent().remove(el)
 
+    # Universal: drop inert/opaque subtrees. noscript in particular hides tracking
+    # <iframe>s (GTM) that would otherwise be collected as article media.
+    for el in tree.xpath('//script | //style | //noscript'):
+        if el.getparent() is not None:
+            el.getparent().remove(el)
+
     # Universal: remove sidebar widgets, aside, nav
     for xpath in [
         '//aside', '//nav',
@@ -246,25 +253,184 @@ def _clean_html(raw_html: str, rules: dict[str, Any]) -> str:
             if el.getparent() is not None:
                 el.getparent().remove(el)
 
+    # Universal: ad/share/related/newsletter/widget furniture (guarded).
+    _strip_boilerplate(tree)
+
     return lxml_html.tostring(tree, encoding="unicode")
 
 
-def _extract_by_xpath(html: str, xpath: str) -> str | None:
-    """Extract inner HTML from the first element matching an XPath selector."""
-    tree = lxml_html.fromstring(html)
-    matches = tree.xpath(xpath)
-    if not matches:
-        return None
-    el = matches[0]
-    for child in list(el.iterdescendants()):
-        if isinstance(child.tag, str) and child.tag in _DROP_TREE_TAGS:
-            child.drop_tree()
-        elif isinstance(child.tag, str) and child.tag not in _ALLOWED_TAGS:
-            child.drop_tag()
-    parts = [el.text or '']
+_URL_SCHEMES = frozenset({"http", "https", "mailto"})
+
+
+def _inner_html(el: lxml_html.HtmlElement) -> str:
+    """Serialize an element's leading text + children as an HTML fragment."""
+    parts = [el.text or ""]
     for child in el:
-        parts.append(lxml_html.tostring(child, encoding='unicode'))
-    return ''.join(parts).strip() or None
+        parts.append(lxml_html.tostring(child, encoding="unicode"))
+    return "".join(parts).strip()
+
+
+# Boilerplate containers that survive the sidebar/nav sweep and then get mistaken
+# for the article body: ad slots, share bars, related-story recirculation,
+# newsletter forms, and recurring editorial widgets (e.g. a "quote of the day"
+# block that trafilatura, being text-dense, scores over a video-only post). Run in
+# _clean_html so no extractor tier — nor the reference-text yardstick — ever sees
+# them; the guard in _strip_boilerplate keeps them from eating a real body.
+_BOILERPLATE_XPATHS = (
+    '//*[starts-with(@id, "div-gpt-ad")]',
+    '//*[@id="fb-pxl-ajax-code"]',
+    '//*[starts-with(@id, "google_ads_")]',
+    '//ins[contains(concat(" ", normalize-space(@class), " "), " adsbygoogle ")]',
+    '//*[contains(concat(" ", normalize-space(@class), " "), " ad ")]',
+    '//*[contains(@class, "ad-container")]',
+    '//*[contains(@class, "advert")]',
+    '//*[starts-with(local-name(), "widget-")]',   # custom-element widgets, e.g. <widget-qotd>
+    '//*[contains(@class, "widget-")]',
+    '//*[contains(@class, "widget_")]',
+    '//*[contains(@class, "share")]',
+    '//*[contains(@class, "social")]',
+    '//*[contains(@class, "addtoany")]',
+    '//*[contains(@class, "sharedaddy")]',
+    '//*[contains(@class, "related")]',
+    '//*[contains(@class, "recirc")]',
+    '//*[contains(@class, "read-more")]',
+    '//*[contains(@class, "more-stories")]',
+    '//*[contains(@class, "outbrain")]',
+    '//*[contains(@class, "taboola")]',
+    '//*[contains(@class, "newsletter")]',
+    '//*[contains(@class, "subscribe")]',
+    '//form',
+)
+
+
+def _strip_boilerplate(tree: lxml_html.HtmlElement) -> int:
+    """Remove ad/share/related/newsletter/widget furniture in place.
+
+    Guard: never strip the node holding (almost) all the tree's text, or all its
+    media — that's the article body wearing a widget-ish class, not furniture.
+    Returns the number of nodes removed.
+    """
+    total_text = len(tree.text_content())
+    total_media = len(tree.xpath(_MEDIA_XPATH))
+    hits = 0
+    for xp in _BOILERPLATE_XPATHS:
+        for el in list(tree.xpath(xp)):
+            parent = el.getparent()
+            if parent is None:
+                continue
+            if total_text and len(el.text_content()) >= 0.9 * total_text:
+                continue
+            if not total_text and total_media and len(el.xpath(_MEDIA_XPATH)) >= total_media:
+                continue
+            parent.remove(el)
+            hits += 1
+    return hits
+
+
+@dataclass(frozen=True)
+class NormalizedCandidate:
+    tier: str
+    trust: int          # 0 highest .. 2 lowest — a selection tiebreaker only
+    html: str
+    anchors: int
+    media: int
+    text: str
+
+
+def _normalize(raw_html: str, base_url: str, tier: str, trust: int,
+               proxy_images: bool = True) -> NormalizedCandidate | None:
+    """The one cleaner every candidate passes through: allowlist tags,
+    resolve/scheme-restrict URLs, proxy images, then measure. (Boilerplate is
+    already gone — _clean_html stripped it before any candidate was generated.)"""
+    if not raw_html:
+        return None
+    try:
+        tree = lxml_html.fromstring(f"<div>{raw_html}</div>")
+    except Exception:
+        return None
+    for el in list(tree.iter()):
+        if el is tree or not isinstance(el.tag, str):
+            continue
+        if el.tag in _DROP_TREE_TAGS:
+            el.drop_tree()
+        elif el.tag not in _ALLOWED_TAGS:
+            el.drop_tag()
+    # Anchors: resolve relative → absolute (the reader is served from our own
+    # origin, so a relative href would otherwise point back at us); drop the href
+    # on a non-web scheme, keeping the visible text.
+    for a in tree.xpath("//a[@href]"):
+        absolute = urljoin(base_url, (a.get("href") or "").strip())
+        if urlparse(absolute).scheme in _URL_SCHEMES:
+            a.set("href", absolute)
+        else:
+            del a.attrib["href"]
+    # Non-image media (iframe/video/audio/source): resolve + scheme-restrict; drop
+    # the element on a bad scheme. Images are left for the proxy rewrite below.
+    for el in tree.xpath("//*[@src][not(self::img)]"):
+        absolute = urljoin(base_url, (el.get("src") or "").strip())
+        if urlparse(absolute).scheme in ("http", "https"):
+            el.set("src", absolute)
+        elif el.getparent() is not None:
+            el.getparent().remove(el)
+    if proxy_images:
+        _rewrite_image_srcs(tree, base_url)
+    return NormalizedCandidate(
+        tier=tier, trust=trust, html=_inner_html(tree),
+        anchors=len(tree.xpath("//a[@href]")),
+        media=len(tree.xpath(_MEDIA_XPATH)),
+        text=" ".join(tree.text_content().split()),
+    )
+
+
+def _gen_xpath(cleaned: str, xpath: str) -> str | None:
+    """Candidate tier 0: inner HTML of the operator-configured content container."""
+    try:
+        matches = lxml_html.fromstring(cleaned).xpath(xpath)
+    except Exception:
+        return None
+    return (_inner_html(matches[0]) or None) if matches else None
+
+
+def _gen_readability(cleaned: str) -> str | None:
+    """Candidate tier 1: readability-lxml's main-article summary."""
+    from readability import Document
+    try:
+        article_html = Document(cleaned).summary()
+    except Exception:
+        return None
+    if not article_html:
+        return None
+    try:
+        tree = lxml_html.fromstring(article_html)
+    except Exception:
+        return None
+    body = tree.xpath("//body")
+    return _inner_html(body[0] if body else tree) or None
+
+
+def _gen_trafilatura_html(cleaned: str, url: str) -> str | None:
+    """Candidate tier 2: trafilatura HTML — the only tier that keeps prose *and*
+    links (`include_links=True`, the fix for the old fallback's wholesale anchor loss)."""
+    traf_html = extract(
+        cleaned, url=url, include_comments=False, favor_precision=False,
+        output_format="html", include_links=True, include_images=True,
+        include_formatting=True,
+    )
+    if not traf_html:
+        return None
+    try:
+        tree = lxml_html.fromstring(traf_html)
+    except Exception:
+        return None
+    for g in tree.xpath("//graphic"):  # trafilatura emits <graphic>, not <img>
+        img = lxml_html.Element("img")
+        for attr in ("src", "alt", "title"):
+            if g.get(attr):
+                img.set(attr, g.get(attr))
+        if g.getparent() is not None:
+            g.getparent().replace(g, img)
+    body = tree.xpath("//body")
+    return _inner_html(body[0] if body else tree) or None
 
 
 # Every tag requires a src, video/audio included: a JS-hydrated player skeleton
@@ -290,99 +456,151 @@ def _has_media(html_content: str | None) -> bool:
         return False
 
 
-def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = True) -> dict[str, Any] | None:
-    cleaned = _clean_html(html, rules)
+def _reference_text(cleaned: str, url: str) -> str:
+    """Trafilatura plain text — the runtime coverage yardstick (we have no golden).
+
+    Precision first; fall back to recall when precision rejects the whole body as
+    boilerplate (e.g. en.globes.co.il, where only the image caption survives)."""
     text = extract(cleaned, url=url, include_comments=False, favor_precision=True, output_format="txt")
-    # Precision mode sometimes rejects the whole article body as boilerplate
-    # (e.g. en.globes.co.il where only the image caption survives). Retry in
-    # recall mode and prefer the longer result.
     if not text or len(text) < 200:
         recall = extract(cleaned, url=url, include_comments=False, favor_precision=False, output_format="txt")
         if recall and len(recall) > len(text or ""):
             text = recall
+    return text or ""
 
-    content_xpath = rules.get("content_xpath")
-    html_content = (
-        _extract_by_xpath(cleaned, content_xpath) if content_xpath else None
-    ) or _extract_html_readability(cleaned)
 
-    # Sanity checks: readability HTML vs trafilatura text
-    if text and html_content:
-        readability_text = lxml_html.fromstring(html_content).text_content()
-        readability_text_len = len(readability_text)
+def _retention(count: int, dom_total: int, cand_max: int) -> float:
+    """Share of the page's links/media a candidate kept, in [0,1].
 
-        # Check 1: readability output is way too short
-        too_short = readability_text_len < len(text) * 0.4
+    No per-article golden exists at runtime, so retention is measured two ways and
+    the kinder taken: against the boilerplate-stripped whole page (`dom_total`) and
+    relative to the best candidate (`cand_max`). Nothing to retain → 1.0."""
+    if dom_total <= 0 and cand_max <= 0:
+        return 1.0
+    abs_ret = min(count, dom_total) / dom_total if dom_total > 0 else 0.0
+    rel_ret = count / cand_max if cand_max > 0 else 0.0
+    return max(abs_ret, rel_ret)
 
-        # Check 2: readability missed the beginning of the article
-        first_chunk = text[:100].strip()
-        missed_start = bool(first_chunk) and " ".join(first_chunk.split()) not in " ".join(readability_text.split())
 
-        if too_short or missed_start:
-            logger.info(
-                "Readability output %s (%d vs %d chars), falling back to trafilatura HTML",
-                "too short" if too_short else "missed article start",
-                readability_text_len, len(text),
-            )
-            traf_html = extract(
-                cleaned, url=url, include_comments=False,
-                favor_precision=False, output_format="html",
-                include_images=True,
-            )
-            if traf_html:
-                tree = lxml_html.fromstring(traf_html)
-                # Convert trafilatura's <graphic> to <img>
-                for g in tree.xpath("//graphic"):
-                    img = lxml_html.Element("img")
-                    for attr in ("src", "alt", "title"):
-                        if g.get(attr):
-                            img.set(attr, g.get(attr))
-                    g.getparent().replace(g, img)
-                body = tree.xpath("//body")
-                target = body[0] if body else tree
-                parts = [target.text or ""]
-                for child in target:
-                    parts.append(lxml_html.tostring(child, encoding="unicode"))
-                fallback = "".join(parts).strip()
-                if fallback:
-                    html_content = fallback
+# Scoring weights — tuned against the extraction corpus. A module constant so the
+# corpus/unit tests can assert on individual signals independently of the blend.
+_SCORE_WEIGHTS = {"coverage": 0.45, "start": 0.15, "link": 0.25, "media": 0.15}
 
-    # A fetch can return page scaffolding with no real article text — e.g. a
-    # paywall / JS-app shell whose body is only empty React mount points. Treat
-    # that as a *failed* extraction rather than storing a blank snapshot that
-    # would replace the visible RSS content.
-    visible_text = (text or "").strip()
-    if not visible_text and html_content:
-        try:
-            visible_text = lxml_html.fromstring(html_content).text_content().strip()
-        except Exception:
-            visible_text = ""
-    # ...but "no text" isn't the same as "no article". A photo essay, comic, or
-    # video post is legitimately text-free, and rejecting it sends a perfectly
-    # good fetch down the expensive tiers (proxy → unlocker → Wayback) only to
-    # end up showing the RSS body. Media in the extracted region is evidence we
-    # really did find the article; an empty shell has neither text nor media.
-    if not visible_text and not _has_media(html_content):
-        return None
 
-    # Proxy images through our endpoint
-    if proxy_images and html_content:
-        try:
-            tree = lxml_html.fromstring(f"<div>{html_content}</div>")
-            _rewrite_image_srcs(tree, url)
-            html_content = lxml_html.tostring(tree, encoding="unicode")
-            # Strip the wrapper div
-            html_content = html_content.removeprefix("<div>").removesuffix("</div>")
-        except Exception:
-            pass
+def _score(cand: NormalizedCandidate, *, reference_text: str,
+           dom_anchors: int, dom_media: int, max_anchors: int, max_media: int) -> float:
+    """Rank a normalized candidate: prose coverage + kept lede + link/media
+    retention. Pure — unit-tested off synthetic HTML. (No boilerplate term: it's
+    stripped in _clean_html, so every candidate is already furniture-free.)"""
+    ref_len = len(reference_text)
+    coverage = min(len(cand.text) / ref_len, 1.0) if ref_len else (1.0 if cand.text else 0.0)
+    if reference_text:
+        prefix = " ".join(reference_text[:100].split())
+        start = 1.0 if prefix and prefix in cand.text else 0.0
+    else:
+        start = 1.0
+    w = _SCORE_WEIGHTS
+    return (
+        w["coverage"] * coverage
+        + w["start"] * start
+        + w["link"] * _retention(cand.anchors, dom_anchors, max_anchors)
+        + w["media"] * _retention(cand.media, dom_media, max_media)
+    )
 
-    content_text = text or ""
+
+def _pack(content_text: str, content_html: str) -> dict[str, Any]:
     return {
         "content_text": content_text,
-        "content_html": html_content or content_text,
-        "content_hash": hashlib.sha256(f"{content_text}\n{html_content}".encode()).hexdigest(),
+        "content_html": content_html or content_text,
+        "content_hash": hashlib.sha256(f"{content_text}\n{content_html}".encode()).hexdigest(),
         "metadata": {},
     }
+
+
+# Embeds carry no text, so readability/trafilatura discard them — yet a YouTube or
+# livestream frame is the whole point of a "LIVE:/WATCH:" post. Collect them from
+# the cleaned article region so the winner can carry them regardless of tier.
+_EMBED_XPATH = "//iframe[@src] | //video[@src] | //audio[@src]"
+# Analytics/tag frames masquerade as embeds — never article content.
+_TRACKING_HOSTS = (
+    "googletagmanager.com", "google-analytics.com", "doubleclick.net",
+    "facebook.com/tr", "scorecardresearch.com", "quantserve.com",
+)
+
+
+def _collect_embeds(tree: lxml_html.HtmlElement, base_url: str) -> list[tuple[str, str]]:
+    """(absolute-src, outer-HTML) for each http(s) content embed in the cleaned region."""
+    out = []
+    for el in tree.xpath(_EMBED_XPATH):
+        absolute = urljoin(base_url, (el.get("src") or "").strip())
+        if urlparse(absolute).scheme not in ("http", "https"):
+            continue
+        if any(host in absolute for host in _TRACKING_HOSTS):
+            continue
+        el.set("src", absolute)
+        out.append((absolute, lxml_html.tostring(el, encoding="unicode").strip()))
+    return out
+
+
+def _reinject_embeds(content_html: str, embeds: list[tuple[str, str]]) -> str:
+    """Append any collected embed the winning candidate doesn't already show."""
+    missing = [h for src, h in embeds if src not in content_html]
+    if not missing:
+        return content_html
+    return (content_html + "\n" + "\n".join(missing)).strip()
+
+
+def _extract(html: str, url: str, rules: dict[str, Any], proxy_images: bool = True) -> dict[str, Any] | None:
+    """Candidate → normalize → score → select, then re-inject dropped embeds.
+    Reject only a true empty shell (no text *and* no media). Public contract
+    unchanged: returns {content_text, content_html, content_hash, metadata={}} or None."""
+    cleaned = _clean_html(html, rules)
+    reference_text = _reference_text(cleaned, url)
+
+    # Whole-page (already boilerplate-free) anchor/media counts = retention
+    # denominator; and the embed set the library tiers will drop.
+    try:
+        clean_tree = lxml_html.fromstring(cleaned)
+        dom_anchors = len(clean_tree.xpath("//a[@href]"))
+        dom_media = len(clean_tree.xpath(_MEDIA_XPATH))
+        embeds = _collect_embeds(clean_tree, url)
+    except Exception:
+        dom_anchors = dom_media = 0
+        embeds = []
+
+    raw: list[tuple[str, int, str | None]] = []
+    content_xpath = rules.get("content_xpath")
+    if content_xpath:
+        raw.append(("xpath", 0, _gen_xpath(cleaned, content_xpath)))
+    raw.append(("readability", 1, _gen_readability(cleaned)))
+    raw.append(("trafilatura_html", 2, _gen_trafilatura_html(cleaned, url)))
+
+    candidates = [
+        c
+        for tier, trust, frag in raw
+        if frag and (c := _normalize(frag, url, tier, trust, proxy_images=proxy_images))
+    ]
+
+    if candidates:
+        max_anchors = max(c.anchors for c in candidates)
+        max_media = max(c.media for c in candidates)
+        winner = max(candidates, key=lambda c: (
+            _score(c, reference_text=reference_text, dom_anchors=dom_anchors,
+                   dom_media=dom_media, max_anchors=max_anchors, max_media=max_media),
+            -c.trust,
+        ))
+        content_text, content_html = reference_text or winner.text, winner.html
+    else:
+        # No structured body (e.g. a video-only post the libraries emptied).
+        content_text, content_html = reference_text, ""
+
+    content_html = _reinject_embeds(content_html, embeds)
+
+    # Reject a genuine empty shell: no text anywhere *and* no real (src-bearing)
+    # media. A text-free photo/video post has media, so it survives.
+    if not content_text.strip() and not _has_media(content_html):
+        return None
+    return _pack(content_text, content_html)
 
 
 _ALLOWED_TAGS = frozenset({
@@ -395,24 +613,3 @@ _ALLOWED_TAGS = frozenset({
 
 
 _DROP_TREE_TAGS = frozenset({'style', 'script', 'noscript'})
-
-
-def _extract_html_readability(html: str) -> str | None:
-    """Use readability-lxml for HTML — avoids trafilatura's HTML serialization bugs."""
-    from readability import Document
-
-    article_html = Document(html).summary()
-    if not article_html:
-        return None
-    tree = lxml_html.fromstring(article_html)
-    for el in list(tree.iter()):
-        if isinstance(el.tag, str) and el.tag in _DROP_TREE_TAGS:
-            el.drop_tree()
-        elif isinstance(el.tag, str) and el.tag not in _ALLOWED_TAGS:
-            el.drop_tag()
-    body = tree.xpath('//body')
-    target = body[0] if body else tree
-    parts = [target.text or '']
-    for child in target:
-        parts.append(lxml_html.tostring(child, encoding='unicode'))
-    return ''.join(parts).strip()

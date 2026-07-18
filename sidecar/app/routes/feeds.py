@@ -563,6 +563,30 @@ async def set_proxy(feed_ids: list[int] = Form(...)):
     )
 
 
+@router.post("/feeds/unset-proxy")
+async def unset_proxy(feed_ids: list[int] = Form(...)):
+    """Non-destructive: turns fetch_via_proxy off on selected feeds."""
+    async def _one(fid: int) -> bool:
+        try:
+            await miniflux_client.update_feed(fid, fetch_via_proxy=False)
+            return True
+        except Exception as e:
+            logger.warning("unset-proxy failed for feed %s: %s", fid, e)
+            return False
+
+    sem = asyncio.Semaphore(8)
+
+    async def _bounded(fid: int) -> bool:
+        async with sem:
+            return await _one(fid)
+
+    results = await asyncio.gather(*[_bounded(i) for i in feed_ids])
+    ok = sum(1 for r in results if r)
+    return HTMLResponse(
+        f'<span class="success">Proxy turned off on {ok}/{len(results)} feeds</span>'
+    )
+
+
 @router.post("/feeds/bulk-refresh")
 async def bulk_refresh(feed_ids: list[int] = Form(...)):
     """Non-destructive: triggers a re-poll on each selected feed."""

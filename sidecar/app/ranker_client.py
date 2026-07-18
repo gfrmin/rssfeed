@@ -352,7 +352,7 @@ async def sync_observations(limit: int = 200) -> int:
 
     async with get_conn() as conn:
         cur = await conn.execute(
-            "SELECT id, entry_id, signal, value, detail FROM engagement_events "
+            "SELECT id, entry_id, signal, value, detail, created_at FROM engagement_events "
             "WHERE id > %s ORDER BY id LIMIT %s",
             (last_id, limit),
         )
@@ -393,7 +393,7 @@ async def sync_observations(limit: int = 200) -> int:
         entry = entry_cache[eid]
         prio = priorities.get(entry.get("feed_id"), 2)
         events.append(ranker.build_observation(
-            entry, r["signal"], r["value"] or 1.0, prio, now, sims.get(eid)))
+            entry, r["signal"], r["value"] or 1.0, prio, r["created_at"] or now, sims.get(eid)))
 
     res = await observe(events, base_weights=base_weights)
     if res is None:

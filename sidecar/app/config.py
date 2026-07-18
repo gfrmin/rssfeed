@@ -61,6 +61,12 @@ RANKER_MODEL_VERSION = os.environ.get("RANKER_MODEL_VERSION", "maut-skin-v1")
 # already-logged events keep folding either way.
 MUTE_SIGNALS_ENABLED = os.environ.get("MUTE_SIGNALS_ENABLED", "1") not in ("0", "false", "")
 
+# Cyclical time-of-engagement features (hour-of-day sin/cos + weekend flag) fed to
+# the ranker. Linear model ⇒ they can't reorder a single batch at scoring time;
+# they exist to absorb when-you-read bias out of the feed/author weights during
+# observation. Kill-switch while the weights bed in.
+RANKER_TIME_FEATURES = os.environ.get("RANKER_TIME_FEATURES", "1") not in ("0", "false", "")
+
 # Dev / this-host default: spawn the Julia skin from the local credence checkout
 # (no Docker). Production/portable: set CREDENCE_SKIN_COMMAND to a JSON argv for
 # the pinned image, e.g. '["docker","run","--rm","-i","ghcr.io/gfrmin/credence-skin:latest"]',

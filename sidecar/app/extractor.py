@@ -276,51 +276,58 @@ def _inner_html(el: lxml_html.HtmlElement) -> str:
 # block that trafilatura, being text-dense, scores over a video-only post). Run in
 # _clean_html so no extractor tier — nor the reference-text yardstick — ever sees
 # them; the guard in _strip_boilerplate keeps them from eating a real body.
+#
+# Each entry is (xpath, protect_media). "Hard" furniture (protect_media=False —
+# ads, related/recirc, widgets) is never article content and is removed even when
+# it carries media (a related-video block is not the article). "Soft" wrappers
+# (protect_media=True — share/social) may wrap the article's *own* embed, so a node
+# holding all the page's media is left alone rather than taking the player with it.
 _BOILERPLATE_XPATHS = (
-    '//*[starts-with(@id, "div-gpt-ad")]',
-    '//*[@id="fb-pxl-ajax-code"]',
-    '//*[starts-with(@id, "google_ads_")]',
-    '//ins[contains(concat(" ", normalize-space(@class), " "), " adsbygoogle ")]',
-    '//*[contains(concat(" ", normalize-space(@class), " "), " ad ")]',
-    '//*[contains(@class, "ad-container")]',
-    '//*[contains(@class, "advert")]',
-    '//*[starts-with(local-name(), "widget-")]',   # custom-element widgets, e.g. <widget-qotd>
-    '//*[contains(@class, "widget-")]',
-    '//*[contains(@class, "widget_")]',
-    '//*[contains(@class, "share")]',
-    '//*[contains(@class, "social")]',
-    '//*[contains(@class, "addtoany")]',
-    '//*[contains(@class, "sharedaddy")]',
-    '//*[contains(@class, "related")]',
-    '//*[contains(@class, "recirc")]',
-    '//*[contains(@class, "read-more")]',
-    '//*[contains(@class, "more-stories")]',
-    '//*[contains(@class, "outbrain")]',
-    '//*[contains(@class, "taboola")]',
-    '//*[contains(@class, "newsletter")]',
-    '//*[contains(@class, "subscribe")]',
-    '//form',
+    ('//*[starts-with(@id, "div-gpt-ad")]', False),
+    ('//*[@id="fb-pxl-ajax-code"]', False),
+    ('//*[starts-with(@id, "google_ads_")]', False),
+    ('//ins[contains(concat(" ", normalize-space(@class), " "), " adsbygoogle ")]', False),
+    ('//*[contains(concat(" ", normalize-space(@class), " "), " ad ")]', False),
+    ('//*[contains(@class, "ad-container")]', False),
+    ('//*[contains(@class, "advert")]', False),
+    ('//*[starts-with(local-name(), "widget-")]', False),   # custom-element widgets, e.g. <widget-qotd>
+    ('//*[contains(@class, "widget-")]', False),
+    ('//*[contains(@class, "widget_")]', False),
+    ('//*[contains(@class, "share")]', True),
+    ('//*[contains(@class, "social")]', True),
+    ('//*[contains(@class, "addtoany")]', False),
+    ('//*[contains(@class, "sharedaddy")]', False),
+    ('//*[contains(@class, "related")]', False),
+    ('//*[contains(@class, "recirc")]', False),
+    ('//*[contains(@class, "read-more")]', False),
+    ('//*[contains(@class, "more-stories")]', False),
+    ('//*[contains(@class, "outbrain")]', False),
+    ('//*[contains(@class, "taboola")]', False),
+    ('//*[contains(@class, "newsletter")]', False),
+    ('//*[contains(@class, "subscribe")]', False),
+    ('//form', False),
 )
 
 
 def _strip_boilerplate(tree: lxml_html.HtmlElement) -> int:
     """Remove ad/share/related/newsletter/widget furniture in place.
 
-    Guard: never strip the node holding (almost) all the tree's text, or all its
-    media — that's the article body wearing a widget-ish class, not furniture.
-    Returns the number of nodes removed.
+    Guards (see _BOILERPLATE_XPATHS): never strip the node holding (almost) all the
+    tree's text — that's the article body wearing a furniture-ish class; and, for
+    "soft" wrappers only, never strip the node holding all the tree's media — it may
+    be the article's own embed inside a share-classed wrapper. Returns nodes removed.
     """
     total_text = len(tree.text_content())
     total_media = len(tree.xpath(_MEDIA_XPATH))
     hits = 0
-    for xp in _BOILERPLATE_XPATHS:
+    for xp, protect_media in _BOILERPLATE_XPATHS:
         for el in list(tree.xpath(xp)):
             parent = el.getparent()
             if parent is None:
                 continue
             if total_text and len(el.text_content()) >= 0.9 * total_text:
                 continue
-            if not total_text and total_media and len(el.xpath(_MEDIA_XPATH)) >= total_media:
+            if protect_media and total_media and len(el.xpath(_MEDIA_XPATH)) >= total_media:
                 continue
             parent.remove(el)
             hits += 1

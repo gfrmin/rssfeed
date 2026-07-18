@@ -231,3 +231,31 @@ def test_tracking_iframe_is_not_kept_as_media():
     r = _extract(html, "https://example.com/a", {}, proxy_images=False)
     assert r is not None
     assert "googletagmanager" not in r["content_html"]
+
+
+def test_share_wrapped_embed_survives_boilerplate_strip():
+    """An article's own video wrapped in a share-classed container must not be
+    stripped as furniture — the media guard protects a 'soft' wrapper that holds
+    all the page's media even when the page also has text (a caption)."""
+    html = (
+        "<html><body><article><p>Watch the clip below.</p>"
+        '<div class="video-share"><iframe src="https://www.youtube.com/embed/XYZ"></iframe></div>'
+        "</article></body></html>"
+    )
+    r = _extract(html, "https://example.com/v", {}, proxy_images=False)
+    assert r is not None
+    assert "youtube.com/embed/XYZ" in r["content_html"]
+
+
+def test_related_video_block_is_still_stripped():
+    """A 'hard' furniture block (related recirculation) is removed even when it
+    carries the page's only media — a related-video widget is not the article."""
+    html = (
+        "<html><body><article>"
+        "<p>A genuine article body sentence that runs on for a reasonable length here.</p>"
+        '<div class="related-videos"><iframe src="https://www.youtube.com/embed/REL"></iframe></div>'
+        "</article></body></html>"
+    )
+    r = _extract(html, "https://example.com/a", {}, proxy_images=False)
+    assert r is not None
+    assert "youtube.com/embed/REL" not in r["content_html"]

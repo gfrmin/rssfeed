@@ -22,7 +22,7 @@ A self-hosted, single-user RSS reader that runs as a sidecar alongside [Miniflux
 
 **Feed management**
 - Feed priority tiers (Must Read / Normal / Low) — must-read feeds bubble to the top
-- Feed favicons + at-a-glance health dots
+- Feed favicons + at-a-glance health dots (in the sidebar feed list)
 - Auto-discovery / URL repair for moved or broken feeds
 - OPML import/export
 - Per-feed full-text, proxy, and TLS-verification toggles
@@ -73,6 +73,26 @@ The sidecar is a FastAPI + htmx application that:
 
 Both optional dependencies degrade gracefully: without Credence the reader orders by priority + recency; without Ollama the `embed_sim` feature is simply absent.
 
+## Security model
+
+The sidecar has **no authentication of any kind — by design**. It is a
+single-user application: every route (reading, feed management, cookie import,
+subscription login, OPML, the image proxy) is open to whoever can reach the
+port. The security boundary is **network placement**, not login:
+
+- bind it to `localhost`, a private LAN, or a tailnet/VPN interface; or
+- put an authenticating reverse proxy in front of it.
+
+**Never expose the sidecar's port to the public internet.** Anyone who can
+reach it can read your feeds, import your browser cookies, and change
+configuration.
+
+Server-side fetches (the image proxy, article extraction, feed discovery) are
+SSRF-guarded (`sidecar/app/egress.py`): only `http`/`https` URLs are fetched,
+hostnames are resolved and refused when any answer is loopback/private/
+link-local/reserved, and every redirect hop is re-checked. `EGRESS_GUARD=0`
+disables the guard (debugging only).
+
 ## Setup
 
 ### Prerequisites
@@ -115,6 +135,7 @@ All configuration is via environment variables in `.env`:
 | `BRIGHTDATA_PROXY` | | HTTP proxy URL (static) for fetching blocked content |
 | `BRIGHTDATA_UNLOCKER_PROXY` | | Web Unlocker proxy URL for anti-bot sites |
 | `WORKER_POLL_INTERVAL` | `60` | Seconds between background extraction polls |
+| `EGRESS_GUARD` | `1` | Set 0 to disable the SSRF egress guard on server-side fetches (debugging only) |
 | `LOGIN_RECIPES_FILE` | `~/.config/rssfeed/login-recipes.json` | Per-site login recipes — see below |
 
 ### Subscription login recipes (optional)

@@ -94,7 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_engagement_created ON engagement_events(created_a
 CREATE TABLE IF NOT EXISTS ranker_state (
     id            SMALLINT PRIMARY KEY DEFAULT 1,
     model_version TEXT NOT NULL,
-    state_blob    JSONB NOT NULL DEFAULT '{}'::jsonb,  -- {"weights":{name:[p,q]}, "obs_count":N}
+    state_blob    JSONB NOT NULL DEFAULT '{}'::jsonb,  -- {"weights":{name:{"type":"gaussian","mu":..,"sigma":..}}, "obs_count":N}
     last_event_id BIGINT NOT NULL DEFAULT 0,
     updated_at    TIMESTAMPTZ DEFAULT NOW(),
     CHECK (id = 1)

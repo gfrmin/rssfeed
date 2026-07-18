@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, Response
 from lxml import etree as lxml_etree
 from lxml import html as lxml_html
 
-from app import browser_login, credvault, miniflux_client
+from app import browser_login, credvault, egress, miniflux_client
 from app.config import BRIGHTDATA_PROXY
 from app.db import get_conn
 from app.routes.cookies import (
@@ -226,10 +226,13 @@ async def _fetch_with_proxy_fallback(url: str, *, accept: str = "text/html,appli
         },
     )
     try:
-        async with httpx.AsyncClient(**kwargs) as c:
-            r = await c.get(url)
-            r.raise_for_status()
-            return r.text
+        egress.check_scheme_host(url)
+    except egress.EgressBlockedError as e:
+        logger.info("egress blocked %s: %s", url, e)
+        return None
+    try:
+        r = await egress.guarded_get(kwargs, url)
+        return r.text
     except Exception as e:
         logger.info("Direct fetch failed for %s: %s", url, e)
     if BRIGHTDATA_PROXY:

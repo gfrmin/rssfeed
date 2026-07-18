@@ -1,11 +1,36 @@
 {% extends "base.html" %}
-{% from "_macros.html" import paused_badge %}
+{% from "_macros.html" import paused_badge, health_dot %}
 {% block title %}Feeds{% endblock %}
 {% block content %}
 <h1 class="heading-page">Feeds</h1>
+{% if health_summary %}
+<p class="text-detail text-text-muted mb-4">{{ health_summary }}</p>
+{% endif %}
 
 <div class="mb-5 flex gap-2 items-center flex-wrap">
   <input type="search" id="feed-search" placeholder="Filter feeds..." class="input w-[200px] px-3 py-1.5 text-detail" autofocus>
+  <select id="health-filter" class="input w-auto px-2 py-1.5 text-detail" title="Filter by health">
+    <option value="">All health</option>
+    <option value="problem">Problems</option>
+    <option value="error">Error</option>
+    <option value="warn">Warning</option>
+    <option value="stale">Stale</option>
+    <option value="paused">Paused</option>
+    <option value="ok">OK</option>
+  </select>
+  <select id="priority-filter" class="input w-auto px-2 py-1.5 text-detail" title="Filter by priority">
+    <option value="">All priorities</option>
+    <option value="1">Must read</option>
+    <option value="2">Normal</option>
+    <option value="3">Low</option>
+  </select>
+  <select id="feed-sort" class="input w-auto px-2 py-1.5 text-detail" title="Sort">
+    <option value="">Sort: priority</option>
+    <option value="latest">Newest first</option>
+    <option value="oldest">Oldest first</option>
+    <option value="health">Worst health first</option>
+    <option value="title">Title A–Z</option>
+  </select>
   <form id="add-feed-form" class="flex gap-1.5 items-center">
     <input type="url" name="feed_url" id="add-feed-url" placeholder="Feed or page URL..." class="input w-[250px] px-2.5 py-1.5 text-detail" required>
     <select name="category_id" class="input w-auto px-2 py-1.5 text-detail">
@@ -53,12 +78,17 @@
   </thead>
   <tbody>
     {% for feed in feeds %}
-    <tr>
+    <tr data-health="{{ feed._health }}" data-priority="{{ feed.priority }}" data-latest-age="{{ feed.latest_age_s }}">
       <td class="td break-words {% if feed.disabled %}opacity-60{% endif %}">
+        {{ health_dot(feed._health) }}
         <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
         <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">{{ feed.title }}</a>
         {{ paused_badge(feed) }}
         <a href="/feeds/{{ feed.id }}" class="text-caption text-text-muted ml-2 hover:text-accent" title="Feed settings">&#9881;</a>
+        {% if feed._health in ('warn', 'error') %}
+        <span class="text-2xs {{ 'text-danger' if feed._health == 'error' else 'text-text-muted' }}"
+              title="{{ feed.parsing_error_message }}">{{ feed._bucket_label }}</span>
+        {% endif %}
         <br><a href="{{ feed.feed_url }}" target="_blank" rel="noopener" class="text-2xs text-text-muted no-underline hover:text-link hover:underline break-all" title="Feed XML URL">{{ feed.feed_url }}</a>
       </td>
       <td class="td break-words hidden sm:table-cell">{{ feed.category.title if feed.category else '-' }}</td>
@@ -78,20 +108,43 @@
 <script>
 (function () {
   const input = document.getElementById('feed-search');
-  const rows = document.querySelectorAll('tbody tr');
+  const healthSel = document.getElementById('health-filter');
+  const prioSel = document.getElementById('priority-filter');
+  const sortSel = document.getElementById('feed-sort');
+  const tbody = document.querySelector('tbody');
   const noMatch = document.getElementById('no-match');
+  const originalOrder = Array.from(tbody.querySelectorAll('tr'));
+  const HEALTH_RANK = { error: 0, warn: 1, stale: 2, paused: 3, ok: 4 };
+  const PROBLEM = { error: 1, warn: 1, stale: 1 };
 
-  input.addEventListener('input', function () {
-    const q = this.value.toLowerCase();
+  function age(row) {
+    const v = row.dataset.latestAge;
+    return v === '' ? Infinity : Number(v);
+  }
+
+  function apply() {
+    const v = sortSel.value;
+    let rows = originalOrder.slice();
+    if (v === 'latest') rows.sort((a, b) => age(a) - age(b));
+    else if (v === 'oldest') rows.sort((a, b) => age(b) - age(a));
+    else if (v === 'health') rows.sort((a, b) => HEALTH_RANK[a.dataset.health] - HEALTH_RANK[b.dataset.health]);
+    else if (v === 'title') rows.sort((a, b) => a.textContent.trim().localeCompare(b.textContent.trim()));
+    rows.forEach(r => tbody.appendChild(r));
+    const q = input.value.toLowerCase();
+    const h = healthSel.value, p = prioSel.value;
     let visible = 0;
     rows.forEach(function (row) {
-      const text = row.textContent.toLowerCase();
-      const show = text.includes(q);
+      let show = row.textContent.toLowerCase().includes(q);
+      if (show && h) show = (h === 'problem') ? !!PROBLEM[row.dataset.health] : row.dataset.health === h;
+      if (show && p) show = row.dataset.priority === p;
       row.style.display = show ? '' : 'none';
       if (show) visible++;
     });
     noMatch.classList.toggle('hidden', visible > 0);
-  });
+  }
+
+  input.addEventListener('input', apply);
+  [healthSel, prioSel, sortSel].forEach(el => el.addEventListener('change', apply));
 
   document.addEventListener('keydown', function (e) {
     if (e.key === '/' && !e.ctrlKey && !e.metaKey &&

@@ -108,6 +108,16 @@ async def _fetch_feed_configs() -> dict[int, dict]:
         return await _feed_configs(conn)
 
 
+def _health_summary(feeds: list[dict]) -> str:
+    parts = []
+    for state, label in (("error", "erroring"), ("warn", "warning"),
+                         ("stale", "stale"), ("paused", "paused")):
+        n = sum(1 for f in feeds if f["_health"] == state)
+        if n:
+            parts.append(f"{n} {label}")
+    return " · ".join(parts)
+
+
 @router.get("/", response_class=HTMLResponse)
 async def feed_list(request: Request):
     t0 = time.perf_counter()
@@ -121,6 +131,7 @@ async def feed_list(request: Request):
     )
     t_fetch = time.perf_counter()
 
+    now = datetime.now(UTC)
     unreads = counters.get("unreads", {})
     for feed in feeds:
         cfg = configs.get(feed["id"], {})
@@ -128,6 +139,11 @@ async def feed_list(request: Request):
         feed["priority"] = cfg.get("priority", 2)
         feed["unread_count"] = unreads.get(str(feed["id"]), 0)
         feed["latest_entry_at"] = latest_dates.get(feed["id"])
+        feed["latest_age_s"] = (
+            int((now - feed["latest_entry_at"]).total_seconds())
+            if feed["latest_entry_at"] else ""
+        )
+        annotate(feed, now)
 
     # Stable sort: first by latest entry (most recent first), then by priority
     feeds.sort(key=lambda f: f.get("latest_entry_at") or _EPOCH, reverse=True)
@@ -135,7 +151,8 @@ async def feed_list(request: Request):
     t_sort = time.perf_counter()
 
     response = templates.TemplateResponse(
-        request, "feeds.html", {"feeds": feeds, "categories": categories}
+        request, "feeds.html",
+        {"feeds": feeds, "categories": categories, "health_summary": _health_summary(feeds)},
     )
     t_render = time.perf_counter()
 

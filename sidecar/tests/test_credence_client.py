@@ -8,6 +8,7 @@ import asyncio
 
 import pytest
 
+from app import ranker
 from app import ranker_client as rc
 
 
@@ -25,6 +26,10 @@ def test_evidence_signal_scalars():
     assert rc._evidence("thumb_down", 1) == -1.0
     assert rc._evidence("read", 1) == 0.0          # plain reads carry no evidence
     assert rc._evidence("unknown", 1) == 0.0
+    assert rc._evidence("mute_author", 1) == -1.0
+    assert rc._evidence("mute_tag", 1) == -1.0
+    assert rc._evidence("unmute_author", 1) == 0.5
+    assert rc._evidence("unmute_tag", 1) == 0.5
 
 
 def test_evidence_dwell_graded_and_clamped():
@@ -185,6 +190,20 @@ def test_observe_fails_open_when_engine_down(monkeypatch):
 
 async def _true():
     return True
+
+
+def test_observe_folds_mute_observation(monkeypatch):
+    """A mute observation carries only the muted author/tag feature — folding it
+    should move that one weight and nothing else."""
+    def call(function, args):
+        return _fake_observe(args)
+
+    _patch(monkeypatch, call=call)
+    monkeypatch.setattr(rc, "_ensure_started", _true)
+    obs = ranker.build_mute_observation("mute_author", "Jane Doe")
+    res = run(rc.observe([obs], base_weights={}))
+    assert res["obs_count"] == 1
+    assert res["weights"]["author:jane_doe"]["mu"] == -1.0
 
 
 # ---- explain(): per-feature contributions ----

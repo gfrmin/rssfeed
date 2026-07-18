@@ -56,6 +56,11 @@ WORKER_BACKFILL_MAX_AGE_DAYS = int(os.environ.get("WORKER_BACKFILL_MAX_AGE_DAYS"
 RANKER_ENABLED = os.environ.get("RANKER_ENABLED", "1") not in ("0", "false", "")
 RANKER_MODEL_VERSION = os.environ.get("RANKER_MODEL_VERSION", "maut-skin-v1")
 
+# Mutes as negative ranker evidence: muting an author/tag logs a mute_* engagement
+# event (folded into the model by the worker). Kill-switch for the logging only —
+# already-logged events keep folding either way.
+MUTE_SIGNALS_ENABLED = os.environ.get("MUTE_SIGNALS_ENABLED", "1") not in ("0", "false", "")
+
 # Dev / this-host default: spawn the Julia skin from the local credence checkout
 # (no Docker). Production/portable: set CREDENCE_SKIN_COMMAND to a JSON argv for
 # the pinned image, e.g. '["docker","run","--rm","-i","ghcr.io/gfrmin/credence-skin:latest"]',

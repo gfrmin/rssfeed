@@ -99,7 +99,7 @@
         {% if feed_id %}{# feed page: author is more useful than the (redundant) feed name, and is a hide affordance #}
           {% if e.author %}<span class="erow-author">{{ e.author }}<button class="erow-hide" type="button" title="Hide {{ e.author }} on this feed"
                 hx-post="/feeds/{{ feed_id }}/mute" hx-target="#list-col"
-                hx-vals='{"kind":"author","value":{{ e.author | tojson }}}'>{{ icon("x", 10) }}</button></span><span class="dot-sep">&middot;</span>{% endif %}
+                hx-vals='{"kind":"author","value":{{ e.author | tojson }},"entry_id":{{ e.id }}}'>{{ icon("x", 10) }}</button></span><span class="dot-sep">&middot;</span>{% endif %}
         {% elif e.feed %}{{ tile(e.feed, 13) }}<span class="erow-feed">{{ e.feed.title }}</span><span class="dot-sep">&middot;</span>{% endif %}
         <span>{{ e.published_at | timeago }}</span>
         <span class="dot-sep">&middot;</span><span>{{ e.content | reading_time }}</span>
@@ -108,7 +108,7 @@
         {% if smart_eligible and ranked and not feed_id %}<span class="dot-sep">&middot;</span>{% if e._muted %}<span class="why muted-why" title="A muted author/tag sinks this in smart views">{{ icon('chevronDown', 11) }} ranked lower &middot; muted</span>{% else %}<button class="why" type="button" hx-get="/entries/{{ e.id }}/why" hx-target="#why-{{ e.id }}" hx-swap="innerHTML" title="Why this ranked where it did">{{ icon('activity', 11) }} why</button>{% endif %}{% endif %}
         {% if feed_id and e.tags %}{% for t in e.tags[:3] %}<span class="erow-tagwrap"><span class="erow-tag">#{{ t }}</span><button class="erow-hide" type="button" title="Hide #{{ t }} on this feed"
                 hx-post="/feeds/{{ feed_id }}/mute" hx-target="#list-col"
-                hx-vals='{"kind":"tag","value":{{ t | tojson }}}'>{{ icon("x", 10) }}</button></span>{% endfor %}{% endif %}
+                hx-vals='{"kind":"tag","value":{{ t | tojson }},"entry_id":{{ e.id }}}'>{{ icon("x", 10) }}</button></span>{% endfor %}{% endif %}
       </div>
       {% if smart_eligible and ranked and not feed_id %}<div class="why-detail" id="why-{{ e.id }}"></div>{% endif %}
     </div>

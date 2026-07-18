@@ -108,3 +108,21 @@ def test_recency_public_alias_custom_halflife():
     six_hours_old = NOW - timedelta(hours=6)
     assert ranker.recency(six_hours_old.isoformat(), NOW, half_life_hours=6.0) == \
         pytest.approx(0.5, abs=0.01)
+
+
+def test_build_mute_observation_single_feature():
+    obs = ranker.build_mute_observation("mute_author", "Jane Doe")
+    assert obs == {"signal": "mute_author", "value": 1.0,
+                   "features": [["author:jane_doe", 1.0]]}
+    obs = ranker.build_mute_observation("unmute_tag", "AI / ML")
+    assert obs["features"] == [["tag:ai_ml", 1.0]]
+
+
+def test_build_mute_observation_rejects_empty():
+    assert ranker.build_mute_observation("mute_author", "") is None
+    assert ranker.build_mute_observation("mute_author", None) is None
+    assert ranker.build_mute_observation("star", "Jane") is None   # not a mute signal
+
+
+def test_is_mute_signal():
+    assert ranker.is_mute_signal("mute_tag") and not ranker.is_mute_signal("star")

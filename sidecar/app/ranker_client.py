@@ -56,6 +56,10 @@ _EVIDENCE = {
     "open_original": 0.5,
     "unstar": -0.5,
     "thumb_down": -1.0,
+    "mute_author": -1.0,
+    "mute_tag": -1.0,
+    "unmute_author": 0.5,
+    "unmute_tag": 0.5,
 }
 
 
@@ -348,7 +352,7 @@ async def sync_observations(limit: int = 200) -> int:
 
     async with get_conn() as conn:
         cur = await conn.execute(
-            "SELECT id, entry_id, signal, value FROM engagement_events "
+            "SELECT id, entry_id, signal, value, detail FROM engagement_events "
             "WHERE id > %s ORDER BY id LIMIT %s",
             (last_id, limit),
         )
@@ -359,17 +363,28 @@ async def sync_observations(limit: int = 200) -> int:
         return 0
 
     # embed_sim for the touched entries (empty if no taste centroid yet) so the
-    # embedding feature learns alongside the structured ones.
+    # embedding feature learns alongside the structured ones. Mute rows have no
+    # entry (or an incidental one — see build_mute_observation) so they're excluded.
     from app import embeddings
     async with get_conn() as conn:
-        sims = await embeddings.embed_sims(conn, list({r["entry_id"] for r in rows}))
+        sims = await embeddings.embed_sims(conn, list({
+            r["entry_id"] for r in rows
+            if r["entry_id"] is not None and not ranker.is_mute_signal(r["signal"])
+        }))
 
     now = datetime.now(UTC)
     entry_cache: dict[int, dict] = {}
     events, max_id = [], last_id
     for r in rows:
         max_id = max(max_id, r["id"])
+        if ranker.is_mute_signal(r["signal"]):
+            obs = ranker.build_mute_observation(r["signal"], r["detail"])
+            if obs is not None:
+                events.append(obs)
+            continue
         eid = r["entry_id"]
+        if eid is None:
+            continue
         if eid not in entry_cache:
             try:
                 entry_cache[eid] = await miniflux_client.get_entry(eid)

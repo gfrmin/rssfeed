@@ -1,1 +1,6 @@
 static/tailwind.css
+
+# Extraction ground-truth corpus: raw article HTML is real feed content and must
+# never be committed to this public repo. The manifest + fetch_fixtures.py (both
+# committed) repopulate this on demand; the corpus tests skip when it's absent.
+tests/fixtures/extraction/_raw/

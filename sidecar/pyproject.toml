@@ -46,6 +46,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "corpus: real-page extraction regression corpus (skips when the gitignored blobs are absent; run with -m corpus)",
+]
 
 [tool.ruff]
 line-length = 100

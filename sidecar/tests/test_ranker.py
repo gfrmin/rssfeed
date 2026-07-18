@@ -126,3 +126,32 @@ def test_build_mute_observation_rejects_empty():
 
 def test_is_mute_signal():
     assert ranker.is_mute_signal("mute_tag") and not ranker.is_mute_signal("star")
+
+
+def test_time_features_unit_circle():
+    noon = datetime(2026, 6, 17, 12, 0, tzinfo=UTC)          # a Wednesday
+    feats = dict((n, v) for n, v in ranker.time_features(noon, tz=UTC))
+    assert feats["hour_sin"] == pytest.approx(0.0, abs=1e-3)
+    assert feats["hour_cos"] == pytest.approx(-1.0, abs=1e-3)
+    assert "weekend" not in feats
+
+
+def test_time_features_weekend_and_wraparound():
+    sat = datetime(2026, 6, 20, 23, 0, tzinfo=UTC)           # a Saturday, 23:00
+    feats = dict((n, v) for n, v in ranker.time_features(sat, tz=UTC))
+    assert feats["weekend"] == 1.0
+    late = dict(ranker.time_features(datetime(2026, 6, 17, 23, 0, tzinfo=UTC), tz=UTC))
+    early = dict(ranker.time_features(datetime(2026, 6, 18, 1, 0, tzinfo=UTC), tz=UTC))
+    # 23:00 and 01:00 are close on the circle: cos near 1 for both
+    assert late["hour_cos"] > 0.9 and early["hour_cos"] > 0.9
+
+
+def test_entry_features_include_time():
+    e = {"id": 1, "feed_id": 9, "published_at": NOW.isoformat()}
+    names = [n for n, _ in ranker.entry_features(e, 2, NOW)]
+    assert "hour_sin" in names and "hour_cos" in names
+
+
+def test_feature_label_time():
+    assert ranker.feature_label("hour_sin") == "time of day"
+    assert ranker.feature_label("weekend") == "weekend"

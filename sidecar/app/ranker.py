@@ -2,14 +2,19 @@
 
 Turns Miniflux entries into the (feature-name, value) vectors the credence runner
 scores, and engagement_events into observations to condition the model on. Feature
-names are stable string keys; values are in [0, 1]. This module is pure Python and
+names are stable string keys; values are in [-1, 1] (one-hots and scalars in [0, 1];
+the cyclical hour features span the unit circle). This module is pure Python and
 has no dependency on the runner being up — it just shapes data for the contract.
 """
 
+import math
 import re
 from datetime import UTC, datetime
 
+from app.config import RANKER_TIME_FEATURES
+
 _SANITIZE = re.compile(r"[^a-z0-9]+")
+_TWO_PI = 2.0 * math.pi
 
 # Recency decays with this half-life so fresh items keep a baseline edge even
 # before the model has learned much.
@@ -59,11 +64,25 @@ def recency(published_at, now: datetime,
 PRIORITY_SCALAR = _PRIORITY_SCALAR
 
 
+def time_features(at: datetime, tz=None) -> list[list]:
+    """Cyclical when-features: hour-of-day on the unit circle + a weekend flag,
+    in the server's local timezone (tz overridable for tests). sin/cos keep
+    23:00 and 01:00 adjacent, which a raw hour scalar would not."""
+    local = at.astimezone(tz)
+    frac = (local.hour + local.minute / 60.0) / 24.0
+    feats = [["hour_sin", round(math.sin(_TWO_PI * frac), 4)],
+             ["hour_cos", round(math.cos(_TWO_PI * frac), 4)]]
+    if local.weekday() >= 5:
+        feats.append(["weekend", 1.0])
+    return feats
+
+
 def entry_features(entry: dict, priority: int, now: datetime,
                    embed_sim: float | None = None) -> list[list]:
     """The [name, value] feature vector for one entry. Binary one-hots for
-    feed/author/tag, continuous recency, the manual priority tier as a scalar, and
-    (when available) embed_sim — cosine to the taste centroid (Part C phase 2)."""
+    feed/author/tag, continuous recency, the manual priority tier as a scalar,
+    cyclical time-of-engagement features, and (when available) embed_sim —
+    cosine to the taste centroid (Part C phase 2)."""
     feats: list[list] = []
     fid = entry.get("feed_id")
     if fid:
@@ -75,6 +94,8 @@ def entry_features(entry: dict, priority: int, now: datetime,
         feats.append([feature_key("tag", t), 1.0])
     feats.append(["recency", round(_recency(entry.get("published_at"), now), 4)])
     feats.append(["priority", _PRIORITY_SCALAR.get(priority, 0.5)])
+    if RANKER_TIME_FEATURES:
+        feats.extend(time_features(now))
     if embed_sim is not None:
         feats.append(["embed_sim", round(float(embed_sim), 4)])
     return feats
@@ -109,6 +130,10 @@ def feature_label(name: str, feed_title: str | None = None) -> str:
         return "priority tier"
     if name == "embed_sim":
         return "similar to your taste"
+    if name in ("hour_sin", "hour_cos"):
+        return "time of day"
+    if name == "weekend":
+        return "weekend"
     if name.startswith("feed:"):
         return feed_title or "this source"
     if name.startswith("author:"):

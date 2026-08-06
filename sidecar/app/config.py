@@ -45,9 +45,44 @@ RENDER_MIN_INTERVAL_S = float(os.environ.get("RENDER_MIN_INTERVAL_S", "8"))
 EGRESS_GUARD = os.environ.get("EGRESS_GUARD", "1") not in ("0", "false", "")
 
 # Don't auto-backfill a feed's whole archive when full-content is first enabled:
-# the worker only fetches never-seen entries published within this window. Older
-# unfetched entries are left for on-demand "Fetch full text". 0 = no limit.
+# a never-seen entry only qualifies for extraction if it was already this fresh
+# (by Miniflux's own created_at, i.e. when we first saw it — NOT re-evaluated on
+# later polls) the first time the worker's cursor reached it. Older unfetched
+# entries are left for on-demand "Fetch full text" (or scripts/backfill_orphaned_
+# extractions.py). 0 = no limit. See WORKER_EXTRACT_MAX_ATTEMPTS below for the
+# separate question of how long a *fresh* entry gets retried after it qualifies.
 WORKER_BACKFILL_MAX_AGE_DAYS = int(os.environ.get("WORKER_BACKFILL_MAX_AGE_DAYS", "3"))
+
+# Extraction retry/backoff for entries that fail full-content extraction
+# (worker.py process_new_entries). A never-snapshotted entry that qualifies per
+# WORKER_BACKFILL_MAX_AGE_DAYS above gets retried with exponential backoff,
+# capped, and eventually given up on + logged rather than retried forever with
+# no backoff (as observed: one entry retried ~1,850 times in 17h before silently
+# falling out of the old recency-window query).
+#
+# Delays double each attempt (BASE, 2x, 4x, ...) up to MAX_ATTEMPTS-1 times,
+# capped at BACKOFF_MAX_MIN, before giving up — MAX_ATTEMPTS must be high enough
+# that the cap actually gets reached at least once (else it's dead config): with
+# the defaults below, delays are 5/10/20/40/80/160/320/480(capped) minutes across
+# 9 attempts, ~18.6h total, so a multi-hour site outage doesn't give up on
+# everything that happened to arrive during it.
+WORKER_EXTRACT_MAX_ATTEMPTS = int(os.environ.get("WORKER_EXTRACT_MAX_ATTEMPTS", "9"))
+WORKER_EXTRACT_BACKOFF_BASE_MIN = int(os.environ.get("WORKER_EXTRACT_BACKOFF_BASE_MIN", "5"))
+WORKER_EXTRACT_BACKOFF_MAX_MIN = int(os.environ.get("WORKER_EXTRACT_BACKOFF_MAX_MIN", "480"))
+
+# Entries per feed per poll cycle, for BOTH extraction passes:
+#   - discovery (_process_feed_cursor): ascending-entry-id walk for
+#     never-before-seen entries, immune to a feed's publish volume pushing an
+#     unresolved entry out of the window, unlike the old plain "50 most
+#     recent" query.
+#   - recency (_process_feed_recency): the most-recent-by-published_at window
+#     (the old query's shape, preserved) watched for RSS content changes on
+#     entries that already have a snapshot.
+WORKER_EXTRACT_BATCH = int(os.environ.get("WORKER_EXTRACT_BATCH", "50"))
+
+# Bound on how many previously-failed, not-yet-given-up, due-for-retry entries
+# get retried per poll cycle, across all feeds combined.
+WORKER_EXTRACT_RETRY_BATCH = int(os.environ.get("WORKER_EXTRACT_RETRY_BATCH", "20"))
 
 # Cross-feed learning ranker (Part C) — consumed over the Credence skin wire
 # (JSON-RPC/stdio via credence-skin-client). The engine is stateless-per-call; all

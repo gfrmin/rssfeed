@@ -132,6 +132,37 @@ ALTER TABLE engagement_events ADD COLUMN IF NOT EXISTS detail TEXT;
 -- to runs where a new positive engagement actually arrived.
 ALTER TABLE ranker_taste ADD COLUMN IF NOT EXISTS centroids JSONB;
 ALTER TABLE ranker_taste ADD COLUMN IF NOT EXISTS last_event_id BIGINT NOT NULL DEFAULT 0;
+
+-- Per-feed discovery cursor for full-content extraction (worker.process_new_entries).
+-- Ascending-entry-id walk, immune to a feed's own publish volume pushing a
+-- not-yet-attempted entry out of any recency-window query — fixes entries silently
+-- falling out of consideration once ~50 newer same-feed entries had arrived.
+CREATE TABLE IF NOT EXISTS extract_cursor (
+    feed_id         BIGINT PRIMARY KEY,
+    cursor_entry_id BIGINT NOT NULL DEFAULT 0,
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Durable retry/backoff state for entries that have failed full-content
+-- extraction and have no article_snapshots row yet. A row exists only while an
+-- entry is unresolved: cleared on success (article_snapshots then becomes the
+-- durable record) and left in place with given_up=TRUE once
+-- WORKER_EXTRACT_MAX_ATTEMPTS is reached, so a permanently broken URL is retried
+-- a bounded, logged number of times and then left alone rather than retried
+-- forever in a tight loop.
+CREATE TABLE IF NOT EXISTS extract_attempts (
+    entry_id        BIGINT PRIMARY KEY,
+    feed_id         BIGINT NOT NULL,
+    attempt_count   INT NOT NULL DEFAULT 0,
+    last_attempt_at TIMESTAMPTZ,
+    next_retry_at   TIMESTAMPTZ,
+    given_up        BOOLEAN NOT NULL DEFAULT FALSE,
+    last_error      TEXT,
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_extract_attempts_due
+  ON extract_attempts(next_retry_at) WHERE NOT given_up;
+CREATE INDEX IF NOT EXISTS idx_extract_attempts_feed ON extract_attempts(feed_id);
 """
 
 # Vector storage, kept OUT of SCHEMA_SQL so a plain postgres:17 deployment still boots.

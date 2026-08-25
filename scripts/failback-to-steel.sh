@@ -60,6 +60,10 @@ echo "[failback] Freezing writes on thinkpad (stopping its sidecar + miniflux)..
 ssh "$THINKPAD_HOST" "systemctl --user stop rssfeed-standby-sidecar.service || true; cd '$REPO_DIR' 2>/dev/null; podman-compose -f docker-compose.replica.yml stop miniflux || true"
 
 echo "[failback] Re-seeding steel's Postgres from thinkpad..."
+# `podman-compose stop` above leaves the containers around (just stopped) —
+# `volume rm -f` can't force through podman's container-dependency graph
+# (db <- miniflux), so the containers using the volume have to go first.
+podman rm -f rssfeed_miniflux_1 rssfeed_db_1 2>/dev/null || true
 podman volume rm -f rssfeed_pgdata
 podman volume create rssfeed_pgdata
 podman run --rm -v rssfeed_pgdata:/data \
@@ -80,7 +84,7 @@ echo "[failback] Starting steel's sidecar..."
 systemctl --user start rssfeed-sidecar.service
 
 echo "[failback] Steel is primary again. Re-seeding thinkpad's standby from steel..."
-ssh "$THINKPAD_HOST" "podman volume rm -f rssfeed_standby_pgdata && podman volume create rssfeed_standby_pgdata"
+ssh "$THINKPAD_HOST" "podman rm -f rssfeed-standby_miniflux_1 rssfeed-standby_db_1 2>/dev/null; podman volume rm -f rssfeed_standby_pgdata && podman volume create rssfeed_standby_pgdata"
 ssh "$THINKPAD_HOST" "podman run --rm -v rssfeed_standby_pgdata:/data -e PGPASSWORD='${REPL_PASSWORD}' docker.io/pgvector/pgvector:pg17 bash -c 'pg_basebackup -h ${STEEL_IP} -p 5433 -U replicator -D /data -Fp -Xs -P -R -v'"
 ssh "$THINKPAD_HOST" "cd '$REPO_DIR' 2>/dev/null; podman-compose -f docker-compose.replica.yml up -d db"
 

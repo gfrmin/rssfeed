@@ -21,3 +21,8 @@ ExecStartPre=/bin/bash -c 'for i in $(seq 30); do timeout 1 bash -c "cat < /dev/
 ExecStart=/bin/sh -c 'DATABASE_URL="postgres://miniflux:$${POSTGRES_PASSWORD:-miniflux}@localhost:5433/miniflux" exec /usr/bin/uv run uvicorn app.main:app --host 0.0.0.0 --port 9145'
 Restart=on-failure
 RestartSec=3
+# uvicorn re-raises SIGTERM's default disposition after its own graceful
+# shutdown, so a clean `systemctl stop` exits 143, not 0 — without this,
+# every intentional stop (e.g. failback freezing writes) is recorded as
+# `failed` instead of `inactive`.
+SuccessExitStatus=143

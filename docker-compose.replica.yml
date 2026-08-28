@@ -22,7 +22,14 @@ services:
     volumes:
       - standby_pgdata:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      # Two publications, both deliberate. Loopback is how the sidecar reaches
+      # the db (its ExecStartPre probe and DATABASE_URL both use localhost).
+      # The tailnet address is how steel reaches this box for failback's
+      # pg_basebackup — that direction is why plain 127.0.0.1 isn't enough.
+      # Deliberately NOT 0.0.0.0: this laptop runs no host firewall, so that
+      # would expose Postgres on whatever wifi LAN it joins.
+      - "127.0.0.1:5433:5432"
+      - "100.100.33.81:5433:5432"
     restart: unless-stopped
 
   miniflux:

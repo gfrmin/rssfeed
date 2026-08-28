@@ -18,7 +18,11 @@ Environment=MINIFLUX_URL=http://localhost:9144
 # degrade the same way.
 Environment=INVIDIOUS_URL=http://steel:5151
 ExecStartPre=/bin/bash -c 'for i in $(seq 30); do timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/5433" 2>/dev/null && exit 0; sleep 2; done; echo "standby postgres not reachable after 60s"; exit 1'
-ExecStart=/bin/sh -c 'DATABASE_URL="postgres://miniflux:$${POSTGRES_PASSWORD:-miniflux}@localhost:5433/miniflux" exec /usr/bin/uv run uvicorn app.main:app --host 0.0.0.0 --port 9145'
+# Bound to the tailnet IP, not 0.0.0.0: this laptop runs no host firewall, and
+# the reader has no auth, so 0.0.0.0 would serve it to whatever wifi LAN the
+# machine joins. Reach it at http://thinkpad:9145 (MagicDNS resolves locally
+# too). Note this makes the sidecar depend on tailscale0 being up.
+ExecStart=/bin/sh -c 'DATABASE_URL="postgres://miniflux:$${POSTGRES_PASSWORD:-miniflux}@localhost:5433/miniflux" exec /usr/bin/uv run uvicorn app.main:app --host 100.100.33.81 --port 9145'
 Restart=on-failure
 RestartSec=3
 # uvicorn re-raises SIGTERM's default disposition after its own graceful

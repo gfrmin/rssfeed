@@ -34,6 +34,17 @@ REPL_PASSWORD="$(secret-tool lookup service env key RSSFEED_REPLICATOR_PASSWORD)
 
 if [ -z "$REPL_PASSWORD" ]; then
     echo "Couldn't read RSSFEED_REPLICATOR_PASSWORD from the keyring." >&2
+    echo >&2
+    echo "This key must exist in the keyring of BOTH boxes — it was missing on" >&2
+    echo "thinkpad entirely until 2026-08-28. If it is gone here, recover it from" >&2
+    echo "whichever box currently holds the data:" >&2
+    echo >&2
+    echo "  podman exec <db-container> sed -n \\" >&2
+    echo "    's/.*primary_conninfo.*password=\\([^ ]*\\).*/\\1/p' \\" >&2
+    echo "    /var/lib/postgresql/data/postgresql.auto.conf | head -1" >&2
+    echo >&2
+    echo "then: printf '%s' \"\$PW\" | secret-tool store \\" >&2
+    echo "  --label=RSSFEED_REPLICATOR_PASSWORD service env key RSSFEED_REPLICATOR_PASSWORD" >&2
     exit 1
 fi
 
@@ -57,7 +68,7 @@ systemctl --user stop rssfeed-sidecar.service || true
 podman-compose stop db miniflux || true
 
 echo "[failback] Freezing writes on thinkpad (stopping its sidecar + miniflux)..."
-ssh "$THINKPAD_HOST" "systemctl --user stop rssfeed-standby-sidecar.service || true; cd '$REPO_DIR' 2>/dev/null; podman-compose -f docker-compose.replica.yml stop miniflux || true"
+ssh "$THINKPAD_HOST" "systemctl --user stop rssfeed-standby-sidecar.service || true; cd ~/git/rssfeed || exit 1; podman-compose -f docker-compose.replica.yml stop miniflux || true"
 
 echo "[failback] Re-seeding steel's Postgres from thinkpad..."
 # `podman-compose stop` above leaves the containers around (just stopped) —
@@ -86,7 +97,7 @@ systemctl --user start rssfeed-sidecar.service
 echo "[failback] Steel is primary again. Re-seeding thinkpad's standby from steel..."
 ssh "$THINKPAD_HOST" "podman rm -f rssfeed-standby_miniflux_1 rssfeed-standby_db_1 2>/dev/null; podman volume rm -f rssfeed_standby_pgdata && podman volume create rssfeed_standby_pgdata"
 ssh "$THINKPAD_HOST" "podman run --rm -v rssfeed_standby_pgdata:/data -e PGPASSWORD='${REPL_PASSWORD}' docker.io/pgvector/pgvector:pg17 bash -c 'pg_basebackup -h ${STEEL_IP} -p 5433 -U replicator -D /data -Fp -Xs -P -R -v'"
-ssh "$THINKPAD_HOST" "cd '$REPO_DIR' 2>/dev/null; podman-compose -f docker-compose.replica.yml up -d db"
+ssh "$THINKPAD_HOST" "cd ~/git/rssfeed || exit 1; podman-compose -f docker-compose.replica.yml up -d db"
 
 echo
 echo "[failback] Done. steel is primary, thinkpad is streaming as standby again."

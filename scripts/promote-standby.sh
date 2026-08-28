@@ -55,8 +55,9 @@ echo "[promote-standby] Starting the sidecar..."
 systemctl --user start rssfeed-standby-sidecar.service
 
 echo
-echo "[promote-standby] Done. rssfeed should be reachable at http://localhost:9145"
-echo "(or via Tailscale at http://thinkpad:9145 from another device)."
+echo "[promote-standby] Done. rssfeed should be reachable at http://thinkpad:9145"
+echo "(the sidecar binds the tailnet IP, not 0.0.0.0, so use the MagicDNS name —"
+echo "localhost:9145 will NOT answer. Works from this laptop and from the phone.)"
 echo
 echo "IMPORTANT: don't bring steel's rssfeed-sidecar.service back up until"
 echo "you've run scripts/failback-to-steel.sh — this machine is now the only"

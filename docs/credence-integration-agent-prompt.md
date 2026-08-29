@@ -5,6 +5,13 @@
 > and merged (in `~/git/credence`, decouple Moves 0 + 2). This task is the
 > **consumer** side, in this repo (`~/git/rssfeed`).
 
+> **Status: implemented and merged.** This is kept as the design record of *why*
+> the ranker is shaped the way it is, not as work to do. The adapter it proposes
+> as `sidecar/app/credence_client.py` landed as `sidecar/app/ranker_client.py`
+> (with `sidecar/app/ranker.py` for the model side); the "Read first" list below
+> points at files in the separate [credence](https://github.com/gfrmin/credence)
+> repo, not this one.
+
 ## Role
 
 You are implementing the consumer side of an RSS preference-ranking migration in

@@ -1,0 +1,62 @@
+# Standby half of rssfeed's steel -> thinkpad failover (see docs/failover.md).
+#
+# Normally the ONLY thing running here is `db`: a silent streaming replica of
+# steel's Postgres. It was seeded with `pg_basebackup -R`, which wrote
+# standby.signal + primary_conninfo straight into the volume, so it just
+# starts replicating on its own — no config needed in this file for that part.
+#
+# `miniflux` stays stopped by default (restart: "no", not started by `up -d`
+# without naming it): a hot standby is read-only, and miniflux would error
+# trying to write to it. It only gets started by scripts/promote-standby.sh,
+# after the standby has been promoted to a writable primary.
+#
+# Bring up just the standby:  podman-compose -f docker-compose.replica.yml up -d db
+# Full failover:               scripts/promote-standby.sh
+#
+# Named "rssfeed-standby" (not "rssfeed") so its containers/volume don't
+# collide in name with the primary's, even though they run on a different host.
+name: rssfeed-standby
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    volumes:
+      - standby_pgdata:/var/lib/postgresql/data
+    ports:
+      # Two publications, both deliberate. Loopback is how the sidecar reaches
+      # the db (its ExecStartPre probe and DATABASE_URL both use localhost).
+      # The tailnet address is how the *other* box reaches this one for
+      # failback's pg_basebackup — that direction is why 127.0.0.1 alone isn't
+      # enough. Deliberately NOT 0.0.0.0: neither box is guaranteed to run a
+      # host firewall, and that would publish Postgres to whatever LAN it joins.
+      #
+      # TAILNET_IP comes from .env (gitignored) as `tailscale ip -4`, so this
+      # file stays host-agnostic — either machine can run the standby, and no
+      # tailnet address is committed to what is a public repo. The `:?` is
+      # load-bearing: an empty value would collapse to ":5433:5432", which
+      # publishes on every interface. Fail loudly instead.
+      - "127.0.0.1:5433:5432"
+      - "${TAILNET_IP:?set TAILNET_IP in .env to this host's `tailscale ip -4`}:5433:5432"
+    restart: unless-stopped
+
+  miniflux:
+    image: miniflux/miniflux:latest
+    depends_on:
+      - db
+    environment:
+      # Same role/password as steel's miniflux DB user — replicated in from
+      # steel, so this must match steel's .env POSTGRES_PASSWORD.
+      DATABASE_URL: postgres://miniflux:${POSTGRES_PASSWORD:-miniflux}@db/miniflux?sslmode=disable
+      RUN_MIGRATIONS: "0"
+      CREATE_ADMIN: "0"
+      CLEANUP_ARCHIVE_READ_DAYS: "-1"
+      CLEANUP_ARCHIVE_UNREAD_DAYS: "-1"
+      POLLING_FREQUENCY: "15"
+      POLLING_PARSING_ERROR_LIMIT: "0"
+    ports:
+      - "127.0.0.1:9144:8080"
+    restart: "no"
+
+volumes:
+  standby_pgdata:
+    external: true
+    name: rssfeed_standby_pgdata

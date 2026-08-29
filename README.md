@@ -137,7 +137,9 @@ and for how to expose it safely.
 
 ## Configuration
 
-All configuration is via environment variables in `.env`:
+All configuration is via environment variables in `.env`. The settings you are
+likely to set are below; [docs/configuration.md](docs/configuration.md) is the
+complete list, including the tuning knobs.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -151,6 +153,7 @@ All configuration is via environment variables in `.env`:
 | `WORKER_POLL_INTERVAL` | `60` | Seconds between background extraction polls |
 | `EGRESS_GUARD` | `1` | Set 0 to disable the SSRF egress guard on server-side fetches (debugging only) |
 | `LOGIN_RECIPES_FILE` | `~/.config/rssfeed/login-recipes.json` | Per-site login recipes — see below |
+| `INVIDIOUS_URL` | | Send YouTube "Watch" links to your own [Invidious](https://invidious.io) instead of youtube.com |
 
 ### Subscription login recipes (optional)
 
@@ -230,8 +233,12 @@ The sidecar is managed with [uv](https://docs.astral.sh/uv/). Tests and lint mus
 cd sidecar
 uv run pytest          # test suite
 uv run ruff check .    # lint
-uv run ruff format .   # format
 ```
+
+`ruff check` is clean and should stay that way. The repo is deliberately **not**
+`ruff format`-managed — the code is hand-styled and running the formatter would
+rewrite 41 files for no behavioural change, burying a real diff. Don't run it as
+part of unrelated work.
 
 ## Tech stack
 

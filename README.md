@@ -2,6 +2,33 @@
 
 A self-hosted, single-user RSS reader that runs as a sidecar alongside [Miniflux](https://miniflux.app). It does two things Miniflux intentionally leaves out: **show you the actual full article** (full-text extraction with versioning) and **order the firehose by what you actually like** (a learning ranker that explains itself) — wrapped in a fast, distraction-free reader.
 
+## Screenshots
+
+[![The three-pane reader](docs/screenshots/reader-dark.png)](docs/screenshots/reader-dark.png)
+
+<table>
+<tr>
+<td width="50%"><a href="docs/screenshots/ranking.png"><img src="docs/screenshots/ranking.png" alt="Smart ordering with an explanation open"></a></td>
+<td width="50%"><a href="docs/screenshots/changed.png"><img src="docs/screenshots/changed.png" alt="Diff between two versions of an article"></a></td>
+</tr>
+<tr>
+<td><b>Smart ordering, explaining itself.</b> Every row can show the ± feature contributions behind its position.</td>
+<td><b>Article versioning.</b> Each full-text fetch is hashed; a new version is stored only when the text actually changes.</td>
+</tr>
+<tr>
+<td><a href="docs/screenshots/feeds.png"><img src="docs/screenshots/feeds.png" alt="Feed management"></a></td>
+<td><a href="docs/screenshots/mobile-list.png"><img src="docs/screenshots/mobile-list.png" alt="The reader on a phone" width="49%"></a> <a href="docs/screenshots/mobile-article.png"><img src="docs/screenshots/mobile-article.png" alt="An article on a phone" width="49%"></a></td>
+</tr>
+<tr>
+<td><b>Feed management.</b> Priority tiers, health, per-feed extraction rules, OPML.</td>
+<td><b>Mobile.</b> The same DOM, re-presented single-pane. There is a <a href="docs/screenshots/reader-light.png">light theme</a> too.</td>
+</tr>
+</table>
+
+Every feed, article, author and byline above is **invented**. This repo never
+contains real feed content — see [docs/screenshots/README.md](docs/screenshots/README.md)
+for how the shots are produced.
+
 ## Features
 
 **Reading experience**
@@ -239,6 +266,24 @@ uv run ruff check .    # lint
 `ruff format`-managed — the code is hand-styled and running the formatter would
 rewrite 41 files for no behavioural change, burying a real diff. Don't run it as
 part of unrelated work.
+
+### Styling
+
+Two stylesheets, and only one of them is generated:
+
+- `sidecar/static/style.css` — hand-written, covers the reader shell.
+- `sidecar/static/tailwind.css` — **built** from `static/input.css`, covers the
+  management pages (feeds, cookies, the diff overlay). It is **committed**, so
+  running the app needs no Node toolchain at all.
+
+Rebuild it only after changing `input.css` or adding utility classes to a template:
+
+```bash
+cd sidecar && npm install && npm run build:css   # or: make css
+```
+
+`sidecar/tests/test_static_assets.py` fails if a template references a
+`/static/…` file that isn't there, which is how the missing build was found.
 
 ## Tech stack
 

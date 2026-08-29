@@ -44,7 +44,7 @@ def test_bad_scheme_or_missing_host_rejected(url):
     "http://172.16.4.2/x",
     "http://192.168.1.10/x",
     "http://169.254.169.254/latest/meta-data/",   # cloud metadata
-    "http://100.64.0.7/x",                        # CGNAT / tailnet range
+    "http://100.64.0.7/x",                        # CGNAT / tailnet range  # PII-OK
     "http://0.0.0.0/x",
     "http://[::1]/x",
     "http://[fe80::1]/x",

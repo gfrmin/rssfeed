@@ -10,6 +10,9 @@ personal data is rejected:
   * a 9-digit run that *passes* the Israeli-ID checksum (synthetic test IDs are
     chosen to fail it, e.g. ``123456789``, so they pass the guard untouched);
   * a passport shape (two letters then seven digits) or an Israeli mobile.
+  * a tailnet address (the CGNAT range 100.64/10) -- fleet topology rather
+    than personal data, but public-repo hygiene all the same, and a shape rather
+    than a list so it catches addresses not yet allocated.
   * a filesystem path under a non-placeholder root (tracked text must use
     ``/data``, ``/tmp``, ``~/.config`` … — see ``.githooks/pii-path-allow.txt``);
     real machine prefixes (``$HOME`` / the ``$LIFE_AGENT_KB`` mount) are derived
@@ -68,6 +71,27 @@ _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})\
 _NINE_DIGITS_RE = re.compile(r"(?<![A-Za-z0-9])\d{9}(?![A-Za-z0-9])")
 _PASSPORT_RE = re.compile(r"\b[A-Z]{2}\d{7}\b")
 _IL_MOBILE_RE = re.compile(r"(?<![A-Za-z0-9])05\d[-\s]?\d{7}(?![A-Za-z0-9])")
+# A tailnet address: the CGNAT range 100.64/10 (RFC 6598) that Tailscale hands
+# out. This is *fleet* identity rather than personal data, but it belongs to the
+# same gate for the same reason -- this repo is public, it is one app of a private
+# fleet, and an address plus a hostname is a map of that fleet. The addresses are
+# unroutable from the internet, so the exposure is topology, not reachability;
+# that makes this a hygiene rule, not an incident, which is exactly why it needs
+# to be mechanical. It went unnoticed through three commits precisely because
+# every review of it was a human deciding it was "not really a secret".
+#
+# A SHAPE, not a list: the whole range is describable in public without any of
+# our addresses being written down here, so this catches an address nobody has
+# thought of yet -- the same property that makes the ID and email rules work.
+# Fleet *hostnames* have no shape, so they stay the private denylist's job
+# ($LIFE_AGENT_KB/pii-patterns.txt), which is where the module docstring already
+# sends "things with no detectable shape".
+#
+# 100.64-127.x.x. The look-around keeps it from firing inside a longer dotted
+# run (a version string, a 4-octet mask in a larger token).
+_TAILNET_IP_RE = re.compile(
+    r"(?<![\w.])100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}(?![\w.])"
+)
 # A filesystem-path literal worth checking. Home-relative (tilde-rooted, >=1 path
 # segment — inherently personal) OR absolute (slash-rooted, >=2 path segments). The
 # 2-segment floor for absolute paths skips the noise of single-name HTTP routes,
@@ -156,6 +180,8 @@ def scan_text(
             out.append(Finding(path, lineno, "passport-shape"))
         if _IL_MOBILE_RE.search(line):
             out.append(Finding(path, lineno, "israeli-mobile-shape"))
+        if _TAILNET_IP_RE.search(line):
+            out.append(Finding(path, lineno, "tailnet-address (CGNAT 100.64/10)"))
         for pat in denylist:
             if pat.search(line):
                 out.append(Finding(path, lineno, "private-denylist"))

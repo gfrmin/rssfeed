@@ -674,6 +674,10 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .mtop { display:none; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); background:var(--panel-2); }
 .micon { width:34px; height:34px; display:flex; align-items:center; justify-content:center; background:none; border:1px solid var(--border);
   border-radius:8px; color:var(--text); font-size:17px; }
+/* The right-hand .micon in the mobile top bar is a spacer that balances the menu
+   button so the title sits centred. It has no action, so it must not inherit the
+   button's border -- it read as a dead control. */
+.mtop .micon[aria-hidden="true"] { border-color:transparent; }
 .mtitle { flex:1; font-weight:600; font-size:14px; }
 .mbody { flex:1; min-height:0; display:flex; }
 .mbody > .list-col { flex:1; border-right:none; }

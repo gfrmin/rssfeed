@@ -69,6 +69,13 @@ This matters more than it looks: in a **user** systemd manager,
 `After=network-online.target` orders against nothing at all. An explicit wait is the
 only thing that works.
 
+## Assets are pre-built
+
+`sidecar/static/tailwind.css` is a build artifact and it is committed. That is
+deliberate: `git clone && uv sync && ./run-sidecar.sh` gives you a fully styled app
+with no Node toolchain anywhere in the picture. You only need `make css` if you
+change `static/input.css` or add utility classes to a template.
+
 ## Optional features are optional to install
 
 `uv sync` installs what the reader needs to read. Two features cost extra:

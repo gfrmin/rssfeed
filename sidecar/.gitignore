@@ -1,4 +1,11 @@
-static/tailwind.css
+# static/tailwind.css was ignored here until 2026-08-30. It is COMMITTED now, on
+# purpose: base.html has linked it since the design-system port, nothing ever built
+# it, and `make css` assumed a global `tailwindcss` binary that no instruction
+# installs -- so every clone rendered the management pages unstyled. Shipping the
+# built file is what makes `git clone && uv sync && ./run-sidecar.sh` produce a
+# working app with no Node toolchain, and it matches the vendored htmx.min.js next
+# to it. Rebuild with `make css` after changing input.css.
+
 
 # Extraction ground-truth corpus: raw article HTML is real feed content and must
 # never be committed to this public repo. The manifest + fetch_fixtures.py (both

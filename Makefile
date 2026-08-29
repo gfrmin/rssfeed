@@ -12,17 +12,18 @@ lint:
 fmt:
 	cd sidecar && uv run ruff format .
 
-# Build Tailwind CSS locally (requires tailwindcss CLI)
+# Rebuild the Tailwind stylesheet. The OUTPUT IS COMMITTED -- running the app
+# needs no Node toolchain -- so this is only for when input.css or a template's
+# utility classes change. `npm install` pulls the pinned CLI into
+# sidecar/node_modules (gitignored); the old target assumed a global `tailwindcss`
+# binary that nothing installed, which is how static/tailwind.css came to be
+# referenced by base.html for months without ever existing.
 css:
-	tailwindcss -i sidecar/static/input.css -o sidecar/static/tailwind.css
+	cd sidecar && npm install && npm run build:css
 
-# Build Tailwind CSS minified
-css-min:
-	tailwindcss -i sidecar/static/input.css -o sidecar/static/tailwind.css --minify
-
-# Watch for changes and rebuild Tailwind CSS
+# Rebuild on change while working on the management pages
 css-watch:
-	tailwindcss -i sidecar/static/input.css -o sidecar/static/tailwind.css --watch
+	cd sidecar && npm install && npm run watch:css
 
 # Build the sidecar Docker image
 build:

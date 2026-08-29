@@ -1,0 +1,13 @@
+{
+  "name": "rssfeed-sidecar-css",
+  "private": true,
+  "description": "Build-only: compiles static/input.css into the committed static/tailwind.css. Not needed to RUN the reader -- the built stylesheet is checked in.",
+  "scripts": {
+    "build:css": "tailwindcss -i static/input.css -o static/tailwind.css --minify",
+    "watch:css": "tailwindcss -i static/input.css -o static/tailwind.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "tailwindcss": "^4.1.0"
+  }
+}

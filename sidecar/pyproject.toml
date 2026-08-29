@@ -17,19 +17,44 @@ dependencies = [
     "nh3>=0.2.17",
     "python-multipart>=0.0.18",
     "humanize>=4.0",
-    "credence-skin-client",
     # Drives a self-hosted headless Chromium for server-side paywall login
     # (BrightData's Scraping Browser forbids password typing). REQUIRES a one-time
     # `playwright install chromium` on the host to provision the browser binary.
+    #
+    # Kept as a base dependency even though logins are optional: it installs
+    # cleanly from PyPI for anyone. The extra below exists to unblock INSTALLATION,
+    # not to minimise footprint, and a large wheel is not a blocker.
     "playwright>=1.40",
 ]
 
+[project.optional-dependencies]
+# The learning ranker. Optional because the feature is: ranker_client fails open
+# (score() returns None and the caller keeps priority+recency ordering), and the
+# import is lazy, inside _ensure_started(), whose except-clause already treats a
+# missing module like any other unavailable engine.
+#
+#     uv sync --extra ranker
+#
+# It is an EXTRA rather than a base dependency because it was the one thing that
+# made this repo un-installable by anyone but its author: it is sourced from the
+# credence repo, was pinned to the relative path ../../credence/..., and so
+# `uv sync` failed outright unless you happened to keep a credence checkout as a
+# sibling directory. A reader nobody else can install is not a reader anybody else
+# can use.
+ranker = ["credence-skin-client"]
+
 # The thin JSON-RPC wire client for the Credence skin engine (Part C). Pure stdlib,
-# zero transitive deps; the wire is the ONLY surface (no juliacall). Sourced from
-# the sibling credence checkout; set CREDENCE_SKIN_COMMAND to use the pinned image
-# instead at runtime. Not yet on PyPI.
+# zero transitive deps; the wire is the ONLY surface (no juliacall). Not on PyPI, so
+# it comes straight from the (public) credence repo -- NOT from a relative path to a
+# sibling checkout, which only ever resolved on the author's machine. uv pins the
+# resolved commit in uv.lock, so this is reproducible.
+#
+# Only the thin Python wire client comes from here. The ENGINE is still whatever
+# CREDENCE_SKIN_SERVER / CREDENCE_SKIN_COMMAND point at -- a local Julia checkout
+# during development, or the pinned container image in production -- so developing
+# against a local credence is unaffected.
 [tool.uv.sources]
-credence-skin-client = { path = "../../credence/apps/skin/clients/python" }
+credence-skin-client = { git = "https://github.com/gfrmin/credence", subdirectory = "apps/skin/clients/python" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

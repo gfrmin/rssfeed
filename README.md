@@ -83,6 +83,11 @@ port. The security boundary is **network placement**, not login:
 - bind it to `localhost`, a private LAN, or a tailnet/VPN interface; or
 - put an authenticating reverse proxy in front of it.
 
+The shipped defaults do this for you: the sidecar binds `127.0.0.1`
+(`RSSFEED_BIND`), and `docker-compose.yml` publishes Postgres and Miniflux on
+loopback too (`RSSFEED_PUBLISH_HOST`). Widening any of them should be a decision,
+not something you inherit.
+
 **Never expose the sidecar's port to the public internet.** Anyone who can
 reach it can read your feeds, import your browser cookies, and change
 configuration.
@@ -169,6 +174,21 @@ heuristic path and the app runs unchanged. A failed login leaves a screenshot in
 `/tmp/rssfeed-login-debug` to help you find the right selectors.
 
 ### Learning ranker (optional)
+
+Not installed by default — it needs the Credence skin client, which is not on PyPI:
+
+```bash
+cd sidecar && uv sync --extra ranker
+```
+
+Then set `RSSFEED_UV_EXTRAS=--extra ranker` in `.env` so `run-sidecar.sh` and the
+systemd unit keep it installed. Without the extra the ranker fails open: scoring
+returns nothing and the reader keeps its priority + recency ordering, which is the
+same thing that happens when the engine is simply down.
+
+The Python package is only the wire client. You still need an engine for it to talk
+to — either a local [Credence](https://github.com/gfrmin/credence) checkout
+(`CREDENCE_SKIN_SERVER`) or the pinned container image (`CREDENCE_SKIN_COMMAND`).
 
 | Variable | Default | Description |
 |----------|---------|-------------|

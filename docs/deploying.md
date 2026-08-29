@@ -69,6 +69,21 @@ This matters more than it looks: in a **user** systemd manager,
 `After=network-online.target` orders against nothing at all. An explicit wait is the
 only thing that works.
 
+## Optional features are optional to install
+
+`uv sync` installs what the reader needs to read. Two features cost extra:
+
+| Feature | Needs | How |
+|---|---|---|
+| Learning ranker | the Credence skin wire client (not on PyPI) | `uv sync --extra ranker`, then `RSSFEED_UV_EXTRAS=--extra ranker` in `.env` |
+| Paywall logins / SPA rendering | a Chromium binary | `uv run playwright install chromium` (the Python package is already a base dependency) |
+| Embedding similarity | an [Ollama](https://ollama.com) on `localhost:11434` | `EMBED_ENABLED=1`, `ollama pull nomic-embed-text` |
+
+All three **fail open**. Without the ranker the reader keeps its priority + recency
+ordering; without Chromium, paywalled articles just don't get a full-text snapshot;
+without Ollama, related-articles and taste similarity are absent. None of them can
+break the reader, which is the property to preserve if you extend this.
+
 ## Customising without editing tracked files
 
 Two levers, both survive `git pull`:

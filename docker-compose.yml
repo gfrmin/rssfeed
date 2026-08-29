@@ -12,8 +12,14 @@ services:
       POSTGRES_DB: miniflux
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # Loopback by default. This published `5433:5432` on EVERY interface, with
+    # POSTGRES_PASSWORD defaulting to "miniflux" -- so following the quick start on
+    # a laptop put a trivially-credentialled database on whatever network it joined
+    # next. Nothing needs it to be wider: the sidecar connects over localhost and
+    # miniflux reaches it on the compose network, not through this publication.
+    # Set RSSFEED_PUBLISH_HOST to widen it deliberately.
     ports:
-      - "5433:5432"
+      - "${RSSFEED_PUBLISH_HOST:-127.0.0.1}:${RSSFEED_DB_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "miniflux"]
       interval: 10s
@@ -35,8 +41,11 @@ services:
       CLEANUP_ARCHIVE_UNREAD_DAYS: "-1"
       POLLING_FREQUENCY: "15"
       POLLING_PARSING_ERROR_LIMIT: "0"
+    # Same default. Miniflux does authenticate, so this is a weaker argument than
+    # the database above -- but the README's security model says the boundary is
+    # network placement, and a default that contradicts it teaches the wrong habit.
     ports:
-      - "9144:8080"
+      - "${RSSFEED_PUBLISH_HOST:-127.0.0.1}:9144:8080"
     restart: unless-stopped
 
 

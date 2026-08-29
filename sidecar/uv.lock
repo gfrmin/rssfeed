@@ -189,14 +189,7 @@ wheels = [
 [[package]]
 name = "credence-skin-client"
 version = "0.1.0"
-source = { directory = "../../credence/apps/skin/clients/python" }
-
-[package.metadata]
-requires-dist = [
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4" },
-    { name = "ruff", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev"]
+source = { git = "https://github.com/gfrmin/credence?subdirectory=apps%2Fskin%2Fclients%2Fpython#6805adf28bc3b58f44c1d77a3216782e148c8604" }
 
 [[package]]
 name = "cssselect"
@@ -1042,7 +1035,6 @@ name = "rssfeed-sidecar"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
-    { name = "credence-skin-client" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "humanize" },
@@ -1056,6 +1048,11 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
+[package.optional-dependencies]
+ranker = [
+    { name = "credence-skin-client" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
@@ -1064,7 +1061,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "credence-skin-client", directory = "../../credence/apps/skin/clients/python" },
+    { name = "credence-skin-client", marker = "extra == 'ranker'", git = "https://github.com/gfrmin/credence?subdirectory=apps%2Fskin%2Fclients%2Fpython" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "humanize", specifier = ">=4.0" },
@@ -1077,6 +1074,7 @@ requires-dist = [
     { name = "trafilatura", specifier = ">=2.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
 ]
+provides-extras = ["ranker"]
 
 [package.metadata.requires-dev]
 dev = [

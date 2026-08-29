@@ -15,24 +15,34 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      # rssfeed and credence side by side: sidecar/pyproject.toml sources
-      # credence-skin-client from ../../credence/apps/skin/clients/python
-      # (a path dependency on the sibling checkout).
+      # A plain single checkout. This used to check out gfrmin/credence
+      # side-by-side, because sidecar/pyproject.toml sourced credence-skin-client
+      # from the relative path ../../credence/... -- so CI passed while a fresh
+      # clone could not `uv sync` at all. The ranker is an optional extra now and
+      # its source is the credence repo directly, so the layout assumption is gone
+      # from both places at once.
       - uses: actions/checkout@v4
-        with:
-          path: rssfeed
-      - uses: actions/checkout@v4
-        with:
-          repository: gfrmin/credence
-          path: credence
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"   # matches sidecar/Dockerfile (python:3.12-slim)
           enable-cache: true
-          cache-dependency-glob: "rssfeed/sidecar/uv.lock"
+          cache-dependency-glob: "sidecar/uv.lock"
+
+      # Base install ONLY -- no extras. This is deliberately the same thing a
+      # stranger gets from `git clone && uv sync`, so CI fails if the project ever
+      # stops being installable on its own again.
       - name: Lint
-        working-directory: rssfeed/sidecar
+        working-directory: sidecar
         run: uv run ruff check .
       - name: Test
-        working-directory: rssfeed/sidecar
+        working-directory: sidecar
         run: uv run pytest
+
+      # The ranker extra resolves from a git source, which nothing above exercises.
+      # Without this, breaking that source (a moved subdirectory, a renamed repo)
+      # would stay green here and only fail for whoever tried to enable the ranker.
+      - name: Ranker extra resolves
+        working-directory: sidecar
+        run: |
+          uv sync --extra ranker
+          uv run --extra ranker python -c "import credence_skin_client"

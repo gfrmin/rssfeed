@@ -96,7 +96,9 @@ disables the guard (debugging only).
 ## Setup
 
 ### Prerequisites
-- Docker and Docker Compose
+- Docker (or Podman) with Compose
+- [uv](https://docs.astral.sh/uv/) — the sidecar runs on the host, not in a
+  container, and its dependencies are managed with uv
 
 ### Quick start
 
@@ -111,15 +113,22 @@ cp .env.example .env
 #   MINIFLUX_ADMIN_PASSWORD (something secure)
 #   MINIFLUX_API_KEY (generate after first login, see below)
 
-# Start
+# Start Postgres + Miniflux
 docker compose up -d
 
 # 1. Open Miniflux at http://localhost:9144, log in with admin/your-password
 # 2. Go to Settings → API Keys → Create a new API key
 # 3. Add the key to .env as MINIFLUX_API_KEY
-# 4. Restart: docker compose restart sidecar
-# 5. Open the sidecar at http://localhost:9145
+
+# Start the sidecar (it runs on the host, not as a compose service)
+./run-sidecar.sh
+
+# 4. Open the reader at http://localhost:9145
 ```
+
+By default the reader listens on **loopback only** — it has no authentication of
+its own. See [docs/deploying.md](deploying.md) for running it as a systemd service
+and for how to expose it safely.
 
 ## Configuration
 

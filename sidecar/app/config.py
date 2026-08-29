@@ -13,7 +13,8 @@ BRIGHTDATA_UNLOCKER_PROXY = os.environ.get("BRIGHTDATA_UNLOCKER_PROXY", "")
 # future SPA *fetch* tier (rendering article HTML), which has no such restriction.
 BRIGHTDATA_BROWSER_WSS = os.environ.get("BRIGHTDATA_BROWSER_WSS", "")
 # Optional proxy for the self-hosted login browser, used only if a paywall blocks
-# steel's IP. Form: http://user:pass@host:port (e.g. a BrightData residential zone).
+# this host's IP. Form: http://user:pass@host:port (e.g. a BrightData residential
+# zone).
 # Empty → the login browser connects directly. Plain proxies don't block password
 # entry, so this is purely an IP-reputation escape hatch.
 LOGIN_BROWSER_PROXY = os.environ.get("LOGIN_BROWSER_PROXY", "")

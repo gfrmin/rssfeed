@@ -1,0 +1,58 @@
+# Example systemd user unit for the sidecar. Copy or symlink into
+# ~/.config/systemd/user/, then:
+#
+#     systemctl --user daemon-reload
+#     systemctl --user enable --now rssfeed-sidecar
+#
+# Host-specific settings belong in .env (gitignored) or in a drop-in at
+# ~/.config/systemd/user/rssfeed-sidecar.service.d/*.conf -- not in edits to
+# this file, so it stays updatable.
+
+[Unit]
+Description=rssfeed sidecar
+# The db and miniflux containers are plain compose-managed (restart:
+# unless-stopped), so there is no wrapper unit to order against. We wait for the
+# published Postgres port to actually accept connections instead -- see
+# ExecStartPre below.
+#
+# Be aware that After=network-online.target does nothing useful in a *user*
+# manager: the user instance's network-online.target is inert (it reports
+# inactive and has no dependencies), so this orders against nothing. It is kept
+# because it is correct in system scope, where this unit also works. If you need
+# a real wait for an interface, add it as a drop-in ExecStartPre.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/git/rssfeed/sidecar
+EnvironmentFile=%h/git/rssfeed/.env
+
+Environment=MINIFLUX_URL=http://localhost:9144
+
+# Wait for Postgres rather than assume it: on a cold boot the container and this
+# unit start concurrently, and the sidecar exits immediately on a refused
+# connection. 5433 is the port docker-compose.yml publishes.
+#
+# NOTE the doubled $$. systemd does its own ${VAR} expansion and does NOT
+# understand ${VAR:-default} -- given a single $, it would look for a variable
+# literally named "RSSFEED_DB_PORT:-5433" and substitute nothing. $$ escapes to a
+# literal $ so the shell does the expansion instead. Same everywhere below.
+ExecStartPre=/bin/bash -c 'p=$${RSSFEED_DB_PORT:-5433}; for i in $(seq 30); do timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/$$p" 2>/dev/null && exit 0; sleep 2; done; echo "postgres not reachable on 127.0.0.1:$$p after 60s"; exit 1'
+
+# RSSFEED_BIND defaults to loopback ON PURPOSE. The reader has no authentication
+# of its own, so binding 0.0.0.0 publishes your subscriptions and article
+# archive to every network the machine ever joins. Set RSSFEED_BIND in .env to a
+# specific address if you want it reachable -- ideally a VPN/tailnet address, or
+# put it behind a reverse proxy that does the authenticating.
+ExecStart=/bin/sh -c ': "$${RSSFEED_DB_PORT:=5433}"; : "$${DATABASE_URL:=postgres://miniflux:$${POSTGRES_PASSWORD:-miniflux}@localhost:$${RSSFEED_DB_PORT}/miniflux}"; export DATABASE_URL; exec /usr/bin/uv run uvicorn app.main:app --host "$${RSSFEED_BIND:-127.0.0.1}" --port "$${RSSFEED_PORT:-9145}"'
+
+Restart=on-failure
+RestartSec=3
+# uvicorn re-raises SIGTERM's default disposition after its own graceful
+# shutdown, so a clean `systemctl stop` exits 143, not 0 -- without this, every
+# intentional stop is recorded as `failed` rather than `inactive`.
+SuccessExitStatus=143
+
+[Install]
+WantedBy=default.target

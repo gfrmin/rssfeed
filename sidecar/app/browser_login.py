@@ -8,7 +8,7 @@ We run Chromium *locally* (via ``playwright install chromium``) rather than on
 BrightData's Scraping Browser: BrightData deliberately blocks typing into
 password fields ("Forbidden action: password typing is not allowed"), which
 makes credential login impossible there. A self-hosted browser has no such
-restriction. If a paywall ever blocks steel's IP, route the browser through
+restriction. If a paywall ever blocks this host's IP, route the browser through
 ``LOGIN_BROWSER_PROXY`` (a plain proxy — proxies don't block password entry).
 
 Per-site quirks are *configuration*, loaded from ``LOGIN_RECIPES_FILE`` outside

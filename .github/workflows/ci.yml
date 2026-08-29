@@ -1,8 +1,11 @@
-# Lint + tests for the sidecar.
+# Lint + tests for the sidecar, plus the shape half of the PII guard.
 #
-# The PII guard (.githooks/) deliberately does NOT run here: it fail-closes
-# without the private $LIFE_AGENT_KB denylist, which never leaves the
-# operator's machine. It runs in the local pre-commit/pre-push hooks instead.
+# The guard has two halves. The DENYLIST half needs $LIFE_AGENT_KB, a private file
+# that never leaves the operator's machine, and fail-closes without it -- that half
+# can only run in the local pre-commit/pre-push hooks. The SHAPE half needs nothing
+# and runs here: it is what catches an email address, a checksum-valid ID number or
+# a tailnet address, including in a fork's PR, and including on a push that used
+# --no-verify. Local hooks are not a gate a public repo can rely on alone.
 name: CI
 
 on:
@@ -46,3 +49,9 @@ jobs:
         run: |
           uv sync --extra ranker
           uv run --extra ranker python -c "import credence_skin_client"
+
+      # Structural half of the PII guard -- no denylist, so no private file needed.
+      # It scans every tracked file, not the diff: a leak that lands by any route
+      # (a merge, a rebase, a bypassed hook) still fails the branch it sits on.
+      - name: PII guard (shapes)
+        run: python3 .githooks/pii_check.py --shapes-only

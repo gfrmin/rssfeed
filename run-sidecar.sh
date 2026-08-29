@@ -17,5 +17,8 @@ export MINIFLUX_URL="${MINIFLUX_URL:-http://localhost:9144}"
 # this machine joins -- including whatever cafe wifi a laptop connects to next.
 # Set RSSFEED_BIND in .env to expose it deliberately, ideally to a VPN address.
 cd "$SCRIPT_DIR/sidecar"
-exec uv run uvicorn app.main:app \
+# RSSFEED_UV_EXTRAS is unquoted on purpose: it word-splits into separate uv
+# arguments (e.g. `--extra ranker`) and disappears when unset.
+# shellcheck disable=SC2086
+exec uv run ${RSSFEED_UV_EXTRAS} uvicorn app.main:app \
     --host "${RSSFEED_BIND:-127.0.0.1}" --port "${RSSFEED_PORT:-9145}" --reload

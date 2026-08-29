@@ -45,7 +45,12 @@ ExecStartPre=/bin/bash -c 'p=$${RSSFEED_DB_PORT:-5433}; for i in $(seq 30); do t
 # archive to every network the machine ever joins. Set RSSFEED_BIND in .env to a
 # specific address if you want it reachable -- ideally a VPN/tailnet address, or
 # put it behind a reverse proxy that does the authenticating.
-ExecStart=/bin/sh -c ': "$${RSSFEED_DB_PORT:=5433}"; : "$${DATABASE_URL:=postgres://miniflux:$${POSTGRES_PASSWORD:-miniflux}@localhost:$${RSSFEED_DB_PORT}/miniflux}"; export DATABASE_URL; exec /usr/bin/uv run uvicorn app.main:app --host "$${RSSFEED_BIND:-127.0.0.1}" --port "$${RSSFEED_PORT:-9145}"'
+#
+# RSSFEED_UV_EXTRAS passes optional dependency groups to uv, e.g.
+# `--extra ranker`. Left unset, `uv run` installs base dependencies only, and the
+# optional features degrade the way they are designed to. Deliberately UNQUOTED so
+# it word-splits into separate arguments (and vanishes entirely when empty).
+ExecStart=/bin/sh -c ': "$${RSSFEED_DB_PORT:=5433}"; : "$${DATABASE_URL:=postgres://miniflux:$${POSTGRES_PASSWORD:-miniflux}@localhost:$${RSSFEED_DB_PORT}/miniflux}"; export DATABASE_URL; exec /usr/bin/uv run $${RSSFEED_UV_EXTRAS} uvicorn app.main:app --host "$${RSSFEED_BIND:-127.0.0.1}" --port "$${RSSFEED_PORT:-9145}"'
 
 Restart=on-failure
 RestartSec=3

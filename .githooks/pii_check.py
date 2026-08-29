@@ -460,6 +460,26 @@ def main(argv: list[str]) -> int:
     path_allow = load_path_allow(repo_root)
     forbidden = load_forbidden_prefixes()
 
+    if "--staged" in args:
+        files = gather_staged()
+    elif "--prepush" in args:
+        files = gather_prepush(sys.stdin.read())
+    elif paths:
+        files = gather_paths(paths)
+    else:
+        files = gather_tracked()
+
+    # Nothing to scan. A branch deletion sends a zero local sha and introduces no
+    # blobs at all; so does a push whose range is already on the remote. Return
+    # BEFORE the fail-closed denylist check below, which would otherwise refuse
+    # the push -- `git push --delete` was blocked four times this way.
+    #
+    # This does not weaken the guarantee. Fail-closed exists so real content is
+    # never scanned blind; an empty work set is not content, and there is nothing
+    # to be blind about.
+    if not files:
+        return 0
+
     if shapes_only:
         denylist: list[re.Pattern[str]] = []
     else:
@@ -471,15 +491,6 @@ def main(argv: list[str]) -> int:
             )
             return 2
         denylist = loaded
-
-    if "--staged" in args:
-        files = gather_staged()
-    elif "--prepush" in args:
-        files = gather_prepush(sys.stdin.read())
-    elif paths:
-        files = gather_paths(paths)
-    else:
-        files = gather_tracked()
 
     findings: list[Finding] = []
     for path, text in files:

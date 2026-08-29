@@ -83,6 +83,11 @@ port. The security boundary is **network placement**, not login:
 - bind it to `localhost`, a private LAN, or a tailnet/VPN interface; or
 - put an authenticating reverse proxy in front of it.
 
+The shipped defaults do this for you: the sidecar binds `127.0.0.1`
+(`RSSFEED_BIND`), and `docker-compose.yml` publishes Postgres and Miniflux on
+loopback too (`RSSFEED_PUBLISH_HOST`). Widening any of them should be a decision,
+not something you inherit.
+
 **Never expose the sidecar's port to the public internet.** Anyone who can
 reach it can read your feeds, import your browser cookies, and change
 configuration.

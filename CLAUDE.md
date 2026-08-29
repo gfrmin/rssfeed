@@ -37,13 +37,15 @@ casually; it's a deliberate, standalone change if ever wanted.
 
 Branch work happens in worktrees under `~/git/worktrees/rssfeed/<name>`.
 
-**Gotcha**: `sidecar/pyproject.toml` sources `credence-skin-client` from the *relative*
-path `../../credence/apps/skin/clients/python`. That resolves outside a worktree, so
-`uv run` fails there unless a `credence` symlink sits beside the worktree:
+No setup needed. This used to require a `credence` symlink beside the worktree, because
+`sidecar/pyproject.toml` pinned `credence-skin-client` to the relative path
+`../../credence/apps/skin/clients/python`, which resolves outside a worktree. That
+dependency is now an optional extra fetched from the credence repo by URL, so `uv run`
+works in a worktree with nothing beside it. Delete any leftover symlink.
 
-```bash
-ln -sfn ~/git/credence ~/git/worktrees/rssfeed/credence
-```
+A local `~/git/credence` checkout is still what `CREDENCE_SKIN_SERVER` points at — but
+that is the ranker *engine* at runtime, not an install-time dependency, and the reader
+fails open without it.
 
 ## Conventions
 

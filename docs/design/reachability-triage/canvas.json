@@ -1,0 +1,61 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Triage — in the reader shell"
+    },
+    {
+      "file": "Palette.dc.html",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "⌘K command palette"
+    },
+    {
+      "file": "FeedsPage.dc.html",
+      "x": 3120,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Alternative — /feeds, restyled"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "legend",
+      "x": 0,
+      "y": -290,
+      "w": 420,
+      "text": "READ THE BADGES\n\nEXISTS = solid chip. The endpoint is already in\nroutes/feeds.py; this is only a reachability change.\n\nPROPOSED = dashed amber chip. New behaviour. Nothing\nhere is built yet — the chip is the honest line between\n\"move a button\" and \"write a feature\".\n\nFeed names are synthetic, per the repo's no-real-feeds\nrule. The counts and error strings are real: 21 failing\nfeeds, taken from the Miniflux log this morning."
+    },
+    {
+      "id": "note-triage",
+      "x": 460,
+      "y": -380,
+      "w": 470,
+      "text": "TRIAGE — the deliverable (Main)\n\nNothing new invented: this is Sentry's group-by-error-\nsignature, dropped into the three-pane shell you already\nhave. Sidebar picks a cause, middle lists its feeds,\nright pane holds the fix. Same muscle memory as reading.\n\nThe move that matters: 19 of your 21 failures are two\ncauses wearing 19 names. Fixing them one feed at a time\nis the actual problem — so the remedy binds to the\ngroup, not the row.\n\nGONE QUIET is the odd one out, and it is the reason you\nasked. feed_health.py has no concept of \"publisher went\nsilent\" — its `stale` measures time since Miniflux last\npolled, while _macros.html labels it \"no items 24h+\".\nThe label promises the signal you wanted; the code\nmeasures something else."
+    },
+    {
+      "id": "note-palette",
+      "x": 1560,
+      "y": -320,
+      "w": 450,
+      "text": "⌘K PALETTE (Palette)\n\nStraight Linear/Raycast convention — click the field and\ntype, it filters live. Try \"opml\", \"quiet\", \"lobby\".\n\nWhy it earns space: every action in the ACTIONS section\nalready exists as an endpoint, and every one of them is\ncurrently four clicks deep behind /feeds. j/k/o/m/s/r\nstay exactly as they are; this only covers what has no\nkey today.\n\nThe TRIAGE section at the top is what makes it more than\na nicety — it is the same worklist as Main, reachable\nwithout leaving the article you are reading."
+    },
+    {
+      "id": "note-feeds",
+      "x": 3120,
+      "y": -440,
+      "w": 520,
+      "text": "ALTERNATIVE — /feeds restyled (FeedsPage)\n\nThe conservative option: no new view. Keep triage where\nthe bulk actions already live, and fix what is wrong\nwith that page — it is still Tailwind-generic while the\nreader is dense and dark, the bulk bar is display:none\nuntil you tick a box, and \"health\" is one dropdown\namong four.\n\nHere the health dropdown becomes cause chips, the bulk\nbar is always visible (dimmed when nothing is selected),\nand the row shows its cause instead of hiding the error\nin a title attribute.\n\nTRADEOFF: cheaper, and it fixes a page that is already\nbelow the bar — but it is a detour out of the reader,\nand there is nowhere to put the per-cause explanation\nand ordered remedies that Main gives you.\n\nThese two are not exclusive. This page wants this work\nregardless; Main is the question."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

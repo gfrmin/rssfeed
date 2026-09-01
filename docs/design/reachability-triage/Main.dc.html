@@ -1,0 +1,621 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;450;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin:0; }
+    a { color:inherit; text-decoration:none; }
+    a:hover { color:var(--text); }
+    * { box-sizing:border-box; }
+    *::-webkit-scrollbar { width:9px; height:9px; }
+    *::-webkit-scrollbar-thumb { background:var(--border-2); border-radius:6px; border:2px solid transparent; background-clip:content-box; }
+    *::-webkit-scrollbar-thumb:hover { background:var(--faint); background-clip:content-box; }
+    .root { height:900px; width:1440px; display:flex; flex-direction:column;
+      background:var(--bg); color:var(--text);
+      font-family:"Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size:13px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+    .mono { font-family:"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .grid { flex:1; min-height:0; display:grid; grid-template-columns:264px 400px 1fr; }
+
+    /* ---------- sidebar ---------- */
+    .sidebar { background:var(--panel-2); border-right:1px solid var(--border); display:flex; flex-direction:column; min-height:0; }
+    .brand { display:flex; align-items:center; gap:7px; padding:14px 16px 12px; border-bottom:1px solid var(--border); }
+    .brand-mark { color:var(--accent); font-size:15px; }
+    .brand-name { font-weight:700; letter-spacing:.14em; font-size:12.5px; }
+    .brand-sub { font-family:"Geist Mono",ui-monospace,monospace; font-size:9.5px; color:var(--faint); letter-spacing:.1em;
+      text-transform:uppercase; border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
+    .brand-unread { margin-left:auto; font-family:"Geist Mono",ui-monospace,monospace; font-size:11px; color:var(--accent); font-weight:600; }
+    .nav-block { padding:8px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:1px; }
+    .nav-row { display:flex; align-items:center; gap:9px; width:100%; padding:6px 9px; background:none; border:none;
+      border-radius:7px; color:var(--muted); font-size:13px; text-align:left; }
+    .nav-row.on { background:var(--hover); color:var(--text); }
+    .nav-row.on svg { color:var(--accent); }
+    .nav-label { flex:1; }
+    .nav-count { font-family:"Geist Mono",ui-monospace,monospace; font-size:11px; color:var(--faint); }
+    .nav-count.acc { color:var(--accent); font-weight:600; }
+    .block-head { display:flex; align-items:center; justify-content:space-between; padding:4px 8px 7px;
+      font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); }
+    .feeds-block { flex:1; min-height:0; display:flex; flex-direction:column; padding:8px 8px 0; }
+    .feeds-scroll { overflow-y:auto; flex:1; min-height:0; display:flex; flex-direction:column; gap:1px; }
+    .feed-row { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; color:var(--muted); }
+    .feed-title { flex:1; font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .feed-count { font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; color:var(--faint); }
+    .tile { display:inline-flex; align-items:center; justify-content:center; background:var(--tile-bg); color:var(--tile-fg);
+      font-weight:600; font-family:"Geist Mono",ui-monospace,monospace; flex:none; line-height:1; border-radius:4px; }
+    .hdot { display:inline-block; border-radius:50%; flex:none; width:7px; height:7px; }
+    .hdot.ok { background:#3a3a42; }
+    .hdot.warn { background:var(--accent); box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 22%,transparent); }
+    .hdot.error { background:var(--danger); box-shadow:0 0 0 2px color-mix(in srgb,var(--danger) 24%,transparent); }
+    .hdot.muted { background:#46464e; }
+    .sidebar-foot { display:flex; align-items:center; gap:3px; padding:8px; border-top:1px solid var(--border); }
+    .tool-btn { display:flex; align-items:center; gap:6px; padding:5px 8px; border-radius:6px; color:var(--muted); font-size:11.5px; }
+    .foot-spacer { flex:1; }
+    .icon-btn { width:28px; height:28px; display:flex; align-items:center; justify-content:center; background:none;
+      border:1px solid var(--border); border-radius:6px; color:var(--muted); }
+
+    /* ---------- list column (triage) ---------- */
+    .list-col { background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; min-height:0; }
+    .list-head { padding:13px 15px 0; border-bottom:1px solid var(--border); }
+    .list-head-top { display:flex; align-items:center; gap:9px; margin-bottom:11px; }
+    .list-title { font-size:16px; font-weight:600; margin:0; letter-spacing:-.01em; }
+    .list-count { font-family:"Geist Mono",ui-monospace,monospace; font-size:11px; color:var(--faint); background:var(--panel-2);
+      border:1px solid var(--border); border-radius:5px; padding:1px 6px; }
+    .seg { display:inline-flex; background:var(--panel-2); border:1px solid var(--border); border-radius:7px; padding:2px; margin-bottom:11px; }
+    .seg-btn { padding:3px 10px; background:none; border:none; border-radius:5px; color:var(--muted);
+      font-size:11px; font-family:"Geist Mono",ui-monospace,monospace; letter-spacing:.01em; }
+    .seg-btn.on { background:var(--raised); color:var(--text); box-shadow:0 1px 2px rgba(0,0,0,.25); }
+    .list-scroll { flex:1; overflow-y:auto; padding:6px 7px 20px; display:flex; flex-direction:column; gap:3px; }
+
+    .grp { border:1px solid var(--border); border-radius:9px; background:var(--panel-2); overflow:hidden; }
+    .grp.focus { border-color:color-mix(in srgb,var(--accent) 45%,var(--border)); }
+    .grp-head { display:flex; align-items:center; gap:8px; padding:9px 10px; width:100%; background:none; border:none; text-align:left; }
+    .grp-head:hover { background:var(--hover); }
+    .chev { color:var(--faint); display:flex; flex:none; }
+    .grp-label { display:block; font-size:12.5px; font-weight:600; color:var(--text); }
+    .grp-why { display:block; font-size:10.5px; color:var(--faint); font-family:"Geist Mono",ui-monospace,monospace; margin-top:2px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .grp-mid { flex:1; min-width:0; }
+    .grp-n { font-family:"Geist Mono",ui-monospace,monospace; font-size:11px; color:var(--muted);
+      background:var(--panel); border:1px solid var(--border); border-radius:5px; padding:1px 6px; flex:none; }
+    .grp-body { border-top:1px solid var(--border); padding:4px; display:flex; flex-direction:column; gap:1px; }
+    .frow { display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:6px; width:100%;
+      background:none; border:none; text-align:left; color:var(--muted); }
+    .frow:hover { background:var(--hover); }
+    .frow.sel { background:color-mix(in srgb,var(--accent) 13%,transparent); color:var(--text); }
+    .cbox { width:13px; height:13px; border-radius:3px; border:1px solid var(--border-2); flex:none;
+      display:flex; align-items:center; justify-content:center; font-size:9px; }
+    .cbox.on { background:var(--accent); border-color:var(--accent); color:#0c0c0e; }
+    .frow-title { flex:1; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .frow-ago { font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; color:var(--faint); flex:none; }
+    .grp-foot { display:flex; align-items:center; gap:6px; padding:5px 7px 3px; }
+    .mini { background:none; border:1px solid var(--border); border-radius:5px; padding:2px 8px; color:var(--muted);
+      font-size:10px; font-family:"Geist Mono",ui-monospace,monospace; letter-spacing:.03em; }
+    .mini:hover { border-color:var(--accent); color:var(--text); }
+
+    /* ---------- reader pane (remedy) ---------- */
+    .rd { display:flex; flex-direction:column; min-height:0; background:var(--bg); }
+    .rd-bar { display:flex; align-items:center; gap:10px; padding:10px 18px; border-bottom:1px solid var(--border); background:var(--panel-2); }
+    .rd-act { display:flex; align-items:center; gap:5px; border:1px solid transparent; border-radius:6px; padding:4px 9px;
+      color:var(--muted); font-size:11.5px; background:none; }
+    .rd-act:hover { background:var(--hover); color:var(--text); border-color:var(--border); }
+    .rd-scroll { flex:1; overflow-y:auto; padding:26px 30px 30px; }
+    .rd-inner { max-width:620px; }
+    .mlabel { font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; letter-spacing:.13em;
+      text-transform:uppercase; color:var(--faint); font-weight:500; }
+    .rd-title { font-size:26px; line-height:1.2; font-weight:700; letter-spacing:-.022em; margin:8px 0 0; }
+    .rd-sub { display:flex; align-items:center; gap:7px; margin-top:9px; font-size:11.5px; color:var(--faint);
+      font-family:"Geist Mono",ui-monospace,monospace; flex-wrap:wrap; }
+    .errbox { margin-top:16px; background:var(--panel-2); border:1px solid var(--border); border-left:2px solid var(--danger);
+      border-radius:7px; padding:10px 12px; font-family:"Geist Mono",ui-monospace,monospace; font-size:11px;
+      color:var(--muted); line-height:1.6; word-break:break-word; }
+    .expl { margin-top:14px; font-size:12.5px; color:var(--muted); line-height:1.62; }
+    .rem-head { display:flex; align-items:baseline; gap:8px; margin:24px 0 9px; }
+    .rem-scope { font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; color:var(--accent); }
+    .rem { display:flex; align-items:flex-start; gap:11px; padding:11px 12px; border:1px solid var(--border);
+      border-radius:8px; background:var(--panel); margin-bottom:6px; }
+    .rem.proposed { border-style:dashed; }
+    .rem.quiet { opacity:.72; }
+    .rem-ic { width:26px; height:26px; border-radius:6px; background:var(--raised); color:var(--muted);
+      display:flex; align-items:center; justify-content:center; flex:none; margin-top:1px; }
+    .rem.primary .rem-ic { background:color-mix(in srgb,var(--accent) 18%,transparent); color:var(--accent); }
+    .rem-mid { flex:1; min-width:0; }
+    .rem-name { font-size:12.5px; font-weight:600; color:var(--text); display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+    .rem-desc { display:block; font-size:11.5px; color:var(--muted); margin-top:3px; line-height:1.55; }
+    .rem-ep { display:block; font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; color:var(--faint); margin-top:5px; }
+    .rem-go { flex:none; align-self:center; background:none; border:1px solid var(--border); border-radius:6px;
+      padding:5px 11px; color:var(--muted); font-size:11px; font-family:"Geist Mono",ui-monospace,monospace; white-space:nowrap; }
+    .rem-go:hover { border-color:var(--accent); color:var(--accent); }
+    .rem.primary .rem-go { background:var(--accent); border-color:var(--accent); color:#0c0c0e; font-weight:600; }
+    .tag { display:inline-flex; align-items:center; gap:3px; padding:1px 6px; border-radius:5px; font-size:9.5px;
+      font-family:"Geist Mono",ui-monospace,monospace; letter-spacing:.03em; background:var(--panel-2);
+      border:1px solid var(--border); color:var(--faint); text-transform:uppercase; }
+    .tag.dash { border-style:dashed; color:var(--accent); border-color:color-mix(in srgb,var(--accent) 40%,var(--border)); }
+
+    /* ---------- status bar ---------- */
+    .statusbar { display:flex; align-items:center; gap:14px; height:24px; padding:0 12px; background:var(--panel-2);
+      border-top:1px solid var(--border); font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; color:var(--faint); }
+    .sb-seg { display:flex; align-items:center; gap:5px; }
+    .sb-spacer { flex:1; }
+    .sb-alert { color:var(--danger); }
+    .kbd { display:inline-block; min-width:16px; text-align:center; padding:0 5px; background:var(--panel-2);
+      border:1px solid var(--border-2); border-bottom-width:2px; border-radius:4px;
+      font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; color:var(--text); }
+  </style>
+</helmet>
+
+<div class="root" style="{{ rootStyle }}">
+  <div class="grid">
+
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">&#9626;</span>
+        <span class="brand-name">READER</span>
+        <span class="brand-sub">sidecar</span>
+        <span class="brand-unread">312</span>
+      </div>
+
+      <nav class="nav-block">
+        <div class="nav-row">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+          <span class="nav-label">Unread</span><span class="nav-count">312</span>
+        </div>
+        <div class="nav-row">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m6.08 9.5-3.5 1.6a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.5-1.59"/></svg>
+          <span class="nav-label">All</span><span class="nav-count">4.1k</span>
+        </div>
+        <div class="nav-row">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 3.05a9 9 0 1 0 9.45 9.45"/><path d="M8.5 12.5 11 15l5.5-6.5"/></svg>
+          <span class="nav-label">Read</span><span class="nav-count">3.8k</span>
+        </div>
+        <div class="nav-row">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5 14.1 8l6 .9-4.3 4.2 1 6-5.3-2.8L6.2 19l1-6L3 8.9 9 8Z"/></svg>
+          <span class="nav-label">Starred</span><span class="nav-count">86</span>
+        </div>
+        <div class="nav-row">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16"/><path d="M4 8h6"/><path d="M14 16h6"/></svg>
+          <span class="nav-label">Changed</span><span class="nav-count">7</span>
+        </div>
+      </nav>
+
+      <!-- NEW: the one-click route into triage, from anywhere in the reader -->
+      <nav class="nav-block">
+        <div class="nav-row on" style="background:color-mix(in srgb,var(--danger) 12%,transparent);">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          <span class="nav-label" style="color:var(--text);">Needs attention</span>
+          <span class="nav-count" style="color:var(--danger);font-weight:600;">21</span>
+        </div>
+      </nav>
+
+      <div class="nav-block feeds-block" style="border-bottom:none;">
+        <div class="block-head"><span>Feeds</span></div>
+        <div class="feeds-scroll">
+          <sc-for list="{{ sidebarFeeds }}" as="f" hint-placeholder-count="6">
+            <div class="feed-row">
+              <span class="hdot {{ f.dot }}"></span>
+              <span class="tile" style="{{ f.tileStyle }}">{{ f.letter }}</span>
+              <span class="feed-title">{{ f.title }}</span>
+              <span class="feed-count">{{ f.n }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div class="sidebar-foot">
+        <span class="tool-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>
+          <span>Feeds</span>
+        </span>
+        <div class="foot-spacer"></div>
+        <span class="kbd" style="font-size:10px;">&#8984;K</span>
+        <span class="icon-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+        </span>
+      </div>
+    </aside>
+
+    <!-- ============ TRIAGE LIST ============ -->
+    <section class="list-col">
+      <div class="list-head">
+        <div class="list-head-top">
+          <h1 class="list-title">Needs attention</h1>
+          <span class="list-count">{{ totalProblems }}</span>
+        </div>
+        <div class="seg">
+          <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+            <button class="seg-btn {{ t.cls }}" onClick="{{ t.pick }}">{{ t.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+
+      <div class="list-scroll">
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="4">
+          <div class="grp {{ g.focusCls }}">
+            <button class="grp-head" onClick="{{ g.toggle }}">
+              <span class="chev" style="{{ g.chevStyle }}">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              </span>
+              <span class="hdot {{ g.dot }}"></span>
+              <span class="grp-mid">
+                <span class="grp-label">{{ g.label }}</span>
+                <span class="grp-why">{{ g.why }}</span>
+              </span>
+              <span class="grp-n">{{ g.count }}</span>
+            </button>
+            <sc-if value="{{ g.open }}" hint-placeholder-val="{{ true }}">
+              <div class="grp-body">
+                <sc-for list="{{ g.feeds }}" as="f" hint-placeholder-count="4">
+                  <button class="frow {{ f.selCls }}" onClick="{{ f.toggle }}">
+                    <span class="cbox {{ f.boxCls }}">{{ f.mark }}</span>
+                    <span class="tile" style="{{ f.tileStyle }}">{{ f.letter }}</span>
+                    <span class="frow-title">{{ f.title }}</span>
+                    <span class="frow-ago">{{ f.ago }}</span>
+                  </button>
+                </sc-for>
+                <div class="grp-foot">
+                  <button class="mini" onClick="{{ g.selectAll }}">{{ g.selectAllLabel }}</button>
+                  <button class="mini" onClick="{{ g.openIssue }}">OPEN REMEDIES &#8594;</button>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <!-- ============ REMEDY PANE ============ -->
+    <section class="rd">
+      <div class="rd-bar">
+        <span class="mlabel">Remedy</span>
+        <span style="margin-left:auto;display:flex;gap:4px;">
+          <span class="rd-act">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>
+            Re-check now
+          </span>
+          <span class="rd-act">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            Dismiss
+          </span>
+        </span>
+      </div>
+      <div class="rd-scroll">
+        <div class="rd-inner">
+          <div class="mlabel">{{ cur.kindLabel }}</div>
+          <h2 class="rd-title">{{ cur.label }}</h2>
+          <div class="rd-sub">
+            <span>{{ cur.count }} feeds</span><span style="color:var(--border-2)">&#183;</span>
+            <span>first seen {{ cur.firstSeen }}</span><span style="color:var(--border-2)">&#183;</span>
+            <span>{{ cur.attempts }} failed polls</span>
+          </div>
+
+          <div class="errbox">{{ cur.raw }}</div>
+          <p class="expl">{{ cur.expl }}</p>
+
+          <div class="rem-head">
+            <span class="mlabel">Remedies</span>
+            <span class="rem-scope">{{ scopeLabel }}</span>
+          </div>
+
+          <sc-for list="{{ cur.remedies }}" as="r" hint-placeholder-count="4">
+            <div class="rem {{ r.cls }}">
+              <span class="rem-ic">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="{{ r.icon }}"/></svg>
+              </span>
+              <span class="rem-mid">
+                <span class="rem-name">{{ r.name }}<span class="tag {{ r.tagCls }}">{{ r.tag }}</span></span>
+                <span class="rem-desc">{{ r.desc }}</span>
+                <span class="rem-ep mono">{{ r.endpoint }}</span>
+              </span>
+              <button class="rem-go">{{ r.cta }}</button>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="statusbar">
+    <span class="sb-seg"><span class="hdot error"></span><span>NEEDS ATTENTION</span></span>
+    <span class="sb-seg sb-alert">{{ totalProblems }} feeds across {{ groupCount }} causes</span>
+    <span class="sb-seg">{{ selCount }} selected</span>
+    <span class="sb-spacer"></span>
+    <span class="sb-seg"><span class="kbd">&#8984;K</span> commands</span>
+    <span class="sb-seg"><span class="kbd">g</span><span class="kbd">a</span> attention</span>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "theme": {"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"},
+  "accent": {"editor":"color","default":"#ff9f0a","options":["#ff9f0a","#64d2ff","#4ec98a","#c27800"],"section":"Theme"},
+  "$preview": {"width":1440,"height":900}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { open: 'cloudflare', focus: 'cloudflare', tab: 'problems', sel: {} };
+  }
+
+  tokens() {
+    const dark = {
+      bg:'#0c0c0e', panel:'#131316', panel2:'#0f0f12', raised:'#1b1b20', hover:'#191920',
+      border:'#222228', border2:'#2f2f37', text:'#f3f3f5', muted:'#8b8b94', faint:'#585862',
+      danger:'#ff5a4d', add:'#4ec98a', tileBg:'#26262c', tileFg:'#cfcfd6'
+    };
+    const light = {
+      bg:'#eceae5', panel:'#faf9f7', panel2:'#f3f2ee', raised:'#ffffff', hover:'#f0efea',
+      border:'#e3e1da', border2:'#d2d0c8', text:'#15151a', muted:'#6b6b72', faint:'#9a9aa1',
+      danger:'#c8362a', add:'#1f8a5b', tileBg:'#e6e4dd', tileFg:'#4a4a52'
+    };
+    return (this.props.theme ?? 'dark') === 'light' ? light : dark;
+  }
+
+  icons() {
+    return {
+      shield:'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+      search:'M11 4a7 7 0 1 0 .01 0M20 20l-3.5-3.5',
+      arrows:'M3 8h13l-3-3M21 16H8l3 3',
+      pause:'M9 5v14M15 5v14',
+      person:'M12 3a4 4 0 1 0 .01 0M4 21a8 8 0 0 1 16 0',
+      download:'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
+      key:'M15 7a4 4 0 1 0 .01 0M13.4 8.6 3 19v2h3v-2h2v-2h2l3.4-3.4',
+      clip:'M9 3h6v3H9zM8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2',
+      refresh:'M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5',
+      slider:'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
+      chart:'M3 3v18h18M7 15l4-5 3 3 5-7',
+      edit:'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
+      bell:'M13.7 21a2 2 0 0 1-3.4 0M18 8a6 6 0 0 0-9.3-5M4.3 9.3A6 6 0 0 0 4 10c0 7-3 9-3 9h15M2 2l20 20'
+    };
+  }
+
+  data() {
+    return [
+      {
+        id:'cloudflare', kind:'error', dot:'error',
+        label:'Cloudflare challenge', why:'403 + JS interstitial on the feed URL',
+        kindLabel:'Fetch error · bot protection', firstSeen:'11 Aug', attempts:'214',
+        raw:'fetcher: blocked by Cloudflare challenge (403 status code)',
+        expl:'Miniflux gets an HTML challenge page instead of XML. Its Go HTTP client cannot solve it, so every poll fails identically — this is one problem wearing nine names, not nine problems.',
+        feeds:[
+          {id:'c1', title:'Applied Statistics Quarterly', ago:'21d'},
+          {id:'c2', title:'Econometric Review', ago:'21d'},
+          {id:'c3', title:'Political Studies Digest', ago:'19d'},
+          {id:'c4', title:'International Affairs Weekly', ago:'21d'},
+          {id:'c5', title:'Population Trends', ago:'18d'},
+          {id:'c6', title:'Gadget Wire', ago:'6d'},
+          {id:'c7', title:'Cartography Notes', ago:'9d'},
+          {id:'c8', title:'Quantitative Methods Bulletin', ago:'21d'},
+          {id:'c9', title:'Social Policy Journal', ago:'21d'}
+        ],
+        remedies:[
+          {ic:'shield', name:'Route these fetches through the unblocker proxy', tag:'proposed', proposed:true, primary:true,
+           desc:'A headless-browser fetch solves the interstitial and hands Miniflux clean XML. Metered per request, so scope it to this group rather than turning it on globally.',
+           endpoint:'needs a new per-feed fetch_via setting', cta:'Apply'},
+          {ic:'search', name:'Probe for an unprotected feed URL', tag:'exists', proposed:false,
+           desc:'Publishers routinely leave an atom variant, a Feedburner mirror, or a bare RSS URL outside the WAF rule. Worth trying before paying per fetch.',
+           endpoint:'POST /feeds/auto-discover', cta:'Probe'},
+          {ic:'arrows', name:'Enable full-text proxy fetch', tag:'exists', proposed:false,
+           desc:'Only helps when the article HTML is reachable but the XML is not — it does not fix the poll itself, so entries still stop arriving.', 
+           endpoint:'POST /feeds/set-proxy', cta:'Enable'},
+          {ic:'pause', name:'Pause polling', tag:'exists', proposed:false, quiet:true,
+           desc:'Stops the noise, keeps every entry and the feed record. Reversible, and the right holding move for a feed you are not ready to fix.',
+           endpoint:'POST /feeds/pause-polling', cta:'Pause'}
+        ]
+      },
+      {
+        id:'forbidden', kind:'error', dot:'error',
+        label:'Access forbidden', why:'plain 403, no challenge page',
+        kindLabel:'Fetch error · refused', firstSeen:'3 Jul', attempts:'488',
+        raw:'fetcher: access forbidden (403 status code)',
+        expl:'The server refuses outright rather than challenging. Usually a user-agent block or an IP reputation rule — a different fix from a Cloudflare interstitial, which is why these should not share one bucket.',
+        feeds:[
+          {id:'f1', title:'Commentary Corner', ago:'60d'},
+          {id:'f2', title:'Journalism Review', ago:'44d'},
+          {id:'f3', title:'Transparency Notes', ago:'44d'},
+          {id:'f4', title:'Liberties Watch', ago:'31d'},
+          {id:'f5', title:'Book Reviews Quarterly', ago:'28d'},
+          {id:'f6', title:'Notes from a Small Server', ago:'12d'},
+          {id:'f7', title:'Speculative Notes', ago:'90d'},
+          {id:'f8', title:'The Design Journals', ago:'75d'},
+          {id:'f9', title:'Translations Diary', ago:'120d'},
+          {id:'f10', title:'Libertarian Roundtable', ago:'52d'}
+        ],
+        remedies:[
+          {ic:'person', name:'Send a browser user-agent', tag:'proposed', proposed:true, primary:true,
+           desc:'The single most common cause. Miniflux ships a per-feed user-agent field the sidecar never exposes — surfacing it here fixes most of this group for free.',
+           endpoint:'needs UI over the existing Miniflux field', cta:'Set UA'},
+          {ic:'search', name:'Probe for an alternate feed URL', tag:'exists', proposed:false,
+           desc:'Several of these moved to a new path and left the old one returning 403 rather than a redirect.',
+           endpoint:'POST /feeds/auto-discover', cta:'Probe'},
+          {ic:'pause', name:'Pause polling', tag:'exists', proposed:false, quiet:true,
+           desc:'Some of these are dead sites. Pausing keeps the feed record as the attachment point for a later historical import.',
+           endpoint:'POST /feeds/pause-polling', cta:'Pause'}
+        ]
+      },
+      {
+        id:'auth', kind:'error', dot:'error',
+        label:'Auth failed', why:'stored credential rejected',
+        kindLabel:'Fetch error · credentials', firstSeen:'26 Aug', attempts:'31',
+        raw:'fetcher: Get "https://example.com/feed/": Auth failed',
+        expl:'The feed is behind a login the sidecar already knows how to handle — the credential just went stale. This is the one bucket with a complete, already-built remedy path.',
+        feeds:[{id:'a1', title:'Members Dispatch', ago:'6d'}],
+        remedies:[
+          {ic:'download', name:'Re-import cookies from Firefox', tag:'exists', proposed:false, primary:true,
+           desc:'Reads the live session straight out of the browser profile. Fastest fix when you are already signed in on this machine.',
+           endpoint:'POST /feeds/{id}/subscription/import-firefox', cta:'Import'},
+          {ic:'key', name:'Sign in with stored credentials', tag:'exists', proposed:false,
+           desc:'Drives a real login in a headless browser and keeps the resulting session in the credential vault.',
+           endpoint:'POST /feeds/{id}/subscription/login', cta:'Sign in'},
+          {ic:'clip', name:'Paste a cookie header', tag:'exists', proposed:false,
+           desc:'Manual fallback for sites whose login the browser flow cannot drive.',
+           endpoint:'POST /feeds/{id}/subscription/paste', cta:'Paste'}
+        ]
+      },
+      {
+        id:'timeout', kind:'error', dot:'warn',
+        label:'Connect timeout', why:'no response headers before deadline',
+        kindLabel:'Fetch error · transport', firstSeen:'29 Aug', attempts:'9',
+        raw:'fetcher: context deadline exceeded (Client.Timeout exceeded while awaiting headers)',
+        expl:'Intermittent rather than broken. Worth a manual re-check before touching any setting — a single slow poll should not have promoted this to the same shelf as a hard 403.',
+        feeds:[{id:'t1', title:'Bookmarks Firehose', ago:'2d'}],
+        remedies:[
+          {ic:'refresh', name:'Re-check now', tag:'exists', proposed:false, primary:true,
+           desc:'Forces an immediate poll outside the scheduler. Clears the error count if it succeeds.',
+           endpoint:'POST /feeds/bulk-refresh', cta:'Re-check'},
+          {ic:'slider', name:'Require 3 consecutive failures before flagging', tag:'proposed', proposed:true,
+           desc:'PERSISTENT_ERROR_THRESHOLD already exists in feed_health.py but only separates warn from error. A flaky-poll grace period would keep this list honest.',
+           endpoint:'sidecar/app/feed_health.py', cta:'Configure'}
+        ]
+      },
+      {
+        id:'quiet', kind:'quiet', dot:'warn',
+        label:'Gone quiet', why:'polling fine — but nothing new vs. its own cadence',
+        kindLabel:'No error · publishing gap', firstSeen:'—', attempts:'0',
+        raw:'no error — last successful poll 41 minutes ago, HTTP 200, 0 new items',
+        expl:'This is the question you actually ask: has this feed stopped, or is it just slow today? Nothing in the app answers it. "Stale" sounds like it does, but feed_health.py computes staleness from checked_at — when Miniflux last polled — not from when the publisher last posted.',
+        feeds:[
+          {id:'q1', title:'The Lobby Diary', ago:'19h'},
+          {id:'q2', title:'Daily Ledger', ago:'3d'},
+          {id:'q3', title:'Craft & Practice', ago:'8d'},
+          {id:'q4', title:'The Weekly Fold', ago:'11d'},
+          {id:'q5', title:'Notes on Type', ago:'22d'},
+          {id:'q6', title:'Harbour Watch', ago:'31d'}
+        ],
+        remedies:[
+          {ic:'chart', name:'Compare each feed against its own baseline', tag:'proposed', proposed:true, primary:true,
+           desc:'A feed that posts 8× a day is silent at 6 hours; one that posts monthly is not. Flag on a multiple of the feed’s own median gap, never a fixed 24h.',
+           endpoint:'derivable from entries.published_at — no new table', cta:'Enable'},
+          {ic:'edit', name:'Fix the "stale" label to match what it measures', tag:'proposed', proposed:true,
+           desc:'_macros.html calls it "no items 24h+" while feed_health.py measures time since last poll. One of the two has to move; the label is the wrong one to keep.',
+           endpoint:'sidecar/app/templates/_macros.html', cta:'Open'},
+          {ic:'bell', name:'Mute this feed’s quiet alert', tag:'proposed', proposed:true, quiet:true,
+           desc:'Seasonal and hiatus-prone feeds should be silenceable without pausing the poll.',
+           endpoint:'needs a per-feed quiet_muted flag', cta:'Mute'}
+        ]
+      }
+    ];
+  }
+
+  renderVals() {
+    const t = this.tokens();
+    const accent = this.props.accent ?? '#ff9f0a';
+    const rootStyle = [
+      '--bg:'+t.bg, '--panel:'+t.panel, '--panel-2:'+t.panel2, '--raised:'+t.raised,
+      '--hover:'+t.hover, '--border:'+t.border, '--border-2:'+t.border2, '--text:'+t.text,
+      '--muted:'+t.muted, '--faint:'+t.faint, '--accent:'+accent, '--danger:'+t.danger,
+      '--add:'+t.add, '--tile-bg:'+t.tileBg, '--tile-fg:'+t.tileFg
+    ].join(';');
+
+    const all = this.data();
+    const tab = this.state.tab;
+    const shown = all.filter((g) => tab === 'all' ? true : (tab === 'quiet' ? g.kind === 'quiet' : g.kind === 'error'));
+    const sel = this.state.sel;
+
+    const tileStyle = 'width:15px;height:15px;font-size:8px;';
+
+    const groups = shown.map((g) => {
+      const open = this.state.open === g.id;
+      const selectedHere = g.feeds.filter((f) => sel[f.id]).length;
+      return {
+        id: g.id,
+        label: g.label,
+        why: g.why,
+        dot: g.dot,
+        count: String(g.feeds.length),
+        open: open,
+        focusCls: this.state.focus === g.id ? 'focus' : '',
+        chevStyle: open ? 'transform:rotate(90deg);color:' + accent + ';' : '',
+        toggle: () => this.setState({ open: open ? null : g.id, focus: g.id }),
+        openIssue: () => this.setState({ focus: g.id }),
+        selectAllLabel: selectedHere === g.feeds.length ? 'CLEAR ALL' : 'SELECT ALL ' + g.feeds.length,
+        selectAll: () => {
+          const next = Object.assign({}, sel);
+          const on = selectedHere !== g.feeds.length;
+          g.feeds.forEach((f) => { if (on) { next[f.id] = true; } else { delete next[f.id]; } });
+          this.setState({ sel: next, focus: g.id });
+        },
+        feeds: g.feeds.map((f) => ({
+          title: f.title,
+          ago: f.ago,
+          letter: (f.title[0] || '?').toUpperCase(),
+          tileStyle: tileStyle,
+          selCls: sel[f.id] ? 'sel' : '',
+          boxCls: sel[f.id] ? 'on' : '',
+          mark: sel[f.id] ? '✓' : '',
+          toggle: () => {
+            const next = Object.assign({}, sel);
+            if (next[f.id]) { delete next[f.id]; } else { next[f.id] = true; }
+            this.setState({ sel: next, focus: g.id });
+          }
+        }))
+      };
+    });
+
+    const IC = this.icons();
+    const focused = all.find((g) => g.id === this.state.focus) || all[0];
+    const selCount = Object.keys(sel).length;
+    const selHere = focused.feeds.filter((f) => sel[f.id]).length;
+
+    const cur = {
+      label: focused.label,
+      kindLabel: focused.kindLabel,
+      count: String(focused.feeds.length),
+      firstSeen: focused.firstSeen,
+      attempts: focused.attempts,
+      raw: focused.raw,
+      expl: focused.expl,
+      remedies: focused.remedies.map((r) => ({
+        icon: IC[r.ic],
+        name: r.name,
+        desc: r.desc,
+        endpoint: r.endpoint,
+        cta: r.cta,
+        tag: r.tag,
+        tagCls: r.proposed ? 'dash' : '',
+        cls: (r.primary ? 'primary ' : '') + (r.proposed ? 'proposed ' : '') + (r.quiet ? 'quiet' : '')
+      }))
+    };
+
+    const tabs = [
+      { id:'problems', label:'PROBLEMS' },
+      { id:'quiet', label:'QUIET' },
+      { id:'all', label:'ALL' }
+    ].map((x) => ({
+      label: x.label,
+      cls: tab === x.id ? 'on' : '',
+      pick: () => this.setState({ tab: x.id })
+    }));
+
+    return {
+      rootStyle: rootStyle,
+      groups: groups,
+      tabs: tabs,
+      cur: cur,
+      selCount: String(selCount),
+      groupCount: String(all.filter((g) => g.kind === 'error').length),
+      totalProblems: '21',
+      scopeLabel: selHere > 0
+        ? 'applies to ' + selHere + ' selected'
+        : 'applies to all ' + focused.feeds.length + ' in this group',
+      sidebarFeeds: [
+        { title:'The Lobby Diary', n:'0', dot:'warn', letter:'G', tileStyle:'width:16px;height:16px;font-size:8px;' },
+        { title:'The Daily Ledger', n:'34', dot:'ok', letter:'T', tileStyle:'width:16px;height:16px;font-size:8px;' },
+        { title:'Gadget Wire', n:'0', dot:'error', letter:'G', tileStyle:'width:16px;height:16px;font-size:8px;' },
+        { title:'Harbour Watch', n:'12', dot:'ok', letter:'H', tileStyle:'width:16px;height:16px;font-size:8px;' },
+        { title:'Applied Statistics Quarterly', n:'0', dot:'error', letter:'A', tileStyle:'width:16px;height:16px;font-size:8px;' },
+        { title:'Craft & Practice', n:'3', dot:'ok', letter:'C', tileStyle:'width:16px;height:16px;font-size:8px;' },
+        { title:'Members Dispatch', n:'0', dot:'error', letter:'M', tileStyle:'width:16px;height:16px;font-size:8px;' },
+        { title:'Notes on Type', n:'1', dot:'muted', letter:'N', tileStyle:'width:16px;height:16px;font-size:8px;' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

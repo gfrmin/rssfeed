@@ -1,0 +1,314 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;450;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin:0; }
+    a { color:inherit; text-decoration:none; }
+    a:hover { color:var(--text); }
+    * { box-sizing:border-box; }
+    *::-webkit-scrollbar { width:9px; height:9px; }
+    *::-webkit-scrollbar-thumb { background:var(--border-2); border-radius:6px; border:2px solid transparent; background-clip:content-box; }
+    *::-webkit-scrollbar-thumb:hover { background:var(--faint); background-clip:content-box; }
+    .root { height:900px; width:1440px; display:flex; flex-direction:column; overflow:hidden;
+      background:var(--bg); color:var(--text);
+      font-family:"Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size:13px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+    .mono { font-family:"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .mlabel { font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; letter-spacing:.13em;
+      text-transform:uppercase; color:var(--faint); font-weight:500; }
+    .hdot { display:inline-block; border-radius:50%; width:7px; height:7px; flex:none; }
+    .hdot.ok { background:#3a3a42; }
+    .hdot.warn { background:var(--accent); box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 22%,transparent); }
+    .hdot.error { background:var(--danger); box-shadow:0 0 0 2px color-mix(in srgb,var(--danger) 24%,transparent); }
+    .hdot.muted { background:#46464e; }
+    .tile { display:inline-flex; align-items:center; justify-content:center; background:var(--tile-bg); color:var(--tile-fg);
+      font-weight:600; font-family:"Geist Mono",ui-monospace,monospace; flex:none; line-height:1;
+      border-radius:4px; width:17px; height:17px; font-size:9px; }
+
+    /* header */
+    .top { display:flex; align-items:center; gap:12px; padding:15px 26px; border-bottom:1px solid var(--border);
+      background:var(--panel-2); flex:none; }
+    .top-title { font-size:17px; font-weight:600; letter-spacing:-.01em; }
+    .top-count { font-family:"Geist Mono",ui-monospace,monospace; font-size:11px; color:var(--faint);
+      background:var(--panel); border:1px solid var(--border); border-radius:5px; padding:1px 7px; }
+    .top-sp { flex:1; }
+    .field { display:flex; align-items:center; gap:7px; background:var(--panel); border:1px solid var(--border);
+      border-radius:8px; padding:5px 10px; color:var(--faint); font-size:12px; }
+    .btn { background:var(--panel); border:1px solid var(--border); border-radius:7px; padding:5px 12px;
+      color:var(--muted); font-size:11.5px; }
+    .btn:hover { border-color:var(--accent); color:var(--accent); }
+    .btn.pri { background:var(--accent); border-color:var(--accent); color:#0c0c0e; font-weight:600; }
+
+    /* triage strip */
+    .strip { display:flex; align-items:center; gap:7px; padding:12px 26px; border-bottom:1px solid var(--border);
+      background:var(--panel-2); flex:none; flex-wrap:wrap; }
+    .chip { display:flex; align-items:center; gap:7px; padding:6px 11px; border-radius:8px;
+      background:var(--panel); border:1px solid var(--border); color:var(--muted); font-size:11.5px; }
+    .chip:hover { border-color:var(--border-2); color:var(--text); }
+    .chip.on { background:color-mix(in srgb,var(--accent) 14%,transparent);
+      border-color:color-mix(in srgb,var(--accent) 50%,var(--border)); color:var(--text); }
+    .chip-n { font-family:"Geist Mono",ui-monospace,monospace; font-size:11px; color:var(--faint); }
+    .chip.on .chip-n { color:var(--accent); font-weight:600; }
+    .strip-sp { flex:1; }
+
+    /* bulk bar — always present, not display:none */
+    .bulk { display:flex; align-items:center; gap:6px; padding:9px 26px; border-bottom:1px solid var(--border);
+      background:var(--panel); flex:none; flex-wrap:wrap; }
+    .bulk-n { font-family:"Geist Mono",ui-monospace,monospace; font-size:11px; color:var(--accent);
+      min-width:92px; }
+    .bulk-n.none { color:var(--faint); }
+    .bact { background:none; border:1px solid var(--border); border-radius:6px; padding:4px 10px;
+      color:var(--muted); font-size:11px; font-family:"Geist Mono",ui-monospace,monospace; letter-spacing:.02em; }
+    .bact:hover { border-color:var(--accent); color:var(--text); }
+    .bact.dim { opacity:.42; }
+    .bact.warn:hover { border-color:var(--danger); color:var(--danger); }
+    .bdiv { width:1px; height:17px; background:var(--border); margin:0 4px; }
+
+    /* table */
+    .twrap { flex:1; overflow-y:auto; padding:0 26px; }
+    table { width:100%; border-collapse:collapse; }
+    th { text-align:left; padding:10px 10px; border-bottom:1px solid var(--border);
+      font-family:"Geist Mono",ui-monospace,monospace; font-size:9.5px; letter-spacing:.13em;
+      text-transform:uppercase; color:var(--faint); font-weight:500; }
+    td { padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+    tr:hover td { background:var(--hover); }
+    tr.sel td { background:color-mix(in srgb,var(--accent) 9%,transparent); }
+    .cbox { width:13px; height:13px; border-radius:3px; border:1px solid var(--border-2);
+      display:flex; align-items:center; justify-content:center; font-size:9px; }
+    .cbox.on { background:var(--accent); border-color:var(--accent); color:#0c0c0e; }
+    .f-name { display:flex; align-items:center; gap:8px; }
+    .f-title { display:block; font-size:12.5px; color:var(--text); }
+    .f-url { display:block; font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; color:var(--faint); margin-top:2px; }
+    .cause { display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border-radius:5px;
+      font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; letter-spacing:.02em;
+      border:1px solid var(--border); background:var(--panel-2); color:var(--muted); }
+    .cause.err { color:var(--danger); border-color:color-mix(in srgb,var(--danger) 32%,var(--border)); }
+    .cause.wrn { color:var(--accent); border-color:color-mix(in srgb,var(--accent) 32%,var(--border)); }
+    .num { font-family:"Geist Mono",ui-monospace,monospace; font-size:11px; color:var(--faint); }
+    .badge { display:inline-block; background:var(--accent); color:#0c0c0e; font-size:10.5px;
+      font-family:"Geist Mono",ui-monospace,monospace; padding:1px 7px; border-radius:5px; font-weight:600; }
+    .rowact { display:flex; gap:3px; justify-content:flex-end; }
+    .ract { width:24px; height:24px; display:flex; align-items:center; justify-content:center;
+      border:1px solid transparent; border-radius:5px; color:var(--faint); background:none; }
+    .ract:hover { border-color:var(--border); color:var(--text); background:var(--panel-2); }
+    .foot { flex:none; display:flex; align-items:center; gap:14px; height:26px; padding:0 26px;
+      background:var(--panel-2); border-top:1px solid var(--border);
+      font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; color:var(--faint); }
+    .foot-sp { flex:1; }
+    .kbd { display:inline-block; min-width:16px; text-align:center; padding:0 5px; background:var(--panel-2);
+      border:1px solid var(--border-2); border-bottom-width:2px; border-radius:4px;
+      font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; color:var(--text); }
+  </style>
+</helmet>
+
+<div class="root" style="{{ rootStyle }}">
+  <div class="top">
+    <span class="top-title">Feeds</span>
+    <span class="top-count">{{ totalFeeds }}</span>
+    <span class="field" style="width:230px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <span>Filter feeds…</span>
+      <span style="margin-left:auto;"><span class="kbd">/</span></span>
+    </span>
+    <span class="top-sp"></span>
+    <span class="btn">Import OPML</span>
+    <span class="btn">Export OPML</span>
+    <span class="btn pri">Add feed</span>
+  </div>
+
+  <!-- Triage strip: the health dropdown, promoted to cause-shaped chips -->
+  <div class="strip">
+    <span class="mlabel" style="margin-right:4px;">Needs attention</span>
+    <sc-for list="{{ chips }}" as="c" hint-placeholder-count="6">
+      <button class="chip {{ c.onCls }}" onClick="{{ c.pick }}">
+        <span class="hdot {{ c.dot }}"></span>
+        <span>{{ c.label }}</span>
+        <span class="chip-n">{{ c.n }}</span>
+      </button>
+    </sc-for>
+    <span class="strip-sp"></span>
+    <span class="mlabel">{{ healthLine }}</span>
+  </div>
+
+  <div class="bulk">
+    <span class="bulk-n {{ selNoneCls }}">{{ selLabel }}</span>
+    <button class="bact {{ dimCls }}">↻ REFRESH</button>
+    <button class="bact {{ dimCls }}">⇄ PROXY ON</button>
+    <button class="bact {{ dimCls }}">⌕ PROBE URL REPAIR</button>
+    <button class="bact {{ dimCls }}">⛨ ALLOW SELF-SIGNED</button>
+    <span class="bdiv"></span>
+    <button class="bact warn {{ dimCls }}">❙❙ PAUSE POLLING</button>
+    <button class="bact {{ dimCls }}">▶ RESUME</button>
+    <span class="strip-sp"></span>
+    <span class="mlabel">{{ scopeHint }}</span>
+  </div>
+
+  <div class="twrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:34px;"></th>
+          <th>Feed</th>
+          <th style="width:170px;">Cause</th>
+          <th style="width:130px;">Category</th>
+          <th style="width:96px;">Latest</th>
+          <th style="width:78px;">Unread</th>
+          <th style="width:96px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="10">
+          <tr class="{{ r.selCls }}">
+            <td><button class="cbox {{ r.boxCls }}" onClick="{{ r.toggle }}">{{ r.mark }}</button></td>
+            <td>
+              <span class="f-name">
+                <span class="hdot {{ r.dot }}"></span>
+                <span class="tile">{{ r.letter }}</span>
+                <span>
+                  <span class="f-title">{{ r.title }}</span>
+                  <span class="f-url">{{ r.url }}</span>
+                </span>
+              </span>
+            </td>
+            <td><sc-if value="{{ r.hasCause }}" hint-placeholder-val="{{ true }}"><span class="cause {{ r.causeCls }}">{{ r.cause }}</span></sc-if></td>
+            <td class="num">{{ r.cat }}</td>
+            <td class="num">{{ r.latest }}</td>
+            <td><sc-if value="{{ r.hasUnread }}" hint-placeholder-val="{{ true }}"><span class="badge">{{ r.unread }}</span></sc-if></td>
+            <td>
+              <span class="rowact">
+                <span class="ract"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/></svg></span>
+                <span class="ract"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.2 3.3a1.7 1.7 0 0 1 3.3.6l-.1 1a1.7 1.7 0 0 0 2.5 1.6l.9-.5a1.7 1.7 0 0 1 2.2 2.5l-.7.8a1.7 1.7 0 0 0 .9 2.8l1 .2a1.7 1.7 0 0 1 0 3.3l-1 .2a1.7 1.7 0 0 0-.9 2.8l.7.8a1.7 1.7 0 0 1-2.2 2.5l-.9-.5a1.7 1.7 0 0 0-2.5 1.6l.1 1a1.7 1.7 0 0 1-3.3.6"/><circle cx="12" cy="12" r="3"/></svg></span>
+              </span>
+            </td>
+          </tr>
+        </sc-for>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot">
+    <span>{{ shownLine }}</span>
+    <span class="foot-sp"></span>
+    <span><span class="kbd">/</span> filter</span>
+    <span><span class="kbd">⌘K</span> commands</span>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "theme": {"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"},
+  "accent": {"editor":"color","default":"#ff9f0a","options":["#ff9f0a","#64d2ff","#4ec98a","#c27800"],"section":"Theme"},
+  "$preview": {"width":1440,"height":900}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { chip: 'cloudflare', sel: {} };
+  }
+
+  tokens() {
+    const dark = {
+      bg:'#0c0c0e', panel:'#131316', panel2:'#0f0f12', raised:'#1b1b20', hover:'#191920',
+      border:'#222228', border2:'#2f2f37', text:'#f3f3f5', muted:'#8b8b94', faint:'#585862',
+      danger:'#ff5a4d', tileBg:'#26262c', tileFg:'#cfcfd6'
+    };
+    const light = {
+      bg:'#eceae5', panel:'#faf9f7', panel2:'#f3f2ee', raised:'#ffffff', hover:'#f0efea',
+      border:'#e3e1da', border2:'#d2d0c8', text:'#15151a', muted:'#6b6b72', faint:'#9a9aa1',
+      danger:'#c8362a', tileBg:'#e6e4dd', tileFg:'#4a4a52'
+    };
+    return (this.props.theme ?? 'dark') === 'light' ? light : dark;
+  }
+
+  feeds() {
+    return [
+      { id:'c1', b:'cloudflare', title:'Applied Statistics Quarterly', url:'journals.example.org/showFeed?jc=aaa1', cat:'Journals', latest:'21d', unread:0, dot:'error', cause:'cloudflare', causeCls:'err' },
+      { id:'c2', b:'cloudflare', title:'Econometric Review', url:'journals.example.org/showFeed?jc=bbb2', cat:'Journals', latest:'21d', unread:0, dot:'error', cause:'cloudflare', causeCls:'err' },
+      { id:'c6', b:'cloudflare', title:'Gadget Wire', url:'gadgetwire.example/feed', cat:'Tech', latest:'6d', unread:0, dot:'error', cause:'cloudflare', causeCls:'err' },
+      { id:'c7', b:'cloudflare', title:'Cartography Notes', url:'cartonotes.example/feed/', cat:'Reference', latest:'9d', unread:0, dot:'error', cause:'cloudflare', causeCls:'err' },
+      { id:'f1', b:'forbidden', title:'Commentary Corner', url:'commentarycorner.example/feed/', cat:'Politics', latest:'60d', unread:0, dot:'error', cause:'403 forbidden', causeCls:'err' },
+      { id:'f6', b:'forbidden', title:'Notes from a Small Server', url:'smallserver.example/feed/', cat:'Tech', latest:'12d', unread:0, dot:'error', cause:'403 forbidden', causeCls:'err' },
+      { id:'f7', b:'forbidden', title:'Speculative Notes', url:'specnotes.example/feed/atom/', cat:'Fiction', latest:'90d', unread:0, dot:'error', cause:'403 forbidden', causeCls:'err' },
+      { id:'a1', b:'auth', title:'Members Dispatch', url:'members.example/feed/', cat:'Politics', latest:'6d', unread:0, dot:'error', cause:'auth failed', causeCls:'err' },
+      { id:'t1', b:'timeout', title:'Bookmarks Firehose', url:'feeds.example/rss/u:reader/', cat:'Links', latest:'2d', unread:0, dot:'warn', cause:'timeout', causeCls:'wrn' },
+      { id:'q1', b:'quiet', title:'The Lobby Diary', url:'lobbydiary.example/feed/', cat:'Politics', latest:'19h', unread:0, dot:'warn', cause:'quiet 19h', causeCls:'wrn' },
+      { id:'q3', b:'quiet', title:'Craft & Practice', url:'craftpractice.example/rss', cat:'Making', latest:'8d', unread:3, dot:'warn', cause:'quiet 8d', causeCls:'wrn' },
+      { id:'q5', b:'quiet', title:'Notes on Type', url:'notesontype.example/feed.xml', cat:'Design', latest:'22d', unread:1, dot:'warn', cause:'quiet 22d', causeCls:'wrn' },
+      { id:'o1', b:'ok', title:'The Daily Ledger', url:'dailyledger.example/rss', cat:'News', latest:'12m', unread:34, dot:'ok', cause:'', causeCls:'' },
+      { id:'o2', b:'ok', title:'Harbour Watch', url:'harbourwatch.example/feed/', cat:'News', latest:'1h', unread:12, dot:'ok', cause:'', causeCls:'' },
+      { id:'p1', b:'paused', title:'Translations Diary', url:'translationsdiary.example/feed/', cat:'Personal', latest:'120d', unread:0, dot:'muted', cause:'paused', causeCls:'' }
+    ];
+  }
+
+  renderVals() {
+    const t = this.tokens();
+    const accent = this.props.accent ?? '#ff9f0a';
+    const rootStyle = [
+      '--bg:'+t.bg, '--panel:'+t.panel, '--panel-2:'+t.panel2, '--raised:'+t.raised,
+      '--hover:'+t.hover, '--border:'+t.border, '--border-2:'+t.border2, '--text:'+t.text,
+      '--muted:'+t.muted, '--faint:'+t.faint, '--accent:'+accent, '--danger:'+t.danger,
+      '--tile-bg:'+t.tileBg, '--tile-fg:'+t.tileFg
+    ].join(';');
+
+    const defs = [
+      { id:'cloudflare', label:'Cloudflare challenge', n:'9',  dot:'error' },
+      { id:'forbidden',  label:'403 forbidden',        n:'10', dot:'error' },
+      { id:'auth',       label:'Auth failed',          n:'1',  dot:'error' },
+      { id:'timeout',    label:'Timeout',              n:'1',  dot:'warn'  },
+      { id:'quiet',      label:'Gone quiet',           n:'6',  dot:'warn'  },
+      { id:'paused',     label:'Paused',               n:'213',dot:'muted' },
+      { id:'all',        label:'All feeds',            n:'534',dot:'ok'    }
+    ];
+
+    const chip = this.state.chip;
+    const chips = defs.map((d) => ({
+      label: d.label, n: d.n, dot: d.dot,
+      onCls: chip === d.id ? 'on' : '',
+      pick: () => this.setState({ chip: d.id })
+    }));
+
+    const sel = this.state.sel;
+    const shown = this.feeds().filter((f) => chip === 'all' ? true : f.b === chip);
+    const rows = shown.map((f) => ({
+      title: f.title, url: f.url, cat: f.cat, latest: f.latest,
+      letter: (f.title[0] || '?').toUpperCase(),
+      dot: f.dot,
+      cause: f.cause, causeCls: f.causeCls, hasCause: !!f.cause,
+      unread: String(f.unread), hasUnread: f.unread > 0,
+      selCls: sel[f.id] ? 'sel' : '',
+      boxCls: sel[f.id] ? 'on' : '',
+      mark: sel[f.id] ? '✓' : '',
+      toggle: () => {
+        const next = Object.assign({}, sel);
+        if (next[f.id]) { delete next[f.id]; } else { next[f.id] = true; }
+        this.setState({ sel: next });
+      }
+    }));
+
+    const n = Object.keys(sel).length;
+    const active = defs.find((d) => d.id === chip);
+
+    return {
+      rootStyle: rootStyle,
+      chips: chips,
+      rows: rows,
+      totalFeeds: '534',
+      healthLine: '321 enabled · 21 need attention · 213 paused',
+      selLabel: n > 0 ? (n + ' selected') : 'none selected',
+      selNoneCls: n > 0 ? '' : 'none',
+      dimCls: n > 0 ? '' : 'dim',
+      scopeHint: n > 0 ? ('acts on ' + n + ' feeds') : 'select rows, or a cause chip then “select all”',
+      shownLine: 'showing ' + shown.length + ' of ' + active.n + ' in “' + active.label + '”'
+    };
+  }
+}
+</script>
+</body>
+</html>

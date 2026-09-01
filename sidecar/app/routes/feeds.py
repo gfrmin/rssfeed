@@ -89,18 +89,61 @@ async def _feed_configs(conn) -> dict[int, dict]:
     return {row["feed_id"]: row for row in await cur.fetchall()}
 
 
-async def _latest_entry_dates_all() -> dict[int, datetime]:
-    """Per-feed latest published_at, straight from the shared Miniflux DB.
+# How many recent entries define a feed's rhythm. Enough that one burst or one
+# hiatus cannot set the median; few enough that a feed which changed cadence a
+# year ago is judged on what it does now.
+CADENCE_WINDOW = 20
 
-    One GROUP BY replaces the old bulk /v1/entries top-1000 window, which
-    blanked the Latest column for any feed whose newest entry fell outside
-    the global newest 1000 — low-volume feeds looked dead when they weren't.
+# Latest entry and publishing cadence in a single pass. Both come off the same
+# window over `entries`, so asking for the cadence costs less than the separate
+# MAX(published_at) query it replaces. `percentile_cont` ignores the leading
+# NULL gap, and yields NULL for a feed with only one entry — which is exactly
+# "no baseline", the value feed_health treats as "say nothing".
+_CADENCE_SQL = """
+WITH recent AS (
+    SELECT feed_id, published_at FROM (
+        SELECT feed_id, published_at,
+               ROW_NUMBER() OVER (PARTITION BY feed_id ORDER BY published_at DESC) AS rn
+        FROM entries
+    ) ranked
+    WHERE rn <= %s
+),
+gaps AS (
+    SELECT feed_id, published_at,
+           EXTRACT(EPOCH FROM (published_at - LAG(published_at)
+               OVER (PARTITION BY feed_id ORDER BY published_at))) AS gap
+    FROM recent
+)
+SELECT feed_id,
+       MAX(published_at) AS latest,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY gap) AS median_gap_s
+FROM gaps
+GROUP BY feed_id
+"""
+
+
+async def _entry_cadence_all() -> dict[int, dict]:
+    """Per-feed {latest, median_gap_s}, straight from the shared Miniflux DB.
+
+    `latest` is what the Latest column shows; `median_gap_s` is the baseline
+    feed_health measures publisher silence against. Computing them together is
+    deliberate — they are the same scan, and a `latest` without a baseline to
+    read it against is the state the reader was already stuck in.
+
+    Reading `entries` directly replaced a bulk /v1/entries top-1000 window,
+    which blanked the Latest column for any feed whose newest entry fell
+    outside the global newest 1000 — low-volume feeds looked dead when they
+    weren't.
     """
     async with get_conn() as conn:
-        cur = await conn.execute(
-            "SELECT feed_id, MAX(published_at) AS latest FROM entries GROUP BY feed_id"
-        )
-        return {row["feed_id"]: row["latest"] for row in await cur.fetchall()}
+        cur = await conn.execute(_CADENCE_SQL, (CADENCE_WINDOW,))
+        return {
+            row["feed_id"]: {
+                "latest": row["latest"],
+                "median_gap_s": row["median_gap_s"],
+            }
+            for row in await cur.fetchall()
+        }
 
 
 async def _fetch_feed_configs() -> dict[int, dict]:
@@ -118,27 +161,23 @@ def _health_summary(feeds: list[dict]) -> str:
     return " · ".join(parts)
 
 
-@router.get("/", response_class=HTMLResponse)
-async def feed_list(request: Request):
-    t0 = time.perf_counter()
+def decorate_feeds(feeds: list[dict], *, unreads: dict, cadence: dict[int, dict],
+                   configs: dict[int, dict], now: datetime) -> list[dict]:
+    """Join Miniflux's feeds to what the sidecar knows, classify, and order them.
 
-    feeds, counters, latest_dates, categories, configs = await asyncio.gather(
-        miniflux_client.get_feeds(),
-        miniflux_client.get_feed_counters(),
-        _latest_entry_dates_all(),
-        miniflux_client.get_categories(),
-        _fetch_feed_configs(),
-    )
-    t_fetch = time.perf_counter()
-
-    now = datetime.now(UTC)
-    unreads = counters.get("unreads", {})
+    Kept apart from the route so the join can be tested without a server: this
+    is where a feed's own publishing cadence reaches `annotate`, and a key name
+    that stopped matching here would silently disable the `quiet` state rather
+    than fail anything.
+    """
     for feed in feeds:
         cfg = configs.get(feed["id"], {})
+        entries = cadence.get(feed["id"], {})
         feed["fetch_full_content"] = cfg.get("fetch_full_content", False)
         feed["priority"] = cfg.get("priority", 2)
         feed["unread_count"] = unreads.get(str(feed["id"]), 0)
-        feed["latest_entry_at"] = latest_dates.get(feed["id"])
+        feed["latest_entry_at"] = entries.get("latest")
+        feed["median_gap_s"] = entries.get("median_gap_s")
         feed["latest_age_s"] = (
             int((now - feed["latest_entry_at"]).total_seconds())
             if feed["latest_entry_at"] else ""
@@ -148,6 +187,24 @@ async def feed_list(request: Request):
     # Stable sort: first by latest entry (most recent first), then by priority
     feeds.sort(key=lambda f: f.get("latest_entry_at") or _EPOCH, reverse=True)
     feeds.sort(key=lambda f: f["priority"])
+    return feeds
+
+
+@router.get("/", response_class=HTMLResponse)
+async def feed_list(request: Request):
+    t0 = time.perf_counter()
+
+    feeds, counters, cadence, categories, configs = await asyncio.gather(
+        miniflux_client.get_feeds(),
+        miniflux_client.get_feed_counters(),
+        _entry_cadence_all(),
+        miniflux_client.get_categories(),
+        _fetch_feed_configs(),
+    )
+    t_fetch = time.perf_counter()
+
+    feeds = decorate_feeds(feeds, unreads=counters.get("unreads", {}),
+                           cadence=cadence, configs=configs, now=datetime.now(UTC))
     t_sort = time.perf_counter()
 
     response = templates.TemplateResponse(
@@ -157,7 +214,7 @@ async def feed_list(request: Request):
     t_render = time.perf_counter()
 
     logger.info(
-        "feed_list timings: fetch=%.0fms sort=%.0fms render=%.0fms feeds=%d",
+        "feed_list timings: fetch=%.0fms decorate=%.0fms render=%.0fms feeds=%d",
         (t_fetch - t0) * 1000,
         (t_sort - t_fetch) * 1000,
         (t_render - t_sort) * 1000,

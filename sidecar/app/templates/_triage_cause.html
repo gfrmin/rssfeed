@@ -1,0 +1,85 @@
+{% from "_icons.html" import icon %}
+{% from "_macros.html" import tile, health_dot, paused_badge %}
+{# Reader column: one cause explained, its remedies, and the feeds it covers. #}
+<section class="reader">
+  <div class="reader-scroll">
+    <div class="tg-inner">
+
+      <header class="tg-head">
+        {{ health_dot(cause.state, 9) }}
+        <h1 class="tg-title">{{ cause.label }}</h1>
+        <span class="tg-count">{{ cause.count }} feed{{ '' if cause.count == 1 else 's' }}</span>
+      </header>
+      <p class="tg-why">{{ cause.why }}</p>
+      <p class="tg-explain">{{ cause.explain }}</p>
+
+      {% set sample = cause.feeds[0].parsing_error_message %}
+      {% if sample %}
+      <div class="tg-raw mono" title="What Miniflux reported, verbatim">{{ sample }}</div>
+      {% endif %}
+
+      {% if cause.spread %}
+      <div class="tg-spread">
+        {% for band, n in cause.spread %}
+        <span class="tg-band"><b>{{ n }}</b> {{ band }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="mlabel tg-label">What you can do</div>
+      <div class="tg-remedies">
+        {% for r in cause.remedies %}
+        <div class="tg-rem {{ 'tg-rem-off' if not r.available else '' }}">
+          <div class="tg-rem-top">
+            <span class="tg-rem-name">{{ r.name }}</span>
+            {% if r.available and r.scope == 'bulk' %}
+            <button class="tg-go" type="button"
+                    hx-post="{{ r.endpoint }}" hx-include="#tg-group"
+                    hx-target="#tg-status" hx-swap="innerHTML"
+                    title="Applies to every feed ticked below">{{ r.cta }}</button>
+            {% elif r.available %}
+            <span class="tg-rem-tag">one feed at a time</span>
+            {% else %}
+            <span class="tg-rem-tag tg-rem-todo">not built</span>
+            {% endif %}
+          </div>
+          <p class="tg-rem-desc">{{ r.desc }}</p>
+          {% if r.available %}
+          <code class="tg-rem-ep">{{ r.method }} {{ r.endpoint }}</code>
+          {% else %}
+          <code class="tg-rem-ep">{{ r.note }}</code>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <div id="tg-status" class="tg-status"></div>
+
+      <div class="mlabel tg-label">
+        Feeds in this group
+        <span class="tg-label-hint">untick to leave one out</span>
+      </div>
+      <form id="tg-group" class="tg-feeds">
+        {% for f in cause.feeds %}
+        <label class="tg-feed">
+          <input type="checkbox" name="feed_ids" value="{{ f.id }}" checked>
+          {{ tile(f, 15) }}
+          <span class="tg-feed-title">{{ f.title }}</span>
+          {{ paused_badge(f) }}
+          {# Only a quiet feed's silence is the story. On a feed that is failing
+             to fetch, "silent 8d" reads as a diagnosis, and it is the wrong one. #}
+          {% if f._health == 'quiet' %}
+          <span class="tg-feed-age">silent {{ f._since_latest_entry | duration }}</span>
+          {% elif f._error_count %}
+          <span class="tg-feed-age">{{ f._error_count }} failed polls</span>
+          {% endif %}
+          <a class="tg-feed-gear" href="/feeds/{{ f.id }}" title="Feed settings"
+             hx-get="/feeds/{{ f.id }}" hx-target="#overlay-slot" hx-swap="innerHTML">
+            {{ icon("settings", 13) }}
+          </a>
+        </label>
+        {% endfor %}
+      </form>
+
+    </div>
+  </div>
+</section>

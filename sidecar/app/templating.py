@@ -171,6 +171,30 @@ def _timeago(value) -> str:
         return str(value)[:16].replace("T", " ")
 
 
+def _duration(seconds) -> str:
+    """A span of time, short enough to sit at the end of a dense row.
+
+    Coarser as it gets longer, because that is how the value is read: the
+    difference between 7h and 8h matters, the difference between 800 and 830
+    days does not.
+    """
+    if seconds is None or seconds == "":
+        return ""
+    try:
+        s = max(0.0, float(seconds))
+    except (TypeError, ValueError):
+        return ""
+    if s < 86400:
+        return f"{int(s // 3600)}h"
+    days = int(s // 86400)
+    if days < 90:
+        return f"{days}d"
+    if days < 365:
+        # capped: "12mo" is a year, and the next branch already says so
+        return f"{min(11, days // 30)}mo"
+    return f"{days // 365}y"
+
+
 def _reading_time(content: str) -> str:
     if not content:
         return "< 1 min"
@@ -193,6 +217,7 @@ def _excerpt(content: str, length: int = 400) -> str:
 
 
 templates.env.filters["timeago"] = _timeago
+templates.env.filters["duration"] = _duration
 templates.env.filters["reading_time"] = _reading_time
 templates.env.filters["excerpt"] = _excerpt
 templates.env.filters["inline_html"] = _inline_html

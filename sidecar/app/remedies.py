@@ -329,18 +329,89 @@ class CauseGroup:
     def count(self) -> int:
         return len(self.feeds)
 
+    @property
+    def spread(self) -> list[tuple[str, int]]:
+        return age_spread(self.feeds)
+
+
+# How long a problem has been true, bucketed for a group header. A wall of a
+# hundred-odd quiet feeds only becomes a to-do list once you can see that ten
+# of them stopped this week and the rest stopped years ago.
+AGE_BANDS: tuple[tuple[float, str], ...] = (
+    (7 * 86400, "past week"),
+    (30 * 86400, "past month"),
+    (90 * 86400, "past 3 months"),
+    (365 * 86400, "past year"),
+)
+_OLDEST_BAND = "over a year"
+
+
+# States nobody chose. `paused` is excluded deliberately: it is a decision
+# somebody made, and counting 200-odd deliberately paused feeds as unresolved
+# problems would make the badge permanently, uselessly red.
+ATTENTION_STATES = frozenset({"error", "warn", "stale", "quiet"})
+
+
+def attention_count(feeds) -> int:
+    """How many feeds are in a state that nobody asked for."""
+    return sum(1 for f in feeds if f.get("_health") in ATTENTION_STATES)
+
+
+def problem_age_s(feed: dict) -> float | None:
+    """How long a feed has been in its current state, when that is knowable.
+
+    Only publisher silence has a timeline. Miniflux records how many polls have
+    failed, never when the failures began, so returning None here says as much
+    rather than dressing a failure count up as an age.
+    """
+    if feed.get("_health") == "quiet":
+        return feed.get("_since_latest_entry")
+    return None
+
+
+def recency_first(feed: dict) -> tuple[float, str]:
+    """Sort key inside a cause group: freshest problem first.
+
+    A feed that went quiet last week is news; one silent for three years is
+    archaeology, and burying the first under the second is how a long list stops
+    being read. Where there is no age, the failure count stands in for one — a
+    feed on its second failed poll broke more recently than one on its 400th.
+    """
+    age = problem_age_s(feed)
+    if age is None:
+        age = float(feed.get("parsing_error_count") or 0)
+    return (age, (feed.get("title") or "").lower())
+
+
+def age_spread(feeds) -> list[tuple[str, int]]:
+    """Feed counts per age band, in order, dropping empty bands.
+
+    Empty when nothing in the group has a knowable age: a group of fetch errors
+    has no timeline and must not be given a fabricated one.
+    """
+    counts: dict[str, int] = {}
+    for feed in feeds:
+        age = problem_age_s(feed)
+        if age is None:
+            continue
+        band = next((label for limit, label in AGE_BANDS if age < limit), _OLDEST_BAND)
+        counts[band] = counts.get(band, 0) + 1
+    ordered = [label for _, label in AGE_BANDS] + [_OLDEST_BAND]
+    return [(label, counts[label]) for label in ordered if label in counts]
+
 
 def _worst(states) -> str:
     return min(states, key=lambda s: STATE_ORDER.index(s) if s in STATE_ORDER
                else len(STATE_ORDER))
 
 
-def group_by_cause(feeds) -> list[CauseGroup]:
+def group_by_cause(feeds, *, key=None) -> list[CauseGroup]:
     """Gather annotated feeds into one group per cause, worst and largest first.
 
     Healthy feeds are dropped: a triage list is a list of things to answer.
-    Input order is preserved inside each group, so whatever ordering the caller
-    chose for the feed list survives into the group.
+    Input order is preserved inside each group unless `key` is given, so
+    whatever ordering the caller chose for the feed list survives by default;
+    pass `key=recency_first` to put the freshest problem at the top instead.
     """
     buckets: dict[str, list[dict]] = {}
     for feed in feeds:
@@ -356,7 +427,7 @@ def group_by_cause(feeds) -> list[CauseGroup]:
             why=cause_for(bucket).why,
             explain=cause_for(bucket).explain,
             remedies=remedies_for(bucket),
-            feeds=members,
+            feeds=sorted(members, key=key) if key else members,
         )
         for bucket, members in buckets.items()
     ]

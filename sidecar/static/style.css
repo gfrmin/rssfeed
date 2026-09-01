@@ -845,3 +845,82 @@ body.ov-lock { overflow:hidden; }
   font-size:10.5px; color:var(--faint); }
 .rel-feed { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; }
 .rel-age { flex-shrink:0; }
+
+/* ===================== TRIAGE (needs attention) ===================== */
+/* Same three-pane shell as the reader: causes in the list column, the focused
+   cause and its remedies in the reader column. Deliberately reuses .list-head,
+   .list-scroll, .reader and .reader-scroll — a different page here would make
+   the app feel like two apps. */
+
+.nav-attn .nav-label { color:var(--text); }
+.nav-attn svg { color:var(--danger); }
+.nav-count-attn { color:var(--danger); font-weight:600; }
+
+.tg-lede { margin:0 0 11px; font-size:11.5px; line-height:1.5; color:var(--faint); }
+
+/* cause row */
+.crow { display:flex; gap:9px; padding:10px 9px; border-radius:9px; cursor:pointer; position:relative;
+  border:1px solid transparent; transition:background .1s, border-color .1s; text-decoration:none; color:inherit; }
+.crow:hover { background:var(--hover); }
+.crow.sel { background:var(--hover); border-color:var(--border-2); }
+.crow.sel::before { content:""; position:absolute; left:0; top:9px; bottom:9px; width:2.5px; border-radius:2px; background:var(--accent); }
+.crow-rail { display:flex; align-items:center; padding-top:4px; width:12px; flex:none; }
+.crow-body { display:flex; flex-direction:column; gap:3px; min-width:0; flex:1; }
+.crow-title { display:flex; align-items:baseline; gap:7px; font-size:13.5px; font-weight:600; color:var(--text); }
+.crow-n { font-family:"Geist Mono",ui-monospace,monospace; font-size:11px; color:var(--faint);
+  background:var(--panel-2); border:1px solid var(--border); border-radius:5px; padding:0 5px; }
+.crow-why { display:block; font-size:11.5px; line-height:1.45; color:var(--muted); }
+.crow-spread { display:flex; flex-wrap:wrap; gap:5px; margin-top:2px; }
+.crow-band { font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; color:var(--faint);
+  background:var(--panel-2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; white-space:nowrap; }
+
+/* cause detail */
+.tg-inner { max-width:760px; margin:0 auto; padding:28px 28px 90px; }
+.tg-head { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+.tg-title { font-size:24px; font-weight:700; letter-spacing:-.018em; margin:0; }
+.tg-count { font-family:"Geist Mono",ui-monospace,monospace; font-size:11px; color:var(--faint);
+  background:var(--panel-2); border:1px solid var(--border); border-radius:5px; padding:2px 7px; }
+.tg-why { margin:0 0 14px; font-size:12.5px; color:var(--muted); }
+.tg-explain { margin:0 0 16px; font-size:14px; line-height:1.65; color:var(--text); }
+.tg-raw { font-size:11.5px; line-height:1.55; color:var(--muted); background:var(--panel-2);
+  border:1px solid var(--border); border-left:2.5px solid var(--danger); border-radius:0 7px 7px 0;
+  padding:9px 12px; margin-bottom:16px; word-break:break-word; }
+.tg-spread { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:20px; }
+.tg-band { font-family:"Geist Mono",ui-monospace,monospace; font-size:11px; color:var(--muted);
+  background:var(--panel-2); border:1px solid var(--border); border-radius:5px; padding:3px 8px; }
+.tg-band b { color:var(--text); font-weight:600; }
+
+.tg-label { display:flex; align-items:baseline; gap:8px; margin:26px 0 10px; }
+.tg-label-hint { font-family:inherit; font-size:10.5px; letter-spacing:0; text-transform:none; color:var(--faint); }
+
+/* remedies */
+.tg-remedies { display:flex; flex-direction:column; gap:9px; }
+.tg-rem { border:1px solid var(--border); border-radius:9px; padding:11px 13px; background:var(--panel); }
+.tg-rem-off { background:transparent; border-style:dashed; }
+.tg-rem-top { display:flex; align-items:center; gap:10px; margin-bottom:5px; }
+.tg-rem-name { flex:1; font-size:13px; font-weight:600; color:var(--text); }
+.tg-rem-off .tg-rem-name { color:var(--muted); font-weight:500; }
+.tg-go { flex:none; background:var(--accent); border:1px solid var(--accent); border-radius:6px;
+  padding:4px 12px; color:#0c0c0e; font-size:11.5px; font-weight:600; white-space:nowrap; transition:.1s; }
+.tg-go:hover { background:var(--accent-hover); border-color:var(--accent-hover); }
+.tg-rem-tag { flex:none; font-family:"Geist Mono",ui-monospace,monospace; font-size:10px;
+  letter-spacing:.06em; text-transform:uppercase; color:var(--faint);
+  border:1px solid var(--border); border-radius:5px; padding:2px 7px; white-space:nowrap; }
+.tg-rem-todo { color:var(--muted); border-style:dashed; }
+.tg-rem-desc { margin:0 0 7px; font-size:12.5px; line-height:1.6; color:var(--muted); }
+.tg-rem-ep { display:block; font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px;
+  color:var(--faint); word-break:break-word; }
+.tg-status { min-height:20px; margin-top:11px; font-size:12px; }
+.tg-status .success { color:var(--add); }
+
+/* feeds in the group */
+.tg-feeds { display:flex; flex-direction:column; gap:1px; }
+.tg-feed { display:flex; align-items:center; gap:9px; padding:6px 9px; margin:0 -9px;
+  border-radius:7px; cursor:pointer; }
+.tg-feed:hover { background:var(--hover); }
+.tg-feed input { accent-color:var(--accent); flex:none; margin:0; }
+.tg-feed-title { flex:1; min-width:0; font-size:13px; color:var(--text);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tg-feed-age { flex:none; font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; color:var(--faint); }
+.tg-feed-gear { flex:none; display:inline-flex; color:var(--faint); padding:2px; border-radius:5px; }
+.tg-feed-gear:hover { color:var(--accent); background:var(--panel-2); }

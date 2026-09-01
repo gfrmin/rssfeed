@@ -35,6 +35,15 @@
     {{ icon("diff", 15) }}<span class="nav-label">Changed</span>
     {% if s.counts.changed %}<span class="nav-count">{{ s.counts.changed }}</span>{% endif %}
   </a>
+  {# Only shown when there is something to show: a permanent zero would train
+     the eye to skip the row, which is the one row that must not be skipped. #}
+  {% if s.counts.attention %}
+  <a class="nav-row nav-attn {{ 'nav-on' if s.view == 'triage' else '' }}" href="/triage"
+     title="Feeds that are failing, unpolled, or whose publisher has gone quiet">
+    {{ icon("warn", 15) }}<span class="nav-label">Needs attention</span>
+    <span class="nav-count nav-count-attn">{{ s.counts.attention }}</span>
+  </a>
+  {% endif %}
 </nav>
 
 <div class="nav-block feeds-block">

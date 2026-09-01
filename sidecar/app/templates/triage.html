@@ -1,0 +1,6 @@
+{% extends "shell.html" %}
+{% block title %}Needs attention{% endblock %}
+{% block list %}{% include "_triage_list.html" %}{% endblock %}
+{% block reader %}
+{% if cause %}{% include "_triage_cause.html" %}{% else %}{% include "_triage_clear.html" %}{% endif %}
+{% endblock %}

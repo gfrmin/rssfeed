@@ -10,6 +10,7 @@
 # path-shape heuristic simply by having two segments.
 /entries
 /feeds
+/triage
 /cookies
 /api
 /static

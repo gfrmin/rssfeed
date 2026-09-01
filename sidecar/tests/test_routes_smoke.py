@@ -11,7 +11,7 @@ import contextlib
 import pytest
 from fastapi.testclient import TestClient
 
-from app import credvault, egress, embeddings, miniflux_client, ranker_client
+from app import cadence, credvault, egress, embeddings, miniflux_client, ranker_client
 from app.main import app
 from app.routes import cookies as cookies_routes
 from app.routes import entries as entries_routes
@@ -95,7 +95,7 @@ def client(monkeypatch):
     ]:
         monkeypatch.setattr(miniflux_client, name, fn)
 
-    for mod in (entries_routes, feeds_routes, cookies_routes):
+    for mod in (entries_routes, feeds_routes, cookies_routes, cadence):
         monkeypatch.setattr(mod, "get_conn", _fake_get_conn)
 
     async def score(articles):
@@ -111,6 +111,7 @@ def client(monkeypatch):
     monkeypatch.setattr(embeddings, "embed_sims", embed_sims)
     monkeypatch.setattr(credvault, "has_credentials", has_credentials)
     entries_routes._invalidate_sidebar_cache()
+    cadence.invalidate()
     # No context manager: entering it would run the lifespan (DB migrations,
     # Miniflux startup, worker loop) — exactly what these tests must avoid.
     return TestClient(app)

@@ -1,0 +1,40 @@
+{% from "_icons.html" import icon %}
+{% from "_macros.html" import health_dot %}
+{# Middle column: one row per cause, worst and largest first. Consumes `groups`. #}
+<header class="list-head">
+  <div class="list-head-top">
+    <div class="list-title-wrap">
+      <h1 class="list-title">Needs attention</h1>
+      <span class="list-count">{{ total }}</span>
+    </div>
+    <a class="mark-all" href="/" title="The full feed list, with filters and bulk actions">
+      {{ icon("layers", 13) }} All feeds
+    </a>
+  </div>
+  <p class="tg-lede">
+    Grouped by cause, because that is the unit a fix applies to — a rule that
+    blocks nine feeds is one decision, not nine.
+  </p>
+</header>
+
+<div class="list-scroll">
+  {% if not groups %}
+  <div class="list-empty">{{ icon("check", 28) }}<p>Nothing needs attention.</p></div>
+  {% endif %}
+  {% for g in groups %}
+  <a class="crow {{ 'sel' if cause and cause.bucket == g.bucket else '' }}"
+     href="/triage/{{ g.bucket }}"
+     hx-get="/triage/{{ g.bucket }}" hx-target="#reader-col" hx-push-url="true">
+    <span class="crow-rail">{{ health_dot(g.state, 8) }}</span>
+    <span class="crow-body">
+      <span class="crow-title">{{ g.label }}<span class="crow-n">{{ g.count }}</span></span>
+      <span class="crow-why">{{ g.why }}</span>
+      {% if g.spread %}
+      <span class="crow-spread">
+        {% for band, n in g.spread %}<span class="crow-band">{{ n }} {{ band }}</span>{% endfor %}
+      </span>
+      {% endif %}
+    </span>
+  </a>
+  {% endfor %}
+</div>

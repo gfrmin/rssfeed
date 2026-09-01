@@ -47,3 +47,28 @@ def test_built_css_is_present_and_looks_built():
     css = (STATIC / "tailwind.css").read_text()
     assert len(css) > 2000, "tailwind.css is suspiciously small; did the build fail?"
     assert "--tw-" in css or "tailwindcss" in css, "tailwind.css does not look like Tailwind output"
+
+
+# Tailwind display utilities. style.css must leave these alone -- see the test.
+# `.grid` is deliberately NOT in this set: the shell owns it for the three-pane
+# layout, and no page that loads Tailwind's grid also loads the shell's.
+_TAILWIND_DISPLAY_UTILITIES = frozenset({
+    "hidden", "block", "inline", "inline-block", "flex", "inline-flex",
+    "table", "table-cell", "table-row", "contents",
+})
+
+
+def test_the_shell_stylesheet_does_not_redefine_a_tailwind_display_utility():
+    """base.html loads style.css *after* tailwind.css, so a display rule here
+    beats every Tailwind display utility — responsive variants included, because
+    a media query adds no specificity.
+
+    `.hidden { display:none !important }` did exactly that. The feeds table's
+    Category and Latest columns are `hidden sm:table-cell`; they were hidden at
+    every width, on every screen, for as long as both sheets have been loaded.
+    Nothing failed, because a column that never appears looks like a decision.
+    """
+    style = (STATIC / "style.css").read_text()
+    defined = set(re.findall(r"^\.([a-z][a-z0-9-]*)\s*\{", style, re.M))
+    clashes = defined & _TAILWIND_DISPLAY_UTILITIES
+    assert not clashes, sorted(clashes)

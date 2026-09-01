@@ -4,7 +4,24 @@
 {% block content %}
 <h1 class="heading-page">Feeds</h1>
 {% if health_summary %}
-<p class="text-detail text-text-muted mb-4">{{ health_summary }}</p>
+<p class="text-detail text-text-muted mb-2">{{ health_summary }}</p>
+{% endif %}
+{% if causes %}
+{# Chips name the causes and hand off to /triage, which explains them and
+   carries the remedies. Two pages, two jobs: bulk work here, the why there. #}
+<div class="mb-5 flex gap-1.5 items-center flex-wrap">
+  {% for c in causes %}
+  <a href="/triage/{{ c.bucket }}"
+     class="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border border-border
+            text-detail text-text-muted no-underline transition-colors
+            hover:border-accent hover:text-accent"
+     title="{{ c.why }} — open in triage">
+    {{ health_dot(c.state) }}
+    <span>{{ c.label }}</span>
+    <span class="font-mono text-2xs text-text-muted">{{ c.count }}</span>
+  </a>
+  {% endfor %}
+</div>
 {% endif %}
 
 <div class="mb-5 flex gap-2 items-center flex-wrap">
@@ -14,7 +31,8 @@
     <option value="problem">Problems</option>
     <option value="error">Error</option>
     <option value="warn">Warning</option>
-    <option value="stale">Stale</option>
+    <option value="stale">Not polled</option>
+    <option value="quiet">Quiet</option>
     <option value="paused">Paused</option>
     <option value="ok">OK</option>
   </select>
@@ -69,8 +87,10 @@
   </div>
 </details>
 
-<div id="bulk-bar" class="mb-4 gap-2 items-center flex-wrap" style="display:none;">
-  <span id="bulk-count" class="text-detail text-text-muted"></span>
+{# Always present, dimmed until something is ticked. A toolbar that appears on
+   selection is a toolbar you have to discover by accident. #}
+<div id="bulk-bar" class="mb-4 flex gap-2 items-center flex-wrap opacity-40 pointer-events-none transition-opacity">
+  <span id="bulk-count" class="text-detail text-text-muted">Select feeds to act on them</span>
   <button class="btn" hx-post="/feeds/bulk-refresh"      hx-include="#bulk-form" hx-target="#bulk-status" hx-swap="innerHTML">Refresh</button>
   <button class="btn" hx-post="/feeds/pause-polling"     hx-include="#bulk-form" hx-target="#bulk-status" hx-swap="innerHTML">Pause</button>
   <button class="btn" hx-post="/feeds/resume-polling"    hx-include="#bulk-form" hx-target="#bulk-status" hx-swap="innerHTML">Resume</button>
@@ -87,6 +107,7 @@
     <tr>
       <th class="th"><input type="checkbox" id="select-all" title="Select all visible"></th>
       <th class="th">Feed</th>
+      <th class="th hidden md:table-cell">Cause</th>
       <th class="th hidden sm:table-cell">Category</th>
       <th class="th hidden sm:table-cell whitespace-nowrap">Latest</th>
       <th class="th whitespace-nowrap">Unread</th>
@@ -94,19 +115,22 @@
   </thead>
   <tbody>
     {% for feed in feeds %}
-    <tr data-health="{{ feed._health }}" data-priority="{{ feed.priority }}" data-latest-age="{{ feed.latest_age_s }}">
+    <tr data-health="{{ feed._health }}" data-bucket="{{ feed._bucket }}"
+        data-priority="{{ feed.priority }}" data-latest-age="{{ feed.latest_age_s }}">
       <td class="td"><input type="checkbox" class="feed-check" name="feed_ids" value="{{ feed.id }}"></td>
       <td class="td break-words {% if feed.disabled %}opacity-60{% endif %}">
         {{ health_dot(feed._health) }}
-        <img src="/feeds/{{ feed.id }}/icon" class="w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
+        <img src="/feeds/{{ feed.id }}/icon" class="inline-block w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
         <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">{{ feed.title }}</a>
         {{ paused_badge(feed) }}
         <a href="/feeds/{{ feed.id }}" class="text-caption text-text-muted ml-2 hover:text-accent" title="Feed settings">&#9881;</a>
-        {% if feed._health in ('warn', 'error') %}
-        <span class="text-2xs {{ 'text-danger' if feed._health == 'error' else 'text-text-muted' }}"
-              title="{{ feed.parsing_error_message }}">{{ feed._bucket_label }}</span>
-        {% endif %}
         <br><a href="{{ feed.feed_url }}" target="_blank" rel="noopener" class="text-2xs text-text-muted no-underline hover:text-link hover:underline break-all" title="Feed XML URL">{{ feed.feed_url }}</a>
+      </td>
+      <td class="td hidden md:table-cell whitespace-nowrap">
+        {% if feed._health != 'ok' %}
+        <a href="/triage/{{ feed._bucket }}" class="text-detail text-text-muted no-underline hover:text-accent"
+           title="{{ feed.parsing_error_message or 'Open this cause in triage' }}">{{ feed._bucket_label }}</a>
+        {% endif %}
       </td>
       <td class="td break-words hidden sm:table-cell">{{ feed.category.title if feed.category else '-' }}</td>
       <td class="td hidden sm:table-cell whitespace-nowrap text-text-muted text-caption">{{ feed.latest_entry_at | timeago }}</td>
@@ -132,8 +156,11 @@
   const tbody = document.querySelector('tbody');
   const noMatch = document.getElementById('no-match');
   const originalOrder = Array.from(tbody.querySelectorAll('tr'));
-  const HEALTH_RANK = { error: 0, warn: 1, stale: 2, paused: 3, ok: 4 };
-  const PROBLEM = { error: 1, warn: 1, stale: 1 };
+  // Every state the page can render must appear here: a missing key
+  // compares as NaN and Array.sort scrambles the table without failing.
+  const HEALTH_RANK = { error: 0, warn: 1, stale: 2, quiet: 3, paused: 4, ok: 5 };
+  // `paused` is a decision somebody made, not a problem to be found.
+  const PROBLEM = { error: 1, warn: 1, stale: 1, quiet: 1 };
 
   function age(row) {
     const v = row.dataset.latestAge;
@@ -179,8 +206,9 @@
 
   function updateBar() {
     const n = document.querySelectorAll('.feed-check:checked').length;
-    bar.style.display = n ? 'flex' : 'none';
-    bulkCount.textContent = n + ' selected';
+    bar.classList.toggle('opacity-40', !n);
+    bar.classList.toggle('pointer-events-none', !n);
+    bulkCount.textContent = n ? n + ' selected' : 'Select feeds to act on them';
   }
   tbody.addEventListener('change', function (e) {
     if (e.target.classList.contains('feed-check')) updateBar();

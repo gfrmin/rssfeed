@@ -200,3 +200,94 @@ def test_every_bucket_error_bucket_can_return_has_a_label():
                 "dial tcp 192.0.2.1:443", "mystery"]
     for msg in messages:
         assert error_bucket(msg) in BUCKET_LABELS
+
+
+# ---------------------------------------------------------------------------
+# The real Miniflux corpus.
+#
+# The taxonomy cases above use short invented substrings, which is how
+# `forbidden` came to be dead code: Miniflux's actual 403 message also
+# speculates about bot protection, so a `bot protection` test ahead of a
+# `forbidden` one matched first and nothing ever reached the new bucket.
+# These are the message shapes this instance actually produces, verbatim
+# except for hostnames and URLs. Anything that goes into `other` here is a
+# gap in the taxonomy, not a feed with an exotic problem.
+# ---------------------------------------------------------------------------
+
+_NET = 'Miniflux is not able to reach this website due to a network error: Get "https://feed.invalid/rss": '
+
+MINIFLUX_MESSAGES = [
+    ("Unable to detect feed format: parser: unable to detect feed format.", "not_a_feed"),
+    ("The requested resource is not found. Please, verify the URL.", "http_404"),
+    ("Access to this website is forbidden. Perhaps, this website has a bot "
+     "protection mechanism?", "forbidden"),
+    ("This website is protected by a Cloudflare bot challenge (CAPTCHA or "
+     "JavaScript verification). Miniflux cannot solve this challenge "
+     "automatically.", "cloudflare"),
+    ("Access to this website is not authorized. It could be a bad username or "
+     "password.", "auth"),
+    ("The website is not available at the moment due to a server error. The "
+     "problem is not on Miniflux side. Please, try again later.", "server_5xx"),
+    ("The website is not available at the moment due to an unexpected HTTP "
+     "status code: 525. The problem is not on Miniflux side. Please, try "
+     "again later.", "server_5xx"),
+    ("The website is not available at the moment due to an unexpected HTTP "
+     "status code: 520. The problem is not on Miniflux side. Please, try "
+     "again later.", "server_5xx"),
+    ("The website is not available at the moment due to an unexpected HTTP "
+     "status code: 403. The problem is not on Miniflux side. Please, try "
+     "again later.", "forbidden"),
+    ("The website is not available at the moment due to an unexpected HTTP "
+     "status code: 404. The problem is not on Miniflux side. Please, try "
+     "again later.", "http_404"),
+    (_NET + "Auth failed.", "auth"),
+    (_NET + "dial tcp: lookup host.invalid on 10.0.0.1:53: no such host.", "dns_fail"),
+    (_NET + "dial tcp: lookup host.invalid on 10.0.0.1:53: server misbehaving.", "dns_fail"),
+    (_NET + "dial tcp: lookup host.invalid: i/o timeout.", "dns_fail"),
+    (_NET + "dial tcp: lookup host.invalid on 10.0.0.1:53: read udp "
+            "10.0.0.3:54535->10.0.0.1:53: i/o timeout.", "dns_fail"),
+    (_NET + "dial tcp 192.0.2.1:80: i/o timeout.", "connect_fail"),
+    (_NET + "context deadline exceeded (Client.Timeout exceeded while awaiting "
+            "headers).", "connect_fail"),
+    (_NET + "read tcp 10.0.0.3:32778->192.0.2.5:443: read: connection reset by "
+            "peer.", "connect_fail"),
+    (_NET + "EOF.", "connect_fail"),
+    (_NET + "tls: failed to verify certificate: x509: certificate has expired "
+            "or is not yet valid: current time 2026-07-18T22:34:14Z is after "
+            "2026-03-18T07:28:32Z.", "tls"),
+    ('TLS error: "Get \\"https://feed.invalid/rss\\": tls: failed to verify '
+     'certificate: x509: certificate is valid for a.example, not b.example". '
+     "You could disable TLS verification in the feed settings if you would "
+     "like.", "tls"),
+]
+
+
+@pytest.mark.parametrize("msg,bucket", MINIFLUX_MESSAGES,
+                         ids=[b for _, b in MINIFLUX_MESSAGES])
+def test_real_miniflux_messages_land_in_the_right_bucket(msg, bucket):
+    assert error_bucket(msg) == bucket
+
+
+def test_the_forbidden_message_is_not_eaten_by_the_bot_protection_rule():
+    """Miniflux's 403 text speculates about bot protection; the 403 is the fact."""
+    forbidden = ("Access to this website is forbidden. Perhaps, this website "
+                 "has a bot protection mechanism?")
+    assert error_bucket(forbidden) == "forbidden"
+
+
+def test_cloudflare_and_forbidden_are_told_apart_by_their_real_messages():
+    cf = ("This website is protected by a Cloudflare bot challenge (CAPTCHA or "
+          "JavaScript verification). Miniflux cannot solve this challenge "
+          "automatically.")
+    fb = ("Access to this website is forbidden. Perhaps, this website has a "
+          "bot protection mechanism?")
+    assert error_bucket(cf) != error_bucket(fb)
+
+
+def test_no_real_message_falls_through_to_other():
+    unclassified = [m for m, _ in MINIFLUX_MESSAGES if error_bucket(m) == "other"]
+    assert not unclassified, unclassified
+
+
+def test_a_genuinely_unknown_message_still_lands_in_other():
+    assert error_bucket("This feed already exists.") == "other"

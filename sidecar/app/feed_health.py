@@ -14,6 +14,7 @@ A fixed threshold cannot express the second: a feed posting hourly is silent
 at six hours, a monthly one is not. So "quiet" is measured against the feed's
 own median gap, and never fires before QUIET_MIN_SECONDS regardless.
 """
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -80,23 +81,45 @@ def median_gap(timestamps) -> float | None:
     return (gaps[mid - 1] + gaps[mid]) / 2
 
 
+# Whatever Miniflux has no specific wording for arrives as a bare status code.
+# Reading the number beats matching the surrounding prose.
+_STATUS_CODE = re.compile(r"unexpected HTTP status code: (\d{3})")
+
+
 def error_bucket(msg: str) -> str:
+    """Map a Miniflux parsing_error_message to a cause.
+
+    Ordering is load-bearing in one place: Miniflux's own 403 text is
+    "Access to this website is forbidden. Perhaps, this website has a bot
+    protection mechanism?" — the 403 is the fact and the bot protection is
+    Miniflux speculating, so `forbidden` is tested first. Reversed, every 403
+    lands in `bot_blocked` and the finer bucket never fires at all.
+    """
     m = msg or ""
     if not m:
         return ""
+    code = _STATUS_CODE.search(m)
+    if code:
+        status = int(code.group(1))
+        if status >= 500:
+            return "server_5xx"
+        if status == 403:
+            return "forbidden"
+        if status == 404:
+            return "http_404"
     if "not found" in m and "resource" in m:
         return "http_404"
     if "Unable to detect feed format" in m:
         return "not_a_feed"
     if "cloudflare" in m.lower():
         return "cloudflare"
+    if "forbidden" in m.lower():
+        return "forbidden"
     if "bot protection" in m:
         return "bot_blocked"
-    if "forbidden" in m:
-        return "forbidden"
     if "server error" in m:
         return "server_5xx"
-    if "not authorized" in m or "bad username" in m:
+    if "not authorized" in m or "bad username" in m or "Auth failed" in m:
         return "auth"
     if "TLS" in m or "tls:" in m:
         return "tls"
@@ -104,7 +127,10 @@ def error_bucket(msg: str) -> str:
         return "unsupported_scheme"
     if "dial tcp" in m and "lookup" in m:
         return "dns_fail"
-    if "dial tcp" in m:
+    # Everything else that never got a response: refused, reset, timed out,
+    # hung up mid-body. One cause from the reader's point of view.
+    if ("dial tcp" in m or "context deadline exceeded" in m
+            or "connection reset" in m or "EOF" in m):
         return "connect_fail"
     return "other"
 

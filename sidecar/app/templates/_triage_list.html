@@ -24,6 +24,8 @@
   {% for g in groups %}
   <a class="crow {{ 'sel' if cause and cause.bucket == g.bucket else '' }}"
      href="/triage/{{ g.bucket }}"
+     data-palette-cause="{{ g.bucket }}" data-palette-label="{{ g.label }}"
+     data-palette-hint="{{ g.count }} feeds · {{ g.why }}"
      hx-get="/triage/{{ g.bucket }}" hx-target="#reader-col" hx-push-url="true">
     <span class="crow-rail">{{ health_dot(g.state, 8) }}</span>
     <span class="crow-body">

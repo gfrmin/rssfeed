@@ -23,6 +23,14 @@
       "w": 1440,
       "h": 900,
       "title": "Alternative — /feeds, restyled"
+    },
+    {
+      "file": "Paths.dc.html",
+      "x": 4680,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Routes into feed settings"
     }
   ],
   "annotations": [
@@ -53,6 +61,13 @@
       "y": -440,
       "w": 520,
       "text": "ALTERNATIVE — /feeds restyled (FeedsPage)\n\nThe conservative option: no new view. Keep triage where\nthe bulk actions already live, and fix what is wrong\nwith that page — it is still Tailwind-generic while the\nreader is dense and dark, the bulk bar is display:none\nuntil you tick a box, and \"health\" is one dropdown\namong four.\n\nHere the health dropdown becomes cause chips, the bulk\nbar is always visible (dimmed when nothing is selected),\nand the row shows its cause instead of hiding the error\nin a title attribute.\n\nTRADEOFF: cheaper, and it fixes a page that is already\nbelow the bar — but it is a detour out of the reader,\nand there is nowhere to put the per-cause explanation\nand ordered remedies that Main gives you.\n\nThese two are not exclusive. This page wants this work\nregardless; Main is the question."
+    },
+    {
+      "id": "note-paths",
+      "x": 4680,
+      "y": -330,
+      "w": 470,
+      "text": "PATHS — where you can get to from where (Paths)\n\nFlip TODAY / PROPOSED in the header.\n\nThe settings overlay at /feeds/{id} is reachable from\nexactly three places: the gear in _reader.html:32, the\n\"Subscription login\" link in _content_block.html (only\nwhen full text looks truncated), and the gear in the\n/feeds table — which is a full page load out of the\nreader, not the overlay.\n\nIt is NOT reachable from the sidebar feed row, which is\nwhere the health dot lives, nor from the list header\nwhen you are scoped to a single feed, nor from any key.\n\nSo the dot says \"this feed is broken\" and the only\nin-reader route to the fix is to open an article from\nthat feed. A broken feed has no new articles. Dead end\nby construction."
     }
   ],
   "launch": {

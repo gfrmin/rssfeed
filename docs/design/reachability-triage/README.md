@@ -15,6 +15,7 @@ Three artboards exploring two related problems in the sidecar:
 | `Main.dc.html` | **The deliverable.** Triage as a view inside the existing three-pane shell: sidebar picks a cause, list shows its feeds, reader pane holds the ordered remedies. |
 | `Palette.dc.html` | **⌘K command palette** over the reader. Standard Linear/Raycast convention; covers only actions that have no key today. `j/k/o/v/m/s/r` are untouched. |
 | `FeedsPage.dc.html` | **The alternative.** `/feeds` restyled into the dense system, health dropdown promoted to cause chips, bulk bar always visible. Cheaper, but no room for per-cause explanation. |
+| `Paths.dc.html` | **Wayfinding.** A route map of how you reach a feed's settings, flippable between TODAY and PROPOSED. |
 
 `canvas.json` lays them out and carries the sticky notes, including the tradeoff
 between Main and FeedsPage.
@@ -30,6 +31,19 @@ same problem nineteen times; one that binds to the cause group does not.
 
 - `EXISTS` (solid) — the endpoint is already in `routes/feeds.py`. Pure reachability change.
 - `PROPOSED` (dashed amber) — new behaviour, nothing built.
+
+## The wayfinding dead end
+
+The settings overlay at `/feeds/{id}` is reachable from exactly three places:
+the gear in `_reader.html:32`, the "Subscription login" link in
+`_content_block.html` (only when full text looks truncated), and the gear in the
+`/feeds` table — a full page load out of the reader, not the overlay.
+
+It is **not** reachable from the sidebar feed row, which is where the health dot
+lives; nor from `_list.html`'s header when you are scoped to one feed; nor from
+any key. So the dot says "this feed is broken" and the only route that stays
+inside the reader is to open an article from that feed — which, being broken,
+has no new articles.
 
 ## Two findings worth acting on regardless
 
@@ -50,7 +64,8 @@ node "$DESIGN_SKILL/seed-canvas.mjs" \
   --template "$DESIGN_SKILL/payload.template.html" \
   --out feed-triage-and-command-palette.html \
   --title "Feed Triage and Command Palette" \
-  --artboard Main.dc.html --artboard Palette.dc.html --artboard FeedsPage.dc.html \
+  --artboard Main.dc.html --artboard Palette.dc.html \
+  --artboard FeedsPage.dc.html --artboard Paths.dc.html \
   --canvas canvas.json
 ```
 

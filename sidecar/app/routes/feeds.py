@@ -111,7 +111,7 @@ async def _fetch_feed_configs() -> dict[int, dict]:
 def _health_summary(feeds: list[dict]) -> str:
     parts = []
     for state, label in (("error", "erroring"), ("warn", "warning"),
-                         ("stale", "stale"), ("paused", "paused")):
+                         ("stale", "stale"), ("quiet", "quiet"), ("paused", "paused")):
         n = sum(1 for f in feeds if f["_health"] == state)
         if n:
             parts.append(f"{n} {label}")

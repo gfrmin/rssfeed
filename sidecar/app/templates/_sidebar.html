@@ -54,6 +54,7 @@
       <div class="mlabel feed-group-label">{{ g.label }}<span class="grp-n">{{ g['items'] | length }}</span></div>
       {% for f in g['items'] %}
       <a class="feed-row {{ 'feed-on' if s.feed_id == f.id else '' }}" href="/entries?feed_id={{ f.id }}"
+         data-palette-feed="{{ f.id }}" data-palette-label="{{ f.title }}"
          hx-get="/entries?feed_id={{ f.id }}" hx-target="#list-col" hx-push-url="true" title="{{ f.feed_url }}">
         {{ health_dot(f._health) }}
         {{ tile(f, 16) }}
@@ -70,5 +71,6 @@
 <div class="sidebar-foot">
   <a class="tool-btn" href="/" title="Manage feeds">{{ icon("globe", 15) }}<span>Feeds</span></a>
   <div class="foot-spacer"></div>
+  <button class="icon-btn" type="button" data-palette-open title="Jump to a feed, a view or a cause (⌘K)">{{ icon("search", 15) }}</button>
   <button class="icon-btn" type="button" data-act="theme" title="Toggle theme">{{ icon("sun", 15) }}</button>
 </div>

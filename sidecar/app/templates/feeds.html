@@ -12,6 +12,8 @@
 <div class="mb-5 flex gap-1.5 items-center flex-wrap">
   {% for c in causes %}
   <a href="/triage/{{ c.bucket }}"
+     data-palette-cause="{{ c.bucket }}" data-palette-label="{{ c.label }}"
+     data-palette-hint="{{ c.count }} feeds · {{ c.why }}"
      class="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border border-border
             text-detail text-text-muted no-underline transition-colors
             hover:border-accent hover:text-accent"
@@ -121,7 +123,8 @@
       <td class="td break-words {% if feed.disabled %}opacity-60{% endif %}">
         {{ health_dot(feed._health) }}
         <img src="/feeds/{{ feed.id }}/icon" class="inline-block w-5 h-5 align-middle rounded" alt="" onerror="this.style.display='none'">
-        <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline">{{ feed.title }}</a>
+        <a href="/entries?feed_id={{ feed.id }}" class="text-link no-underline hover:underline"
+           data-palette-feed="{{ feed.id }}" data-palette-label="{{ feed.title }}">{{ feed.title }}</a>
         {{ paused_badge(feed) }}
         <a href="/feeds/{{ feed.id }}" class="text-caption text-text-muted ml-2 hover:text-accent" title="Feed settings">&#9881;</a>
         <br><a href="{{ feed.feed_url }}" target="_blank" rel="noopener" class="text-2xs text-text-muted no-underline hover:text-link hover:underline break-all" title="Feed XML URL">{{ feed.feed_url }}</a>

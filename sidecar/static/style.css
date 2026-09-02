@@ -923,3 +923,46 @@ body.ov-lock { overflow:hidden; }
 .tg-feed-age { flex:none; font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; color:var(--faint); }
 .tg-feed-gear { flex:none; display:inline-flex; color:var(--faint); padding:2px; border-radius:5px; }
 .tg-feed-gear:hover { color:var(--accent); background:var(--panel-2); }
+
+/* ===================== COMMAND PALETTE ===================== */
+/* Loaded on every page, so it cannot lean on the reader shell for anything. */
+
+.pal-scrim { position:fixed; inset:0; z-index:60; display:none; background:rgba(0,0,0,.55);
+  backdrop-filter:blur(2px); padding:12vh 16px 16px; }
+.pal-scrim.on { display:flex; justify-content:center; align-items:flex-start; }
+.pal { width:100%; max-width:620px; max-height:min(70vh,560px); display:flex; flex-direction:column;
+  background:var(--panel); border:1px solid var(--border-2); border-radius:13px;
+  box-shadow:var(--shadow); overflow:hidden; }
+
+.pal-input { flex:none; padding:15px 18px; background:transparent; border:none;
+  border-bottom:1px solid var(--border); color:var(--text); font-family:inherit; font-size:15px; }
+.pal-input:focus { outline:none; }
+.pal-input::placeholder { color:var(--faint); }
+
+.pal-list { flex:1; overflow-y:auto; min-height:0; padding:6px; }
+.pal-none { padding:26px 12px; text-align:center; color:var(--faint); font-size:12.5px; }
+
+.pal-row { display:flex; align-items:baseline; gap:10px; padding:7px 11px; border-radius:8px; cursor:pointer; }
+.pal-row.on { background:var(--hover); }
+.pal-kind { flex:none; width:44px; font-family:"Geist Mono",ui-monospace,monospace; font-size:9.5px;
+  letter-spacing:.08em; text-transform:uppercase; color:var(--faint); }
+.pal-kind-cause { color:var(--danger); }
+.pal-kind-view { color:var(--accent); }
+.pal-label { flex:none; max-width:58%; font-size:13.5px; color:var(--text);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pal-row.on .pal-label { color:var(--text); }
+.pal-hint { flex:1; min-width:0; font-size:11px; color:var(--faint);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:right; }
+
+.pal-foot { flex:none; display:flex; gap:14px; padding:8px 14px; border-top:1px solid var(--border);
+  background:var(--panel-2); font-size:10.5px; color:var(--faint); flex-wrap:wrap; }
+.pal-foot .kbd { font-size:10px; padding:1px 5px; }
+
+@media (max-width:640px) {
+  .pal-scrim { padding:6vh 10px 10px; }
+  .pal-hint { display:none; }
+  .pal-label { max-width:none; flex:1; }
+}
+.legacy-pal { display:inline-flex; align-items:center; gap:7px; background:none; border:1px solid var(--border);
+  border-radius:7px; padding:3px 10px; color:var(--muted); font-size:12px; transition:.1s; }
+.legacy-pal:hover { border-color:var(--accent); color:var(--accent); }

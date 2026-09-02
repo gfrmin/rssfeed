@@ -1,0 +1,304 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;450;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin:0; }
+    a { color:inherit; text-decoration:none; }
+    a:hover { color:var(--text); }
+    * { box-sizing:border-box; }
+    *::-webkit-scrollbar { width:9px; height:9px; }
+    *::-webkit-scrollbar-thumb { background:var(--border-2); border-radius:6px; border:2px solid transparent; background-clip:content-box; }
+    *::-webkit-scrollbar-thumb:hover { background:var(--faint); background-clip:content-box; }
+    .root { height:900px; width:1440px; position:relative; overflow:hidden;
+      background:var(--bg); color:var(--text);
+      font-family:"Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size:13px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+    .mono { font-family:"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    /* ---------- dimmed reader behind ---------- */
+    .behind { position:absolute; inset:0; display:grid; grid-template-columns:264px 400px 1fr; }
+    .b-side { background:var(--panel-2); border-right:1px solid var(--border); padding:14px 12px; }
+    .b-list { background:var(--panel); border-right:1px solid var(--border); padding:14px 12px; }
+    .b-read { padding:34px 40px; }
+    .b-line { height:9px; border-radius:4px; background:var(--border); margin-bottom:11px; }
+    .b-row { height:34px; border-radius:8px; background:var(--panel-2); margin-bottom:7px; border:1px solid var(--border); }
+    .b-h1 { height:26px; width:66%; border-radius:6px; background:var(--border-2); margin-bottom:16px; }
+    .b-p { height:8px; border-radius:4px; background:var(--border); margin-bottom:10px; }
+    .scrim { position:absolute; inset:0; background:color-mix(in srgb,var(--bg) 72%,transparent); backdrop-filter:blur(3px); }
+
+    /* ---------- palette ---------- */
+    .wrap { position:absolute; inset:0; display:flex; justify-content:center; padding-top:118px; }
+    .pal { width:660px; height:640px; display:flex; flex-direction:column; background:var(--panel);
+      border:1px solid var(--border-2); border-radius:13px; box-shadow:var(--shadow); overflow:hidden; }
+    .pal-in { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--border); flex:none; }
+    .pal-caret { color:var(--accent); font-family:"Geist Mono",ui-monospace,monospace; font-size:13px; flex:none; }
+    .pal-field { flex:1; background:none; border:none; outline:none; color:var(--text);
+      font-family:"Geist", system-ui, sans-serif; font-size:15px; padding:0; }
+    .pal-field::placeholder { color:var(--faint); }
+    .kbd { display:inline-block; min-width:17px; text-align:center; padding:1px 6px; background:var(--panel-2);
+      border:1px solid var(--border-2); border-bottom-width:2px; border-radius:5px;
+      font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; color:var(--text); }
+
+    .pal-scroll { flex:1; overflow-y:auto; padding:7px 7px 3px; }
+    .sec-head { display:flex; align-items:center; gap:7px; padding:9px 9px 5px;
+      font-family:"Geist Mono",ui-monospace,monospace; font-size:9.5px; letter-spacing:.14em;
+      text-transform:uppercase; color:var(--faint); }
+    .sec-rule { flex:1; height:1px; background:var(--border); }
+    .cmd { display:flex; align-items:center; gap:11px; padding:7px 9px; border-radius:8px; width:100%;
+      background:none; border:none; text-align:left; color:var(--muted); }
+    .cmd:hover { background:var(--hover); color:var(--text); }
+    .cmd.on { background:var(--hover); color:var(--text); box-shadow:inset 2.5px 0 0 var(--accent); }
+    .cmd-ic { width:26px; height:26px; border-radius:6px; background:var(--panel-2); border:1px solid var(--border);
+      display:flex; align-items:center; justify-content:center; flex:none; color:var(--faint); }
+    .cmd.on .cmd-ic { color:var(--accent); border-color:color-mix(in srgb,var(--accent) 40%,var(--border)); }
+    .cmd-mid { flex:1; min-width:0; }
+    .cmd-label { display:block; font-size:13px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .cmd-sub { display:block; font-size:10.5px; color:var(--faint); font-family:"Geist Mono",ui-monospace,monospace; margin-top:1px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .cmd-right { flex:none; display:flex; align-items:center; gap:4px; }
+    .pill { font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; padding:1px 7px; border-radius:5px;
+      background:color-mix(in srgb,var(--danger) 16%,transparent); color:var(--danger);
+      border:1px solid color-mix(in srgb,var(--danger) 34%,transparent); }
+    .pill.warn { background:color-mix(in srgb,var(--accent) 15%,transparent); color:var(--accent);
+      border-color:color-mix(in srgb,var(--accent) 34%,transparent); }
+    .hdot { display:inline-block; border-radius:50%; width:6px; height:6px; flex:none; }
+    .hdot.ok { background:#3a3a42; } .hdot.warn { background:var(--accent); } .hdot.error { background:var(--danger); }
+
+    .pal-foot { flex:none; display:flex; align-items:center; gap:14px; padding:9px 15px;
+      border-top:1px solid var(--border); background:var(--panel-2);
+      font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; color:var(--faint); }
+    .foot-b { display:flex; align-items:center; gap:5px; }
+    .foot-sp { flex:1; }
+    .empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px;
+      height:330px; color:var(--faint); text-align:center; }
+    .empty-q { font-family:"Geist Mono",ui-monospace,monospace; color:var(--accent); }
+  </style>
+</helmet>
+
+<div class="root" style="{{ rootStyle }}">
+  <!-- the reader shell, dimmed behind the palette -->
+  <div class="behind">
+    <div class="b-side">
+      <div class="b-line" style="width:58%;"></div>
+      <div class="b-line" style="width:40%;margin-top:22px;"></div>
+      <div class="b-line" style="width:52%;"></div>
+      <div class="b-line" style="width:34%;"></div>
+      <div class="b-line" style="width:46%;"></div>
+      <div class="b-line" style="width:38%;margin-top:26px;"></div>
+      <div class="b-line" style="width:56%;"></div>
+      <div class="b-line" style="width:44%;"></div>
+    </div>
+    <div class="b-list">
+      <div class="b-row"></div><div class="b-row"></div><div class="b-row"></div>
+      <div class="b-row"></div><div class="b-row"></div><div class="b-row"></div>
+      <div class="b-row"></div><div class="b-row"></div>
+    </div>
+    <div class="b-read">
+      <div class="b-h1"></div>
+      <div class="b-p" style="width:92%;"></div><div class="b-p" style="width:88%;"></div>
+      <div class="b-p" style="width:94%;"></div><div class="b-p" style="width:71%;"></div>
+      <div class="b-p" style="width:90%;margin-top:24px;"></div><div class="b-p" style="width:85%;"></div>
+    </div>
+  </div>
+  <div class="scrim"></div>
+
+  <div class="wrap">
+    <div class="pal">
+      <div class="pal-in">
+        <span class="pal-caret">&#9656;</span>
+        <input class="pal-field" type="text" placeholder="Search feeds, views and actions…"
+               value="{{ query }}" onChange="{{ onQuery }}">
+        <span class="kbd">esc</span>
+      </div>
+
+      <div class="pal-scroll">
+        <sc-if value="{{ hasResults }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <sc-for list="{{ sections }}" as="s" hint-placeholder-count="4">
+              <div>
+                <div class="sec-head"><span>{{ s.name }}</span><span class="sec-rule"></span><span>{{ s.n }}</span></div>
+                <sc-for list="{{ s.items }}" as="c" hint-placeholder-count="4">
+                  <button class="cmd {{ c.onCls }}" onClick="{{ c.pick }}">
+                    <span class="cmd-ic">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                           stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="{{ c.icon }}"/>
+                      </svg>
+                    </span>
+                    <span class="cmd-mid">
+                      <span class="cmd-label">{{ c.label }}</span>
+                      <span class="cmd-sub">{{ c.sub }}</span>
+                    </span>
+                    <span class="cmd-right">
+                      <sc-if value="{{ c.hasPill }}" hint-placeholder-val="{{ true }}">
+                        <span class="pill {{ c.pillCls }}">{{ c.pill }}</span>
+                      </sc-if>
+                      <sc-if value="{{ c.hasKeys }}" hint-placeholder-val="{{ true }}">
+                        <span class="cmd-right">
+                          <sc-for list="{{ c.keys }}" as="k" hint-placeholder-count="2">
+                            <span class="kbd">{{ k.k }}</span>
+                          </sc-for>
+                        </span>
+                      </sc-if>
+                    </span>
+                  </button>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+          <div class="empty">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <div>Nothing matches <span class="empty-q">{{ query }}</span></div>
+            <div style="font-size:11px;">Try a feed name, a view, or an action like “opml”.</div>
+          </div>
+        </sc-if>
+      </div>
+
+      <div class="pal-foot">
+        <span class="foot-b"><span class="kbd">&#8593;</span><span class="kbd">&#8595;</span> navigate</span>
+        <span class="foot-b"><span class="kbd">&#8629;</span> run</span>
+        <span class="foot-b"><span class="kbd">&#8984;&#8629;</span> run in background</span>
+        <span class="foot-sp"></span>
+        <span class="foot-b">{{ resultCount }} results</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "theme": {"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"},
+  "accent": {"editor":"color","default":"#ff9f0a","options":["#ff9f0a","#64d2ff","#4ec98a","#c27800"],"section":"Theme"},
+  "$preview": {"width":1440,"height":900}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { query: '', picked: 'triage-all' };
+  }
+
+  tokens() {
+    const dark = {
+      bg:'#0c0c0e', panel:'#131316', panel2:'#0f0f12', raised:'#1b1b20', hover:'#191920',
+      border:'#222228', border2:'#2f2f37', text:'#f3f3f5', muted:'#8b8b94', faint:'#585862',
+      danger:'#ff5a4d', shadow:'0 18px 50px -12px rgba(0,0,0,.7)'
+    };
+    const light = {
+      bg:'#eceae5', panel:'#faf9f7', panel2:'#f3f2ee', raised:'#ffffff', hover:'#f0efea',
+      border:'#e3e1da', border2:'#d2d0c8', text:'#15151a', muted:'#6b6b72', faint:'#9a9aa1',
+      danger:'#c8362a', shadow:'0 18px 50px -14px rgba(40,38,30,.28)'
+    };
+    return (this.props.theme ?? 'dark') === 'light' ? light : dark;
+  }
+
+  commands() {
+    const IC = {
+      alert:'M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01',
+      inbox:'M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z',
+      rss:'M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16M5.5 19.5h.01',
+      bolt:'m13 2-9 12h7l-1 8 9-12h-7z',
+      slider:'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
+      star:'M11.5 2.5 14.1 8l6 .9-4.3 4.2 1 6-5.3-2.8L6.2 19l1-6L3 8.9 9 8Z',
+      diff:'M12 4v16M4 8h6M14 16h6',
+      down:'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
+      up:'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12',
+      refresh:'M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5',
+      plus:'M12 5v14M5 12h14',
+      sun:'M12 8a4 4 0 1 0 .01 0M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4',
+      check:'M11.5 3.05a9 9 0 1 0 9.45 9.45M8.5 12.5 11 15l5.5-6.5',
+      key:'M15 7a4 4 0 1 0 .01 0M13.4 8.6 3 19v2h3v-2h2v-2h2l3.4-3.4'
+    };
+    return [
+      // Triage — the new section, and the reason ⌘K earns its place
+      { s:'Triage', id:'triage-all', label:'Feeds needing attention', sub:'grouped by cause', icon:IC.alert, pill:'21', pillCls:'', keys:['g','a'] },
+      { s:'Triage', id:'triage-cf', label:'Cloudflare challenge', sub:'403 + JS interstitial', icon:IC.alert, pill:'9', pillCls:'' },
+      { s:'Triage', id:'triage-403', label:'Access forbidden', sub:'plain 403, no challenge', icon:IC.alert, pill:'10', pillCls:'' },
+      { s:'Triage', id:'triage-auth', label:'Auth failed', sub:'stored credential rejected', icon:IC.key, pill:'1', pillCls:'' },
+      { s:'Triage', id:'triage-quiet', label:'Gone quiet', sub:'polling fine, nothing published', icon:IC.alert, pill:'6', pillCls:'warn' },
+
+      { s:'Views', id:'v-unread', label:'Unread', sub:'312 entries', icon:IC.inbox, keys:['g','u'] },
+      { s:'Views', id:'v-all', label:'All', sub:'4,118 entries', icon:IC.rss, keys:['g','l'] },
+      { s:'Views', id:'v-star', label:'Starred', sub:'86 entries', icon:IC.star, keys:['g','s'] },
+      { s:'Views', id:'v-chg', label:'Changed', sub:'7 entries rewritten after publish', icon:IC.diff, keys:['g','c'] },
+      { s:'Views', id:'v-read', label:'Read', sub:'3,806 entries', icon:IC.check, keys:['g','r'] },
+
+      { s:'Jump to feed', id:'f-lobby', label:'The Lobby Diary', sub:'lobbydiary.example · quiet 19h', icon:IC.rss, dot:'warn' },
+      { s:'Jump to feed', id:'f-ledger', label:'The Daily Ledger', sub:'34 unread', icon:IC.rss, dot:'ok' },
+      { s:'Jump to feed', id:'f-gadget', label:'Gadget Wire', sub:'cloudflare challenge · 6d', icon:IC.rss, dot:'error' },
+      { s:'Jump to feed', id:'f-harbour', label:'Harbour Watch', sub:'12 unread', icon:IC.rss, dot:'ok' },
+      { s:'Jump to feed', id:'f-members', label:'Members Dispatch', sub:'auth failed · 6d', icon:IC.rss, dot:'error' },
+
+      { s:'Actions', id:'a-add', label:'Add feed…', sub:'subscribe or discover from a page URL', icon:IC.plus, keys:['a'] },
+      { s:'Actions', id:'a-refresh', label:'Refresh all feeds', sub:'POST /feeds/bulk-refresh', icon:IC.refresh },
+      { s:'Actions', id:'a-markall', label:'Mark all as read', sub:'in the current view', icon:IC.check, keys:['r'] },
+      { s:'Actions', id:'a-export', label:'Export OPML', sub:'GET /opml/export', icon:IC.down },
+      { s:'Actions', id:'a-import', label:'Import OPML', sub:'POST /opml/import', icon:IC.up },
+      { s:'Actions', id:'a-titles', label:'Fix author feed titles', sub:'POST /feeds/fix-author-titles', icon:IC.bolt },
+      { s:'Actions', id:'a-manage', label:'Manage feeds', sub:'the full table, filters and bulk bar', icon:IC.slider, keys:['g','f'] },
+
+      { s:'Settings', id:'s-theme', label:'Toggle theme', sub:'dark ⇄ light', icon:IC.sun, keys:['t'] },
+      { s:'Settings', id:'s-width', label:'Reading width', sub:'720px', icon:IC.slider },
+      { s:'Settings', id:'s-dens', label:'Density', sub:'comfortable', icon:IC.slider },
+      { s:'Settings', id:'s-mono', label:'Monospace entry meta', sub:'on', icon:IC.slider }
+    ];
+  }
+
+  renderVals() {
+    const t = this.tokens();
+    const accent = this.props.accent ?? '#ff9f0a';
+    const rootStyle = [
+      '--bg:'+t.bg, '--panel:'+t.panel, '--panel-2:'+t.panel2, '--raised:'+t.raised,
+      '--hover:'+t.hover, '--border:'+t.border, '--border-2:'+t.border2, '--text:'+t.text,
+      '--muted:'+t.muted, '--faint:'+t.faint, '--accent:'+accent, '--danger:'+t.danger,
+      '--shadow:'+t.shadow
+    ].join(';');
+
+    const q = (this.state.query || '').trim().toLowerCase();
+    const all = this.commands();
+    const hits = q === '' ? all : all.filter((c) =>
+      (c.label + ' ' + c.sub + ' ' + c.s).toLowerCase().indexOf(q) !== -1);
+
+    const order = ['Triage', 'Views', 'Jump to feed', 'Actions', 'Settings'];
+    const sections = order.map((name) => {
+      const items = hits.filter((c) => c.s === name);
+      return {
+        name: name,
+        n: String(items.length),
+        items: items.map((c) => ({
+          label: c.label,
+          sub: c.sub,
+          icon: c.icon,
+          onCls: this.state.picked === c.id ? 'on' : '',
+          hasPill: !!c.pill,
+          pill: c.pill || '',
+          pillCls: c.pillCls || '',
+          hasKeys: !!(c.keys && c.keys.length),
+          keys: (c.keys || []).map((k) => ({ k: k })),
+          pick: () => this.setState({ picked: c.id })
+        }))
+      };
+    }).filter((s) => s.items.length > 0);
+
+    return {
+      rootStyle: rootStyle,
+      query: this.state.query,
+      onQuery: (e) => this.setState({ query: e.target.value }),
+      sections: sections,
+      hasResults: hits.length > 0,
+      noResults: hits.length === 0,
+      resultCount: String(hits.length)
+    };
+  }
+}
+</script>
+</body>
+</html>

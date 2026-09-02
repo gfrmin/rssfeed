@@ -1,0 +1,326 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;450;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin:0; }
+    a { color:inherit; text-decoration:none; }
+    a:hover { color:var(--text); }
+    * { box-sizing:border-box; }
+    .root { height:900px; width:1440px; display:flex; flex-direction:column; overflow:hidden;
+      background:var(--bg); color:var(--text);
+      font-family:"Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size:13px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+    .mono { font-family:"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .mlabel { font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; letter-spacing:.13em;
+      text-transform:uppercase; color:var(--faint); font-weight:500; }
+    .head { display:flex; align-items:flex-start; gap:16px; padding:20px 30px 0; flex:none; }
+    .h-title { font-size:21px; font-weight:600; letter-spacing:-.015em; margin:5px 0 0; }
+    .h-sub { font-size:12.5px; color:var(--muted); margin:5px 0 0; max-width:660px; line-height:1.55; }
+    .h-sp { flex:1; }
+    .seg { display:inline-flex; background:var(--panel-2); border:1px solid var(--border);
+      border-radius:8px; padding:3px; flex:none; margin-top:4px; }
+    .seg-btn { padding:5px 14px; background:none; border:none; border-radius:6px; color:var(--muted);
+      font-size:11.5px; font-family:"Geist Mono",ui-monospace,monospace; letter-spacing:.03em; }
+    .seg-btn.on { background:var(--raised); color:var(--text); box-shadow:0 1px 2px rgba(0,0,0,.25); }
+    .seg-btn.on.warn { background:var(--accent); color:#0c0c0e; font-weight:600; }
+    .legend { display:flex; align-items:center; gap:22px; padding:12px 30px 6px; flex:none; flex-wrap:wrap; }
+    .lg { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted);
+      font-family:"Geist Mono",ui-monospace,monospace; letter-spacing:.02em; }
+
+    .stage { position:relative; width:1440px; height:740px; flex:none; }
+    .stage svg { position:absolute; inset:0; }
+
+    .cap { position:absolute; font-family:"Geist Mono",ui-monospace,monospace; font-size:10px;
+      letter-spacing:.14em; color:var(--faint); }
+    .node { position:absolute; border-radius:9px; background:var(--panel); border:1px solid var(--border);
+      display:flex; flex-direction:column; justify-content:center; padding:0 18px; }
+    .node.added { border-style:dashed; }
+    .node-l { font-size:13.5px; font-weight:500; color:var(--text); display:flex; align-items:center; gap:9px; }
+    .node-s { font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; color:var(--faint); margin-top:3px; }
+    .hdot { width:8px; height:8px; border-radius:50%; background:var(--danger); flex:none;
+      box-shadow:0 0 0 2.5px color-mix(in srgb,var(--danger) 24%,transparent); }
+    .elabel { position:absolute; transform:translate(-50%,-50%); white-space:nowrap;
+      font-family:"Geist Mono",ui-monospace,monospace; font-size:10.5px; letter-spacing:.01em;
+      background:var(--bg); padding:1px 6px; border-radius:4px; }
+
+    .punch { position:absolute; left:80px; top:598px; width:660px; border-radius:10px;
+      background:var(--panel); padding:15px 20px 17px; border:1px solid var(--border); }
+    .punch-l { font-family:"Geist Mono",ui-monospace,monospace; font-size:10px; letter-spacing:.14em;
+      margin-bottom:7px; }
+    .punch-t { font-size:12.5px; color:var(--muted); line-height:1.65; max-width:600px; }
+  </style>
+</helmet>
+
+<div class="root" style="{{ rootStyle }}">
+  <div class="head">
+    <div>
+      <div class="mlabel">Wayfinding</div>
+      <h1 class="h-title">Routes into a feed's settings</h1>
+      <p class="h-sub">{{ blurb }}</p>
+    </div>
+    <div class="h-sp"></div>
+    <div class="seg">
+      <button class="seg-btn {{ todayCls }}" onClick="{{ showToday }}">TODAY</button>
+      <button class="seg-btn {{ propCls }}" onClick="{{ showProposed }}">PROPOSED</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="lg">
+      <svg width="34" height="8"><line x1="0" y1="4" x2="34" y2="4" stroke="{{ c.muted }}" stroke-width="1.6"></line></svg>
+      route that exists
+    </span>
+    <span class="lg">
+      <svg width="34" height="8"><line x1="0" y1="4" x2="34" y2="4" stroke="{{ c.danger }}" stroke-width="1.6" stroke-dasharray="5 4"></line></svg>
+      no route — you cannot get there from here
+    </span>
+    <span class="lg">
+      <svg width="34" height="8"><line x1="0" y1="4" x2="34" y2="4" stroke="{{ c.accent }}" stroke-width="1.8"></line></svg>
+      route this design adds
+    </span>
+  </div>
+
+  <div class="stage">
+    <svg width="1440" height="740" viewBox="0 0 1440 740">
+      <defs>
+        <marker id="ar-muted" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto">
+          <path d="M0 0 L7 3.2 L0 6.4 z" fill="{{ c.muted }}"></path>
+        </marker>
+        <marker id="ar-accent" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto">
+          <path d="M0 0 L7 3.2 L0 6.4 z" fill="{{ c.accent }}"></path>
+        </marker>
+        <marker id="ar-danger" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto">
+          <path d="M0 0 L7 3.2 L0 6.4 z" fill="{{ c.danger }}"></path>
+        </marker>
+      </defs>
+      <sc-for list="{{ edges }}" as="e" hint-placeholder-count="8">
+        <g opacity="{{ e.op }}">
+          <path d="{{ e.d }}" fill="none" stroke="{{ e.stroke }}" stroke-width="{{ e.w }}"
+                stroke-dasharray="{{ e.dash }}" marker-end="{{ e.marker }}"></path>
+          <sc-if value="{{ e.blocked }}" hint-placeholder-val="{{ false }}">
+            <g>
+              <circle cx="{{ e.mx }}" cy="{{ e.my }}" r="9.5" fill="{{ c.bg }}" stroke="{{ c.danger }}" stroke-width="1.4"></circle>
+              <path d="M{{ e.xa }} {{ e.ya }} L{{ e.xb }} {{ e.yb }} M{{ e.xb }} {{ e.ya }} L{{ e.xa }} {{ e.yb }}"
+                    stroke="{{ c.danger }}" stroke-width="1.7" stroke-linecap="round"></path>
+            </g>
+          </sc-if>
+        </g>
+      </sc-for>
+    </svg>
+
+    <sc-for list="{{ captions }}" as="p" hint-placeholder-count="3">
+      <div class="cap" style="{{ p.style }}">{{ p.text }}</div>
+    </sc-for>
+
+    <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="8">
+      <div class="node {{ n.cls }}" style="{{ n.style }}">
+        <div class="node-l">
+          <sc-if value="{{ n.hasDot }}" hint-placeholder-val="{{ false }}"><span class="hdot"></span></sc-if>
+          <span>{{ n.label }}</span>
+        </div>
+        <div class="node-s">{{ n.sub }}</div>
+      </div>
+    </sc-for>
+
+    <sc-for list="{{ elabels }}" as="l" hint-placeholder-count="8">
+      <div class="elabel" style="{{ l.style }}">{{ l.text }}</div>
+    </sc-for>
+
+    <div class="punch" style="{{ punchStyle }}">
+      <div class="punch-l" style="{{ punchLabelStyle }}">{{ punchLabel }}</div>
+      <div class="punch-t">{{ punchText }}</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "view": {"editor":"enum","options":["today","proposed"],"default":"today","section":"State"},
+  "theme": {"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"},
+  "accent": {"editor":"color","default":"#ff9f0a","options":["#ff9f0a","#64d2ff","#4ec98a","#c27800"],"section":"Theme"},
+  "$preview": {"width":1440,"height":900}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { view: null };
+  }
+
+  tokens() {
+    const dark = {
+      bg:'#0c0c0e', panel:'#131316', panel2:'#0f0f12', raised:'#1b1b20', hover:'#191920',
+      border:'#222228', border2:'#2f2f37', text:'#f3f3f5', muted:'#8b8b94', faint:'#585862',
+      danger:'#ff5a4d'
+    };
+    const light = {
+      bg:'#eceae5', panel:'#faf9f7', panel2:'#f3f2ee', raised:'#ffffff', hover:'#f0efea',
+      border:'#e3e1da', border2:'#d2d0c8', text:'#15151a', muted:'#6b6b72', faint:'#9a9aa1',
+      danger:'#c8362a'
+    };
+    return (this.props.theme ?? 'dark') === 'light' ? light : dark;
+  }
+
+  layout() {
+    return {
+      A1: { x: 80,   y: 82,  w: 250, h: 64, label:'Sidebar feed row',  sub:'_sidebar.html',        dot:true },
+      A2: { x: 80,   y: 192, w: 250, h: 64, label:'List header',       sub:'_list.html · one feed' },
+      A3: { x: 80,   y: 302, w: 250, h: 64, label:'Open article',      sub:'_reader.html' },
+      A4: { x: 80,   y: 462, w: 250, h: 64, label:'Sidebar foot',      sub:'the “Feeds” button' },
+      B1: { x: 570,  y: 82,  w: 250, h: 64, label:'⌘K palette',        sub:'Palette.dc.html',  added:true },
+      B2: { x: 570,  y: 192, w: 250, h: 64, label:'Triage view',       sub:'Main.dc.html',     added:true },
+      B3: { x: 570,  y: 462, w: 250, h: 64, label:'/feeds table',      sub:'feeds.html' },
+      C1: { x: 1060, y: 250, w: 300, h: 128, label:'Feed settings',    sub:'/feeds/{id} · overlay' }
+    };
+  }
+
+  edgeDefs() {
+    return [
+      { from:'A1', to:'A2', kind:'exists', label:'click a feed',  side:'down' },
+      { from:'A2', to:'A3', kind:'exists', label:'open an entry', side:'down' },
+      { from:'A4', to:'B3', kind:'exists', label:'“Feeds”',       side:'right' },
+      { from:'A3', to:'C1', kind:'exists', label:'gear · _reader.html:32', port:330 },
+      { from:'B3', to:'C1', kind:'exists', label:'gear · full page reload', port:362 },
+      { from:'A1', to:'C1', kind:'gap',   port:272, lfrac:0.20,
+        gapLabel:'no route — and the dot is here', newLabel:'gear on hover' },
+      { from:'A2', to:'C1', kind:'gap',   port:300, lfrac:0.20,
+        gapLabel:'no route', newLabel:'gear beside the title' },
+      { from:'B1', to:'C1', kind:'added', port:222, newLabel:'“feed settings”' },
+      { from:'B2', to:'C1', kind:'added', port:248, newLabel:'from any triage row' }
+    ];
+  }
+
+  renderVals() {
+    const c = this.tokens();
+    const accent = this.props.accent ?? '#ff9f0a';
+    c.accent = accent;
+    const rootStyle = [
+      '--bg:'+c.bg, '--panel:'+c.panel, '--panel-2:'+c.panel2, '--raised:'+c.raised,
+      '--hover:'+c.hover, '--border:'+c.border, '--border-2:'+c.border2, '--text:'+c.text,
+      '--muted:'+c.muted, '--faint:'+c.faint, '--accent:'+accent, '--danger:'+c.danger
+    ].join(';');
+
+    const view = this.state.view || this.props.view || 'today';
+    const proposed = view === 'proposed';
+    const L = this.layout();
+
+    const box = (n) => 'left:' + n.x + 'px;top:' + n.y + 'px;width:' + n.w + 'px;height:' + n.h + 'px;';
+
+    const nodes = Object.keys(L).map((k) => {
+      const n = L[k];
+      const ghost = n.added && !proposed;
+      return {
+        cls: n.added ? 'added' : '',
+        style: box(n)
+          + (ghost ? 'opacity:.2;' : '')
+          + (n.added && proposed ? 'border-color:' + accent + ';' : ''),
+        label: n.label, sub: n.sub, hasDot: !!n.dot
+      };
+    });
+
+    const edges = [];
+    const elabels = [];
+    this.edgeDefs().forEach((e) => {
+      const a = L[e.from], b = L[e.to];
+      let d, lx, ly, mx, my;
+
+      if (e.side === 'down') {
+        const x = a.x + 40;
+        d = 'M' + x + ' ' + (a.y + a.h) + ' L' + x + ' ' + (b.y - 10);
+        mx = x; my = (a.y + a.h + b.y) / 2;
+        lx = x + 78; ly = my;
+      } else if (e.side === 'right') {
+        const y = a.y + a.h / 2;
+        d = 'M' + (a.x + a.w) + ' ' + y + ' L' + (b.x - 10) + ' ' + y;
+        mx = (a.x + a.w + b.x) / 2; my = y;
+        lx = mx; ly = y - 15;
+      } else {
+        const x1 = a.x + a.w, y1 = a.y + a.h / 2;
+        const x2 = b.x - 10,  y2 = e.port;
+        const dx = (x2 - x1) * 0.45;
+        const p1x = x1 + dx, p2x = x2 - dx;
+        d = 'M' + x1 + ' ' + y1 + ' C' + p1x + ' ' + y1 + ' ' + p2x + ' ' + y2 + ' ' + x2 + ' ' + y2;
+        const at = (t) => {
+          const u = 1 - t;
+          return {
+            x: u*u*u*x1 + 3*u*u*t*p1x + 3*u*t*t*p2x + t*t*t*x2,
+            y: u*u*u*y1 + 3*u*u*t*y1  + 3*u*t*t*y2  + t*t*t*y2
+          };
+        };
+        const mid = at(0.5);
+        mx = mid.x; my = mid.y;
+        // curves crossing the hub column need their label back in the gutter
+        const lp = at(e.lfrac || 0.5);
+        lx = lp.x; ly = lp.y - 15;
+      }
+
+      const isGap = e.kind === 'gap';
+      const isAdded = e.kind === 'added';
+      const hidden = isAdded && !proposed;
+      const stroke = e.kind === 'exists' ? c.muted : (proposed ? accent : c.danger);
+      const text = proposed ? (e.newLabel || e.label) : (isGap ? e.gapLabel : e.label);
+
+      edges.push({
+        d: d, stroke: stroke,
+        w: e.kind === 'exists' ? 1.5 : 1.8,
+        dash: (!proposed && isGap) ? '6 5' : '0',
+        marker: e.kind === 'exists' ? 'url(#ar-muted)'
+              : (isGap && !proposed) ? 'none' : 'url(#ar-accent)',
+        op: hidden ? 0 : 1,
+        blocked: isGap && !proposed,
+        mx: mx, my: my,
+        xa: mx - 3.6, ya: my - 3.6, xb: mx + 3.6, yb: my + 3.6
+      });
+
+      elabels.push({
+        text: text,
+        style: 'left:' + lx + 'px;top:' + ly + 'px;'
+          + 'color:' + (e.kind === 'exists' ? c.faint : (proposed ? accent : c.danger)) + ';'
+          + (hidden ? 'opacity:0;' : '')
+      });
+    });
+
+    const punch = proposed
+      ? { label:'AFTER', stroke: accent,
+          text:'Every surface that already knows which feed you mean can now configure it — '
+             + 'including the sidebar row, where the health dot has been pointing at a problem '
+             + 'all along with nowhere to send you.' }
+      : { label:'THE DEAD END', stroke: c.danger,
+          text:'The health dot and the settings that would fix it are never in the same place. '
+             + 'From the sidebar, the only route that stays inside the reader is to open an article '
+             + 'from that feed — which, being broken, has no new articles.' };
+
+    return {
+      rootStyle: rootStyle,
+      c: c,
+      nodes: nodes,
+      edges: edges,
+      elabels: elabels,
+      captions: [
+        { text:'WHERE YOU ARE',           style:'left:80px;top:44px;' },
+        { text:'HUBS',                    style:'left:570px;top:44px;' },
+        { text:'WHERE YOU NEED TO GET',   style:'left:1060px;top:44px;' }
+      ],
+      blurb: proposed
+        ? 'With a palette and a triage view in place, the same overlay is reachable from every surface that already knows which feed you mean.'
+        : 'The overlay at /feeds/{id} is reachable from exactly three places. Two need an article open; the third leaves the reader entirely.',
+      todayCls: proposed ? '' : 'on warn',
+      propCls: proposed ? 'on' : '',
+      showToday: () => this.setState({ view: 'today' }),
+      showProposed: () => this.setState({ view: 'proposed' }),
+      punchLabel: punch.label,
+      punchText: punch.text,
+      punchLabelStyle: 'color:' + punch.stroke + ';',
+      punchStyle: 'border-color:' + punch.stroke + ';box-shadow:inset 3px 0 0 ' + punch.stroke + ';'
+    };
+  }
+}
+</script>
+</body>
+</html>

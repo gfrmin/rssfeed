@@ -21,11 +21,14 @@
 
 {%- set HEALTH_META = {
   "ok":          {"cls": "ok",    "label": "Healthy"},
-  "stale":       {"cls": "warn",  "label": "Stale — no items 24h+"},
+  "stale":       {"cls": "warn",  "label": "Stale — not polled in 24h+"},
+  "quiet":       {"cls": "warn",  "label": "Quiet — polling fine, publisher has stopped"},
   "warn":        {"cls": "warn",  "label": "Warning"},
   "error":       {"cls": "error", "label": "Broken — fetch error"},
   "http_404":    {"cls": "error", "label": "404 / not found"},
   "bot_blocked": {"cls": "error", "label": "Bot-blocked"},
+  "cloudflare":  {"cls": "error", "label": "Cloudflare challenge"},
+  "forbidden":   {"cls": "error", "label": "Access forbidden (403)"},
   "server_5xx":  {"cls": "warn",  "label": "Server error (5xx)"},
   "paused":      {"cls": "muted", "label": "Polling paused"}
 } -%}

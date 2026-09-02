@@ -48,7 +48,6 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .mono { font-family:"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
 .dim { color:var(--muted); }
 .dot-sep { color:var(--faint); margin:0 1px; }
-.hidden { display:none !important; }
 
 /* scrollbars */
 *::-webkit-scrollbar { width:9px; height:9px; }

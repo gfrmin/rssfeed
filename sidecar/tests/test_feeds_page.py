@@ -145,3 +145,78 @@ def test_decorate_feeds_sorts_by_priority_then_most_recent():
     configs = {2: {"priority": 1}, 3: {"priority": 1}}
     out = _decorate(feeds, cadence, configs=configs)
     assert [f["id"] for f in out] == [3, 2, 1]
+
+
+# ------------------------------------------------------------------------
+# The rendered page. Two jobs, kept apart from the triage view's: this is
+# where bulk work happens across the whole subscription list, and where the
+# filters and the sort live. It points AT triage for the "why", rather than
+# explaining causes a second time.
+# ------------------------------------------------------------------------
+import re  # noqa: E402
+
+TEMPLATES = Path(__file__).parent.parent / "app" / "templates"
+
+
+def _js_object(name: str) -> str:
+    html = (TEMPLATES / "feeds.html").read_text()
+    return re.search(rf"const {name} = \{{([^}}]*)\}}", html).group(1)
+
+
+def test_the_sort_order_knows_every_state_the_page_can_show():
+    """A state missing from HEALTH_RANK compares as NaN, and Array.sort quietly
+    scrambles the table instead of failing."""
+    rank = _js_object("HEALTH_RANK")
+    for state in ("error", "warn", "stale", "quiet", "paused", "ok"):
+        assert f"{state}:" in rank, state
+
+
+def test_the_problem_filter_knows_every_state_that_is_a_problem():
+    problem = _js_object("PROBLEM")
+    for state in ("error", "warn", "stale", "quiet"):
+        assert f"{state}:" in problem, state
+    assert "paused:" not in problem   # paused is a decision, not a problem
+    assert "ok:" not in problem
+
+
+def test_the_health_dropdown_offers_every_state_it_can_filter():
+    html = (TEMPLATES / "feeds.html").read_text()
+    options = re.findall(r'<option value="([a-z]*)"', html)
+    for state in ("error", "warn", "stale", "quiet", "paused", "ok"):
+        assert state in options, state
+
+
+def test_feeds_page_loads(client):
+    assert client.get("/").status_code == 200
+
+
+def test_every_row_carries_its_cause_so_the_table_can_be_filtered_by_it(client):
+    body = client.get("/").text
+    assert 'data-bucket="cloudflare"' in body
+    assert 'data-bucket="quiet"' in body
+
+
+def test_a_broken_row_says_what_is_wrong_with_it(client):
+    """The short label, because the table is dense — the chips above the table
+    carry the full name of the same cause."""
+    body = client.get("/").text
+    assert ">403</a>" in body and ">cloudflare</a>" in body
+
+
+def test_the_page_offers_a_chip_per_cause(client):
+    body = client.get("/").text
+    assert "Cloudflare challenge" in body
+    assert "Publisher has gone quiet" in body
+
+
+def test_a_cause_chip_hands_off_to_triage_rather_than_explaining_again(client):
+    """Two pages, two jobs: bulk work here, the why over there."""
+    assert 'href="/triage/cloudflare"' in client.get("/").text
+
+
+def test_the_bulk_bar_is_there_before_anything_is_selected(client):
+    """A toolbar that appears on selection is a toolbar you have to discover.
+    Present and dimmed says what is possible before you commit to a row."""
+    body = client.get("/").text
+    bar = body[body.index('id="bulk-bar"'):body.index('id="bulk-bar"') + 400]
+    assert "display:none" not in bar

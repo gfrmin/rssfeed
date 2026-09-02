@@ -17,6 +17,7 @@ from app.cadence import all_feeds as feed_cadence
 from app.config import BRIGHTDATA_PROXY
 from app.db import get_conn
 from app.feed_health import annotate
+from app.remedies import group_by_cause, recency_first
 from app.routes.cookies import (
     _parse_cookie_string,
     cookie_meta_for_domain,
@@ -153,7 +154,10 @@ async def feed_list(request: Request):
 
     response = templates.TemplateResponse(
         request, "feeds.html",
-        {"feeds": feeds, "categories": categories, "health_summary": _health_summary(feeds)},
+        {"feeds": feeds, "categories": categories,
+         "health_summary": _health_summary(feeds),
+         # Chips, not a second triage view: they name the causes and hand off.
+         "causes": group_by_cause(feeds, key=recency_first)},
     )
     t_render = time.perf_counter()
 

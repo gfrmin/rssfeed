@@ -17,7 +17,15 @@
   // in-app list entry to go Back to. On a deep-linked/refreshed article it stays
   // false, so "Back to list" navigates to the list instead of leaving the app.
   var cameFromList = false;
+  function onTriage() { return location.pathname.indexOf('/triage') === 0; }
+  // A cause pane is only reachable from /triage, and /triage renders both panes
+  // server-side — so back out of it with a real navigation, not a list swap.
+  function deepLinkedToReader() {
+    return !!document.querySelector('#reader-col .art-title')
+        || /^\/triage\/.+/.test(location.pathname);
+  }
   function goToList() {
+    if (onTriage()) { exitReading(); window.location.href = '/triage'; return; }
     var r = document.querySelector('#reader-col .reader[data-feed-id]');
     var fid = r && r.getAttribute('data-feed-id');
     var url = fid ? '/entries?feed_id=' + fid : '/entries?view=unread';
@@ -48,14 +56,14 @@
       return;
     }
     if (!isMobile()) return;
-    if (e.target.closest('#list-col .erow')) { cameFromList = true; enterReading(); }
+    if (e.target.closest('#list-col .erow, #list-col .crow')) { cameFromList = true; enterReading(); }
     if (e.target.closest('#sidebar a, #sidebar .nav-row')) closeDrawer();
   });
 
   /* ---- Top-bar title ---- */
   function mtitle() { return document.getElementById('mtitle'); }
   function syncTitleFromList() { var el = mtitle(), t = document.querySelector('#list-col .list-title'); if (el && t) el.textContent = t.textContent.trim(); }
-  function syncTitleFromReader() { var el = mtitle(), f = document.querySelector('#reader-col .art-feed'); if (el && f) el.textContent = f.textContent.trim(); }
+  function syncTitleFromReader() { var el = mtitle(), f = document.querySelector('#reader-col .art-feed, #reader-col .tg-title'); if (el && f) el.textContent = f.textContent.trim(); }
 
   /* ---- Swipe between articles: translate #reader-col .reader directly ---- */
   var EDGE = 24, REVEAL = 28, THRESH = 70;
@@ -128,6 +136,6 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     syncTitleFromList();
-    if (isMobile() && document.querySelector('#reader-col .art-title')) { enterReading(); syncTitleFromReader(); }
+    if (isMobile() && deepLinkedToReader()) { enterReading(); syncTitleFromReader(); }
   });
 })();

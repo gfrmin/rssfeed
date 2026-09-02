@@ -13,6 +13,7 @@ from lxml import etree as lxml_etree
 from lxml import html as lxml_html
 
 from app import browser_login, credvault, egress, miniflux_client
+from app.cadence import all_feeds as feed_cadence
 from app.config import BRIGHTDATA_PROXY
 from app.db import get_conn
 from app.feed_health import annotate
@@ -89,63 +90,6 @@ async def _feed_configs(conn) -> dict[int, dict]:
     return {row["feed_id"]: row for row in await cur.fetchall()}
 
 
-# How many recent entries define a feed's rhythm. Enough that one burst or one
-# hiatus cannot set the median; few enough that a feed which changed cadence a
-# year ago is judged on what it does now.
-CADENCE_WINDOW = 20
-
-# Latest entry and publishing cadence in a single pass. Both come off the same
-# window over `entries`, so asking for the cadence costs less than the separate
-# MAX(published_at) query it replaces. `percentile_cont` ignores the leading
-# NULL gap, and yields NULL for a feed with only one entry — which is exactly
-# "no baseline", the value feed_health treats as "say nothing".
-_CADENCE_SQL = """
-WITH recent AS (
-    SELECT feed_id, published_at FROM (
-        SELECT feed_id, published_at,
-               ROW_NUMBER() OVER (PARTITION BY feed_id ORDER BY published_at DESC) AS rn
-        FROM entries
-    ) ranked
-    WHERE rn <= %s
-),
-gaps AS (
-    SELECT feed_id, published_at,
-           EXTRACT(EPOCH FROM (published_at - LAG(published_at)
-               OVER (PARTITION BY feed_id ORDER BY published_at))) AS gap
-    FROM recent
-)
-SELECT feed_id,
-       MAX(published_at) AS latest,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY gap) AS median_gap_s
-FROM gaps
-GROUP BY feed_id
-"""
-
-
-async def _entry_cadence_all() -> dict[int, dict]:
-    """Per-feed {latest, median_gap_s}, straight from the shared Miniflux DB.
-
-    `latest` is what the Latest column shows; `median_gap_s` is the baseline
-    feed_health measures publisher silence against. Computing them together is
-    deliberate — they are the same scan, and a `latest` without a baseline to
-    read it against is the state the reader was already stuck in.
-
-    Reading `entries` directly replaced a bulk /v1/entries top-1000 window,
-    which blanked the Latest column for any feed whose newest entry fell
-    outside the global newest 1000 — low-volume feeds looked dead when they
-    weren't.
-    """
-    async with get_conn() as conn:
-        cur = await conn.execute(_CADENCE_SQL, (CADENCE_WINDOW,))
-        return {
-            row["feed_id"]: {
-                "latest": row["latest"],
-                "median_gap_s": row["median_gap_s"],
-            }
-            for row in await cur.fetchall()
-        }
-
-
 async def _fetch_feed_configs() -> dict[int, dict]:
     async with get_conn() as conn:
         return await _feed_configs(conn)
@@ -194,17 +138,17 @@ def decorate_feeds(feeds: list[dict], *, unreads: dict, cadence: dict[int, dict]
 async def feed_list(request: Request):
     t0 = time.perf_counter()
 
-    feeds, counters, cadence, categories, configs = await asyncio.gather(
+    feeds, counters, cadence_map, categories, configs = await asyncio.gather(
         miniflux_client.get_feeds(),
         miniflux_client.get_feed_counters(),
-        _entry_cadence_all(),
+        feed_cadence(),
         miniflux_client.get_categories(),
         _fetch_feed_configs(),
     )
     t_fetch = time.perf_counter()
 
     feeds = decorate_feeds(feeds, unreads=counters.get("unreads", {}),
-                           cadence=cadence, configs=configs, now=datetime.now(UTC))
+                           cadence=cadence_map, configs=configs, now=datetime.now(UTC))
     t_sort = time.perf_counter()
 
     response = templates.TemplateResponse(

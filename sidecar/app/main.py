@@ -11,7 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import miniflux_client
 from app.db import run_migrations
-from app.routes import cookies, entries, feeds, proxy
+from app.routes import cookies, entries, feeds, proxy, triage
 from app.templating import templates
 from app.worker import worker_loop
 
@@ -79,3 +79,4 @@ app.include_router(feeds.router)
 app.include_router(entries.router)
 app.include_router(proxy.router)
 app.include_router(cookies.router)
+app.include_router(triage.router)

@@ -9,7 +9,16 @@ import pytest
 
 from app.feed_health import BUCKET_LABELS
 from app.main import app
-from app.remedies import CAUSES, Remedy, group_by_cause, remedies_for
+from app.remedies import (
+    CAUSES,
+    Remedy,
+    age_spread,
+    attention_count,
+    group_by_cause,
+    problem_age_s,
+    recency_first,
+    remedies_for,
+)
 
 ALL_BUCKETS = set(BUCKET_LABELS) - {"ok"}
 
@@ -203,3 +212,95 @@ def test_group_by_cause_tolerates_a_bucket_with_no_registry_entry():
 def test_every_bucket_survives_grouping(bucket):
     (g,) = group_by_cause([_feed(1, "error", bucket)])
     assert g.label and g.why
+
+
+# ------------------------------------------------- ordering inside a group
+
+def _quiet(fid, days, title="Feed"):
+    return {"id": fid, "title": title, "_health": "quiet", "_bucket": "quiet",
+            "_since_latest_entry": days * 86400.0}
+
+
+def _broken(fid, failures, title="Feed"):
+    return {"id": fid, "title": title, "_health": "error", "_bucket": "forbidden",
+            "parsing_error_count": failures}
+
+
+def test_problem_age_is_known_for_a_quiet_feed():
+    assert problem_age_s(_quiet(1, 9)) == 9 * 86400.0
+
+
+def test_problem_age_is_unknown_for_a_fetch_error():
+    """Miniflux records the failure count, never when the failures began."""
+    assert problem_age_s(_broken(1, 400)) is None
+
+
+def test_recency_first_puts_the_newly_quiet_above_the_long_dead():
+    feeds = [_quiet(1, 900), _quiet(2, 3), _quiet(3, 40)]
+    assert [f["id"] for f in sorted(feeds, key=recency_first)] == [2, 3, 1]
+
+
+def test_recency_first_puts_the_newly_broken_above_the_chronic():
+    feeds = [_broken(1, 400), _broken(2, 3), _broken(3, 40)]
+    assert [f["id"] for f in sorted(feeds, key=recency_first)] == [2, 3, 1]
+
+
+def test_recency_first_breaks_ties_on_title():
+    feeds = [_quiet(1, 5, "Zebra"), _quiet(2, 5, "Anchor")]
+    assert [f["id"] for f in sorted(feeds, key=recency_first)] == [2, 1]
+
+
+def test_group_by_cause_can_order_within_a_group():
+    groups = group_by_cause([_quiet(1, 900), _quiet(2, 3)], key=recency_first)
+    assert [f["id"] for f in groups[0].feeds] == [2, 1]
+
+
+def test_group_by_cause_still_defaults_to_input_order():
+    groups = group_by_cause([_quiet(1, 900), _quiet(2, 3)])
+    assert [f["id"] for f in groups[0].feeds] == [1, 2]
+
+
+def test_age_spread_counts_feeds_into_bands():
+    feeds = [_quiet(1, 2), _quiet(2, 5), _quiet(3, 20), _quiet(4, 900)]
+    assert age_spread(feeds) == [("past week", 2), ("past month", 1), ("over a year", 1)]
+
+
+def test_age_spread_is_empty_when_no_age_is_knowable():
+    """A group of fetch errors has no timeline to spread, and must not invent one."""
+    assert age_spread([_broken(1, 3), _broken(2, 9)]) == []
+
+
+def test_a_group_carries_its_own_age_spread():
+    (g,) = group_by_cause([_quiet(1, 2), _quiet(2, 900)])
+    assert g.spread == [("past week", 1), ("over a year", 1)]
+
+
+def test_the_quiet_group_separates_this_weeks_news_from_archaeology():
+    """141 quiet feeds is not a to-do list until you can see that shape."""
+    feeds = [_quiet(i, 2) for i in range(10)] + [_quiet(100 + i, 800) for i in range(107)]
+    (g,) = group_by_cause(feeds, key=recency_first)
+    assert g.spread == [("past week", 10), ("over a year", 107)]
+    assert g.feeds[0]["_since_latest_entry"] == 2 * 86400.0
+
+
+# ----------------------------------------------- what the badge should count
+
+def test_attention_counts_feeds_in_a_state_nobody_chose():
+    feeds = [_feed(1, "error", "forbidden"), _feed(2, "warn", "server_5xx"),
+             _feed(3, "quiet", "quiet"), _feed(4, "stale", "stale")]
+    assert attention_count(feeds) == 4
+
+
+def test_attention_ignores_healthy_feeds():
+    assert attention_count([_feed(1, "ok", "ok"), _feed(2, "ok", "ok")]) == 0
+
+
+def test_attention_ignores_paused_feeds():
+    """Someone paused those on purpose. Counting them makes the badge a liar."""
+    feeds = [_feed(i, "paused", "paused") for i in range(213)]
+    assert attention_count(feeds) == 0
+
+
+def test_attention_counts_the_unwell_among_the_paused():
+    feeds = [_feed(1, "paused", "paused"), _feed(2, "error", "forbidden")]
+    assert attention_count(feeds) == 1

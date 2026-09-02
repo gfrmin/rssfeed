@@ -10,10 +10,12 @@ from lxml import html as lxml_html
 from psycopg.types.json import Jsonb
 
 from app import browser_login, db, embeddings, lenses, miniflux_client, ranker, ranker_client
+from app.cadence import all_feeds as feed_cadence
 from app.config import DEEP_POOL_ENABLED, DEEP_POOL_LIMIT, EMBED_ENABLED, MUTE_SIGNALS_ENABLED
 from app.db import get_conn
 from app.extractor import fetch_and_extract
 from app.feed_health import classify
+from app.remedies import attention_count
 from app.routes.cookies import (
     cookie_meta_for_domain,
     domain_from_url,
@@ -287,10 +289,11 @@ async def _build_sidebar_data() -> dict:
     """The expensive, view-independent part of the sidebar (feeds-by-tier, counts).
     Hits Miniflux + DB; cached by _sidebar_data()."""
     now = datetime.now(UTC)
-    feeds, counters, starred_data = await asyncio.gather(
+    feeds, counters, starred_data, cadence = await asyncio.gather(
         miniflux_client.get_feeds(),
         miniflux_client.get_feed_counters(),
         miniflux_client.get_entries(starred=True, limit=1),
+        feed_cadence(),
     )
     unreads = counters.get("unreads", {}) or {}
     reads = counters.get("reads", {}) or {}
@@ -301,8 +304,13 @@ async def _build_sidebar_data() -> dict:
 
     for f in feeds:
         cfg = configs.get(f["id"], {})
+        entries = cadence.get(f["id"], {})
         f["_priority"] = cfg.get("priority", 2)
         f["_proxy"] = bool(cfg.get("fetch_full_content"))
+        # The cadence baseline has to be on the dict before classify() runs, or
+        # the sidebar dots can never show `quiet` however silent a feed goes.
+        f["latest_entry_at"] = entries.get("latest")
+        f["median_gap_s"] = entries.get("median_gap_s")
         f["_health"] = classify(f, now).state
         f["_unread"] = unreads.get(str(f["id"]), 0)
 
@@ -322,6 +330,7 @@ async def _build_sidebar_data() -> dict:
         "read": sum(int(v) for v in reads.values()),
         "starred": starred_data.get("total", 0),
         "changed": len(changed_ids),
+        "attention": attention_count(feeds),
     }
 
     return {"groups": groups, "counts": counts}

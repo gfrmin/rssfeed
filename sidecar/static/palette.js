@@ -192,6 +192,19 @@
     }
   }
 
+  // The hint is written ⌘K because that is what the shortcut is called,
+  // but ⌘ is a key most keyboards here do not have. The binding already
+  // takes either modifier; relabel the *visible* hint once at load rather
+  // than branch in every template that grows a trigger.
+  if (!/Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent)) {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-palette-key]'), function (el) {
+      el.textContent = 'Ctrl K';
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-palette-open][title]'), function (el) {
+      el.title = el.title.replace('\u2318K', 'Ctrl K');
+    });
+  }
+
   // Touch has no ⌘K. Every page chrome carries a visible trigger, and it is
   // the only way in on a phone.
   document.addEventListener('click', function (e) {

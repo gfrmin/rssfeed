@@ -79,3 +79,33 @@ def test_the_palette_can_be_opened_without_a_keyboard():
     assert "data-palette-open" in (TEMPLATES / "_sidebar.html").read_text()
     assert "data-palette-open" in (TEMPLATES / "base.html").read_text()
     assert "data-palette-open" in PALETTE.read_text()
+
+
+def test_the_script_can_relabel_the_shortcut_hint():
+    """The hint is printed as ⌘K, which is a key this machine does not have.
+
+    The binding already accepts Ctrl, so the shortcut works — it is the
+    *label* that lies, and a wrong label is worse than none: it tells the
+    only user of this reader to press something their keyboard has not got.
+    The script relabels it at load, so it must know both the hook and the
+    word it substitutes.
+    """
+    js = PALETTE.read_text()
+    assert "data-palette-key" in js, "the script never relabels the visible hint"
+    assert "Ctrl" in js, "the script has nothing to relabel the hint to"
+
+
+def test_no_template_prints_a_command_glyph_the_script_cannot_reach():
+    """Every visible ⌘ has to sit on an element the relabel can find.
+
+    A new trigger that spells the hint out by hand looks right on a Mac and
+    is wrong everywhere else, and nothing else in the suite would notice.
+    """
+    for tpl in sorted(TEMPLATES.glob("*.html")):
+        for n, line in enumerate(tpl.read_text().splitlines(), 1):
+            if "⌘" not in line and "&#8984;" not in line:
+                continue
+            assert "data-palette-key" in line or "data-palette-open" in line, (
+                f"{tpl.name}:{n} prints ⌘ where the palette script cannot relabel it:"
+                f" {line.strip()}"
+            )

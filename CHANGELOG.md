@@ -13,6 +13,73 @@ marker for "what you are running", not a compatibility promise. Within that:
 
 Anything that needs a manual step to keep working will say so under **Upgrading**.
 
+## v0.3.0 — 2026-09-02
+
+Feed problems became something you can see and act on. Everything the reader
+could already do to a broken feed was four clicks deep behind `/`, and half of
+it only appeared once you ticked a checkbox; the classifier that decided *why*
+a feed was broken spent its answer on a tooltip.
+
+### New
+
+- **Triage (`/triage`).** Feeds that need attention, grouped by cause rather
+  than listed by name, with the remedies bound to the **group**. On this
+  instance 21 failing feeds were two causes wearing 21 names — a remedy bound
+  to the row makes you fix the same problem twenty-one times. A **Needs
+  attention** row in the sidebar carries the count.
+- **A `quiet` health state.** `error` means we cannot fetch it; `quiet` means
+  polling is fine and the *publisher* has stopped. Backed by a per-feed
+  publishing baseline — the median gap over a feed's last 20 entries — so
+  "silent" is measured against that feed's own cadence, not a flat threshold.
+  Groups show their age spread, because a bare count and its distribution are
+  different facts: on this instance at the time of writing, 141 quiet feeds
+  meant 10 that went quiet this week and 107 that stopped over a year ago.
+- **A command palette** (`Ctrl+K` / `⌘K`): views, causes and feeds in one
+  field. `Shift+Enter` on a feed opens its settings from anywhere in the app —
+  previously reachable only by finding the row on `/feeds`.
+- **`/feeds` rebuilt around the states it can now produce.** Cause chips across
+  the top, a Cause column linking into triage, `quiet` in the health filter,
+  and a bulk bar that is always visible — dimmed until you select something,
+  rather than absent.
+
+### Fixed
+
+- **The failure classifier was collapsing causes that need different fixes.**
+  Miniflux's own 403 text says both *"forbidden"* and *"bot protection"*, and
+  the bot rule was tested first, so every 403 landed in `bot_blocked` and the
+  finer bucket was dead code. It reads the status code now, and Cloudflare
+  challenges, plain 403s, 404s, 5xx, auth failures, TLS and transport errors
+  are separate causes. On this instance that splits one undifferentiated pile
+  of 21 into 10 Cloudflare and 11 forbidden. Four more real messages that had
+  been falling through to `other` are classified.
+- **`stale` did not measure what it said.** The label read *"no items 24h+"*
+  but the value came from `checked_at` — when Miniflux last *polled*, not when
+  the publisher last *posted*. It now says "not polled in 24h+", and the
+  question it was mistaken for is answered by `quiet`.
+- **The Category and Latest columns on `/feeds` had never rendered, at any
+  width.** They are `hidden sm:table-cell`; `style.css` defined
+  `.hidden { display: none !important }` and loads *after* `tailwind.css`, so
+  the override won everywhere. A media query adds no specificity and nothing
+  failed, because a column that never appears looks like a decision. Guarded by
+  a test now.
+- Tailwind's preflight sets `img { display: block }`, which had been putting
+  every feed favicon on a line of its own.
+- The palette hint printed `⌘K` flatly, naming a key most keyboards here do not
+  have. It is relabelled per platform.
+
+### Upgrading
+
+Nothing to do — no migration, no configuration change.
+
+The `quiet` state needs a per-feed publishing baseline, which is one aggregate
+query over `entries`, cached for five minutes. It **fails open** like the ranker
+and the embeddings: if that query is slow or the database is unreachable, feeds
+lose the `quiet` state and the reader still opens.
+
+Note that **Needs attention** deliberately excludes paused feeds. Pausing is a
+decision somebody made, not an unresolved problem; paused feeds are still listed
+in triage so a batch can be resumed.
+
 ## v0.2.0 — 2026-08-30
 
 First tagged release. The reader has been in daily use since March; this is the

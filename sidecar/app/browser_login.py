@@ -46,14 +46,39 @@ _UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 
 
-def _local_chromium_present() -> bool:
-    """True if `playwright install chromium` has provisioned a browser binary."""
-    # chrome-linux on official builds, chrome-linux64 on the OS-fallback build.
-    base = os.path.expanduser("~/.cache/ms-playwright")
-    return bool(
-        glob.glob(os.path.join(base, "chromium-*/chrome-linux*/chrome"))
-        or glob.glob(os.path.join(base, "chromium_headless_shell-*/chrome-linux*/headless_shell"))
+def _pinned_chromium_revision() -> str | None:
+    """The chromium build number *this* playwright launches, per its own registry."""
+    import playwright
+
+    registry = os.path.join(
+        os.path.dirname(playwright.__file__), "driver", "package", "browsers.json"
     )
+    try:
+        with open(registry) as fh:
+            browsers = json.load(fh)["browsers"]
+    except (OSError, ValueError, KeyError):
+        return None
+    return next(
+        (str(b["revision"]) for b in browsers if b.get("name") == "chromium"), None
+    )
+
+
+def _local_chromium_present() -> bool:
+    """True if the chromium build this playwright pins has been provisioned.
+
+    Checking for *any* ``chromium-*`` directory is not enough: playwright launches
+    one exact revision, so a cache holding only some other build passes the check
+    and then dies inside ``launch()`` with "Executable doesn't exist". Globbing the
+    binary inside the pinned directory keeps both layouts working — ``chrome-linux``
+    on official builds, ``chrome-linux64`` on the OS-fallback build.
+    """
+    revision = _pinned_chromium_revision()
+    if revision is None:
+        return False
+    base = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or os.path.expanduser(
+        "~/.cache/ms-playwright"
+    )
+    return bool(glob.glob(os.path.join(base, f"chromium-{revision}", "chrome-*linux*", "chrome")))
 
 
 _CHROMIUM_AVAILABLE = _local_chromium_present()

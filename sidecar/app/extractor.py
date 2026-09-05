@@ -106,6 +106,14 @@ _HTTP_KWARGS = dict(
 _UNLOCKER_KWARGS = {**_HTTP_KWARGS, "verify": False}
 
 
+def _why(exc: BaseException) -> str:
+    """A one-line reason for a failed fetch tier — a bare exception type hides
+    whether we were blocked (403), rate-limited (429) or simply couldn't connect."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    return f"{type(exc).__name__}: {exc}"[:120]
+
+
 async def _get_via(
     client_kwargs: dict, url: str, proxy: str | None, cookies: dict[str, str] | None,
 ) -> str:
@@ -138,15 +146,15 @@ async def _fetch_html(
     # 1. Direct (free)
     try:
         return await _get_via(_HTTP_KWARGS, url, proxy=None, cookies=cookies), "direct"
-    except Exception:
-        logger.info("Direct fetch failed for %s, trying static proxy", url)
+    except Exception as exc:
+        logger.info("Direct fetch failed for %s (%s), trying static proxy", url, _why(exc))
 
     # 2. Static datacenter proxy (cheap — bandwidth only, different IP)
     if BRIGHTDATA_PROXY:
         try:
             return await _get_via(_HTTP_KWARGS, url, proxy=BRIGHTDATA_PROXY, cookies=cookies), "static_proxy"
-        except Exception:
-            logger.info("Static proxy failed for %s, trying web_unlocker", url)
+        except Exception as exc:
+            logger.info("Static proxy failed for %s (%s), trying web_unlocker", url, _why(exc))
 
     # 3. Web Unlocker (expensive — per-request anti-bot bypass)
     if BRIGHTDATA_UNLOCKER_PROXY:
@@ -154,15 +162,15 @@ async def _fetch_html(
             return await _get_via(
                 _UNLOCKER_KWARGS, url, proxy=BRIGHTDATA_UNLOCKER_PROXY, cookies=cookies,
             ), "web_unlocker"
-        except Exception:
-            logger.info("Web Unlocker failed for %s, trying Wayback Machine", url)
+        except Exception as exc:
+            logger.info("Web Unlocker failed for %s (%s), trying Wayback Machine", url, _why(exc))
 
     # 4. Wayback Machine (free last resort — no cookies, site-specific creds irrelevant)
     try:
         wayback_url = f"https://web.archive.org/web/{quote(url, safe='')}"
         return await _get_via(_HTTP_KWARGS, wayback_url, proxy=None, cookies=None), "wayback"
-    except Exception:
-        logger.warning("All fetch methods failed for %s", url)
+    except Exception as exc:
+        logger.warning("All fetch methods failed for %s (wayback: %s)", url, _why(exc))
         return None, None
 
 

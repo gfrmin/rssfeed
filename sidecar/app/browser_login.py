@@ -19,6 +19,7 @@ allowlist. Credentials are never typed into an arbitrary third-party iframe. On
 failure we save a screenshot to ``/tmp/rssfeed-login-debug`` so a recipe can be
 tuned live.
 """
+import asyncio
 import glob
 import json
 import logging
@@ -69,9 +70,13 @@ def _playwright_package_root() -> str | None:
     """
     try:
         import playwright
+
+        return os.path.join(os.path.dirname(playwright.__file__), "driver", "package")
     except Exception:
+        # Not only ImportError: ``__file__`` is None for a namespace package or a
+        # half-removed wheel, and ``dirname(None)`` is a TypeError. This runs at
+        # import time, so anything escaping here is an app-wide startup failure.
         return None
-    return os.path.join(os.path.dirname(playwright.__file__), "driver", "package")
 
 
 def _playwright_registry() -> list[dict] | None:
@@ -120,10 +125,19 @@ _LAUNCH_BINARIES = (
 )
 
 
-def _pinned_revisions() -> dict[str, str]:
-    """``{registry name: revision}`` for the browser builds this playwright pins."""
+def _pinned_revisions() -> dict[str, list[str]]:
+    """``{registry name: candidate revisions}`` for the builds this playwright pins.
+
+    Base revision first, then any ``revisionOverrides``. Playwright applies
+    ``revisionOverrides[hostPlatform]`` when computing both the download and the
+    *install directory name*, and several registry entries carry them. Rather than
+    reproduce its host-platform string (``ubuntu22.04-x64``, ``mac14-arm64``, …)
+    and risk globbing a directory that does not exist, accept any revision it
+    could have chosen: the question here is "is a launchable build present", and a
+    directory playwright itself created is exactly that.
+    """
     return {
-        b["name"]: str(b["revision"])
+        b["name"]: [str(b["revision"]), *(str(v) for v in (b.get("revisionOverrides") or {}).values())]
         for b in _playwright_registry() or []
         if b.get("name") and b.get("revision") is not None
     }
@@ -144,14 +158,18 @@ def _local_chromium_present() -> bool:
         return False
     revisions = _pinned_revisions()
     launched = next(
-        ((directory.format(rev=revisions[name]), inners)
+        ((directory, inners, revisions[name])
          for name, directory, inners in _LAUNCH_BINARIES if name in revisions),
         None,
     )
     if launched is None:
         return False
-    directory, inners = launched
-    return any(glob.glob(os.path.join(base, directory, inner)) for inner in inners)
+    directory, inners, candidates = launched
+    return any(
+        glob.glob(os.path.join(base, directory.format(rev=rev), inner))
+        for rev in candidates
+        for inner in inners
+    )
 
 
 _CHROMIUM_AVAILABLE = _local_chromium_present()
@@ -625,28 +643,65 @@ def is_interstitial(html: str) -> bool:
     return any(m in html for m in _INTERSTITIAL_MARKERS)
 
 
+# One Chromium at a time. render_page_html is reachable for any domain now, and
+# _throttle only serialises per *domain* — so a worker render and a user-triggered
+# POST /entries/{id}/fetch-full could each hold an instance (~300 MB) at once, on
+# a box that also runs Postgres, Miniflux and the ranker.
+_RENDER_SLOT = asyncio.Semaphore(1)
+
+
 async def _guard_navigations(page) -> None:
-    """Refuse to let the browser follow a redirect into a private address.
+    """Keep the browser inside public address space, for every request it makes.
 
     Every HTTP tier goes through ``egress.guarded_get``, which walks redirects
-    itself with ``follow_redirects=False`` precisely so a public URL cannot bounce
-    the fetch into a private range via a 30x ``Location``. Chromium follows
-    redirects internally, so that check has to be re-applied here — and it matters
-    more now than it did: this tier used to be reachable only for operator-curated
-    paywall domains, and an anti-bot wall now escalates arbitrary feed entry URLs
-    into it. Without this, a hostile feed entry pointing at a host that 403s and
-    then redirects to ``169.254.169.254`` would be rendered and stored as article
-    text.
+    with ``follow_redirects=False`` precisely so a public URL cannot bounce the
+    fetch into a private range via a 30x ``Location``. Chromium follows redirects
+    internally *and* runs the page's JavaScript, so the check has to be re-applied
+    per request here.
+
+    It matters more than it used to. This tier was reachable only for
+    operator-curated paywall domains; an anti-bot wall now escalates arbitrary
+    feed entry URLs into it, so a hostile page gets its JS executed in our browser.
+    Subresources count: ``fetch``/``img``/``script`` to ``169.254.169.254``,
+    loopback or RFC1918 hosts is a blind probe of the tailnet even when the
+    responses are unreadable cross-origin.
+
+    Verdicts are memoised per origin — a render issues hundreds of requests across
+    a handful of hosts — and anything unexpected fails closed: an exception
+    escaping a route handler leaves the request unresolved, which stalls it until
+    the navigation timeout instead of failing fast.
     """
-    async def _route(route, request):
-        if request.is_navigation_request():
+    verdicts: dict[str, bool] = {}
+
+    async def _allowed(url: str) -> bool:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return True    # data:/blob:/about: never reach the network
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        if origin not in verdicts:
             try:
-                await egress.check_public(request.url)
+                await egress.check_public(url)
+                verdicts[origin] = True
             except egress.EgressBlockedError as exc:
-                logger.warning("Refusing browser navigation to %s: %s", request.url, exc)
+                logger.warning("Blocking browser request to %s: %s", origin, exc)
+                verdicts[origin] = False
+            except Exception:
+                # check_public wraps OSError, but a malformed port (ValueError) or
+                # a bad IDN label (UnicodeError) still escape it.
+                logger.exception("Egress check failed for %s; blocking", origin)
+                verdicts[origin] = False
+        return verdicts[origin]
+
+    async def _route(route, request):
+        try:
+            if await _allowed(request.url):
+                await route.continue_()
+            else:
                 await route.abort()
-                return
-        await route.continue_()
+        except Exception:
+            # The page can close mid-flight; nothing useful is left to do, but the
+            # exception must not escape into an unhandled task.
+            logger.debug("Route handling failed for %s", request.url, exc_info=True)
 
     await page.route("**/*", _route)
 
@@ -675,7 +730,7 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
     proxy = {"server": LOGIN_BROWSER_PROXY} if LOGIN_BROWSER_PROXY else None
     bare = (urlparse(url).hostname or "").removeprefix("www.")
     try:
-        async with async_playwright() as p:
+        async with _RENDER_SLOT, async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             try:
                 context = await browser.new_context(

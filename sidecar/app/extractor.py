@@ -51,15 +51,26 @@ async def _throttle(domain: str | None, min_interval: float) -> None:
         _domain_last[domain] = time.monotonic()
 
 
-# Statuses that mean "a browser would get in where we did not". A challenge is
-# not a dead link: the page is there, it just wants JavaScript, which is exactly
-# what the next tier has.
-#
-# 429 and 401 are deliberately excluded. Escalating a 429 answers "please slow
-# down" with a *heavier* request to the same origin moments later, once per entry
-# across a whole worker batch. A 401 is a credential problem, and a render we
-# have no cookies for cannot fix it — it would just buy a browser launch to fail.
-_BLOCKED_STATUSES = frozenset({403, 503})
+def _is_challenge_response(exc: BaseException) -> bool:
+    """Did this failed tier come back with an anti-bot challenge page?
+
+    Escalation is evidence-based, not status-based, because a status lies in both
+    directions. A plain 503 origin outage would buy a headless Chromium launch for
+    every entry on the feed — launch, goto, a 20s prose wait that cannot succeed
+    on an error page, settle and throttle, serially — turning a seconds-long pass
+    into a half-hour one. And a Brightdata zone that is suspended or over budget
+    answers 403 from the *proxy* for every URL, saying nothing about the target.
+
+    A challenge *body* is the thing that actually means "a browser would get in
+    where we did not", and Cloudflare's managed challenge serves exactly that,
+    markers and all, under its 403.
+    """
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return False
+    try:
+        return browser_login.is_interstitial(exc.response.text)
+    except Exception:
+        return False
 
 
 def _needs_browser_render(domain: str | None, result: dict[str, Any] | None,
@@ -80,21 +91,27 @@ def _needs_browser_render(domain: str | None, result: dict[str, Any] | None,
     return blocked or browser_login.has_login_recipe(domain) or bool(cookies)
 
 
-def _render_is_better(rendered: dict[str, Any], http_result: dict[str, Any] | None) -> bool:
-    """Accept a browser render only if it beat the HTTP tier *and* reads as prose.
+def _render_is_better(rendered: dict[str, Any], http_result: dict[str, Any] | None,
+                      *, require_prose: bool) -> bool:
+    """Accept a browser render if it beat the HTTP tier — and, on the escalated
+    path, only if it also reads as prose.
 
-    "Longer than what we had" was safe while this tier only ran for curated
-    paywall domains. Now that an anti-bot wall escalates arbitrary domains, what
-    gets rendered is often a plain hard 403 — an "Access Denied" body with no
-    challenge markers for ``is_interstitial`` to catch, which ``page.goto`` loads
-    happily because it does not raise on non-2xx. A few words of error text beat
-    ``result=None``, and would be stored as the snapshot *and* clear the retriable
-    ``extract_attempts`` row. Hold the render to the same bar the gate used to
-    call the HTTP result too short.
+    "Longer than what we had" is the right rule for the curated paywall domains
+    this tier has always served: an empty SPA shell scores 0, and a genuinely
+    short article — a news brief, a photo caption post — should still win.
+
+    It is the wrong rule for a domain we reached only because every HTTP tier hit
+    a wall. What gets rendered there is often a plain hard 403: an "Access Denied"
+    body with no challenge markers for ``is_interstitial`` to catch, which
+    ``page.goto`` loads happily because it does not raise on non-2xx. A few words
+    of error text beat ``result=None``, and would be stored as the snapshot *and*
+    clear the retriable ``extract_attempts`` row. So the floor applies to the
+    escalated path, where the risk was introduced, and nowhere else.
     """
     text = rendered["content_text"]
-    return (len(text) >= _RENDER_TEXT_THRESHOLD
-            and len(text) > len((http_result or {}).get("content_text", "")))
+    if require_prose and len(text) < _RENDER_TEXT_THRESHOLD:
+        return False
+    return len(text) > len((http_result or {}).get("content_text", ""))
 
 
 async def fetch_and_extract(
@@ -124,7 +141,7 @@ async def fetch_and_extract(
         rendered = await browser_login.render_page_html(url, cookies)
         if rendered:
             r2 = _extract(rendered, url, rules, proxy_images=proxy_images)
-            if r2 and _render_is_better(r2, result):
+            if r2 and _render_is_better(r2, result, require_prose=blocked):
                 r2["metadata"]["source"] = "browser"
                 return r2
 
@@ -227,8 +244,7 @@ async def _fetch_html(
         try:
             html = await _get_via(tier.kwargs, tier.url, proxy=tier.proxy, cookies=tier.cookies)
         except Exception as exc:
-            if (tier.origin and isinstance(exc, httpx.HTTPStatusError)
-                    and exc.response.status_code in _BLOCKED_STATUSES):
+            if tier.origin and _is_challenge_response(exc):
                 blocked = True
             logger.info("Fetch tier %s failed for %s (%s)", tier.name, url, _why(exc))
             continue

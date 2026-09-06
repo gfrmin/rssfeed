@@ -29,6 +29,11 @@ def revisions():
     return browser_login._pinned_revisions()
 
 
+def _rev(revisions):
+    """The base revision — first of the candidates _pinned_revisions accepts."""
+    return revisions["chromium-headless-shell"][0]
+
+
 def _cache(tmp_path, *binaries):
     """Materialise a fake browser cache containing exactly ``binaries``."""
     for rel in binaries:
@@ -47,19 +52,33 @@ def _present_with(monkeypatch, path):
 
 def test_registry_pins_a_headless_shell_revision(revisions):
     """The headless shell is what we launch, so it must be in the registry."""
-    assert revisions["chromium-headless-shell"].isdigit()
+    assert _rev(revisions).isdigit()
+
+
+def test_revision_overrides_are_accepted_too(tmp_path, monkeypatch):
+    """Playwright names the install directory after the *override* where one applies.
+
+    Globbing only the base revision would miss a directory playwright itself
+    created — the silent false negative this whole check exists to eliminate.
+    """
+    monkeypatch.setattr(browser_login, "_playwright_registry", lambda: [
+        {"name": "chromium-headless-shell", "revision": 100,
+         "revisionOverrides": {"ubuntu22.04-x64": 101}},
+    ])
+    path = _cache(tmp_path, _SHELL.format(rev=101))
+    assert _present_with(monkeypatch, path) is True
 
 
 # --- what counts as provisioned ---------------------------------------------
 
 def test_present_when_the_headless_shell_is_installed(tmp_path, monkeypatch, revisions):
-    rev = revisions["chromium-headless-shell"]
+    rev = _rev(revisions)
     path = _cache(tmp_path, _SHELL.format(rev=rev))
     assert _present_with(monkeypatch, path) is True
 
 
 def test_older_headless_shell_layout_also_counts(tmp_path, monkeypatch, revisions):
-    rev = revisions["chromium-headless-shell"]
+    rev = _rev(revisions)
     path = _cache(tmp_path, _SHELL_OLD.format(rev=rev))
     assert _present_with(monkeypatch, path) is True
 
@@ -72,12 +91,12 @@ def test_absent_when_only_the_headed_build_is_installed(tmp_path, monkeypatch, r
     a live launch. A cache holding only that build must report absent, or the
     tier claims to work and then dies inside ``launch()``.
     """
-    path = _cache(tmp_path, _FULL.format(rev=revisions["chromium-headless-shell"]))
+    path = _cache(tmp_path, _FULL.format(rev=_rev(revisions)))
     assert _present_with(monkeypatch, path) is False
 
 
 def test_absent_when_only_another_revision_is_installed(tmp_path, monkeypatch, revisions):
-    rev = int(revisions["chromium-headless-shell"]) + 11
+    rev = int(_rev(revisions)) + 11
     path = _cache(tmp_path, _SHELL.format(rev=rev))
     assert _present_with(monkeypatch, path) is False
 
@@ -88,7 +107,7 @@ def test_absent_when_cache_is_empty(tmp_path, monkeypatch):
 
 def test_headed_build_is_the_fallback_for_pre_shell_playwrights(tmp_path, monkeypatch):
     """Playwright <1.49 shipped no separate shell, so chromium was the binary."""
-    monkeypatch.setattr(browser_login, "_pinned_revisions", lambda: {"chromium": "999"})
+    monkeypatch.setattr(browser_login, "_pinned_revisions", lambda: {"chromium": ["999"]})
     path = _cache(tmp_path, _FULL.format(rev="999"))
     assert _present_with(monkeypatch, path) is True
 
@@ -102,7 +121,7 @@ def test_browsers_path_env_wins_over_the_default_location(tmp_path, monkeypatch,
     a good cache would pass identically with the env ignored. Here the default
     location holds the *wrong* revision and only the env-pointed one is correct.
     """
-    rev = int(revisions["chromium-headless-shell"])
+    rev = int(_rev(revisions))
     _cache(tmp_path / "default" / "ms-playwright", _SHELL.format(rev=rev + 11))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "default"))
     assert _present_with(monkeypatch, _cache(tmp_path / "env", _SHELL.format(rev=rev))) is True
@@ -110,7 +129,7 @@ def test_browsers_path_env_wins_over_the_default_location(tmp_path, monkeypatch,
 
 def test_browsers_path_env_also_wins_when_it_is_empty(tmp_path, monkeypatch, revisions):
     """The other direction: pointing it somewhere bare must not fall back."""
-    rev = revisions["chromium-headless-shell"]
+    rev = _rev(revisions)
     _cache(tmp_path / "default" / "ms-playwright", _SHELL.format(rev=rev))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "default"))
     (tmp_path / "env").mkdir()
@@ -121,7 +140,7 @@ def test_xdg_cache_home_is_honoured(tmp_path, monkeypatch, revisions):
     """Playwright resolves its default cache under XDG_CACHE_HOME when that is set,
     rather than assuming a cache directory beneath the home directory.
     """
-    rev = revisions["chromium-headless-shell"]
+    rev = _rev(revisions)
     _cache(tmp_path / "ms-playwright", _SHELL.format(rev=rev))  # PII-OK
     monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))

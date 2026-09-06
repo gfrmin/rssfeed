@@ -410,9 +410,53 @@ def test_navigation_guard_allows_a_public_navigation(monkeypatch):
     assert run(page.send(_FakeRoute("https://example.com/article"))) == "continue"
 
 
-def test_navigation_guard_does_not_re_check_subresources():
-    """Only a navigation can carry the page somewhere else; images cannot."""
+def test_subresources_are_guarded_too():
+    """A hostile page's JS is what makes this a probe primitive.
+
+    The page runs in our browser and can issue fetch/img/script requests to
+    link-local, loopback and RFC1918 hosts. The responses are largely unreadable
+    cross-origin, but the requests alone map the tailnet from inside it.
+    """
     page = _FakePage()
     run(browser_login._guard_navigations(page))
-    route = _FakeRoute("http://127.0.0.1/style.css", navigation=False)
-    assert run(page.send(route)) == "continue"
+    route = _FakeRoute("http://169.254.169.254/latest/meta-data/", navigation=False)
+    assert run(page.send(route)) == "abort"
+
+
+def test_non_network_schemes_are_left_alone():
+    """data:/blob:/about: never reach the network — blocking them breaks rendering."""
+    page = _FakePage()
+    run(browser_login._guard_navigations(page))
+    for url in ("data:image/png;base64,iVBORw0KGgo=", "about:blank"):
+        assert run(page.send(_FakeRoute(url, navigation=False))) == "continue", url
+
+
+def test_one_lookup_per_origin(monkeypatch):
+    """A render issues hundreds of requests across a handful of hosts."""
+    calls = []
+
+    async def _counting_resolve(host, port):
+        calls.append(host)
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(egress, "_resolve", _counting_resolve)
+    page = _FakePage()
+    run(browser_login._guard_navigations(page))
+    for path in ("/a", "/b", "/c"):
+        assert run(page.send(_FakeRoute(f"https://example.com{path}"))) == "continue"
+    assert calls == ["example.com"]
+
+
+def test_an_unexpected_egress_failure_fails_closed(monkeypatch):
+    """An exception escaping a route handler leaves the request unresolved.
+
+    Playwright dispatches handlers as tasks, so nothing retries and nothing
+    aborts — the request just stalls until the navigation timeout.
+    """
+    async def _explodes(host, port):
+        raise UnicodeError("invalid IDN label")
+
+    monkeypatch.setattr(egress, "_resolve", _explodes)
+    page = _FakePage()
+    run(browser_login._guard_navigations(page))
+    assert run(page.send(_FakeRoute("https://example.com/a"))) == "abort"

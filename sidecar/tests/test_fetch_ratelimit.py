@@ -115,24 +115,27 @@ def test_js_detections_beacon_is_not_a_challenge():
 
 _URL = "https://example.com/a"
 _CHALLENGE = "<html><head><script>window._cf_chl_opt={};</script></head></html>"
+_DENIED = "<html><body><h1>403 Forbidden</h1><p>Access Denied</p></body></html>"
 _ARTICLE = "<html><article><p>Real prose.</p></article></html>"
 
 
 def _ladder(monkeypatch, replies):
     """Drive ``_fetch_html`` with a scripted reply per tier.
 
-    ``replies`` maps a URL substring to either a body (str) or an HTTP status
-    (int) to raise. Wayback is keyed first because its URL embeds the origin's.
+    ``replies`` maps a URL substring to a 200 body (str) or a ``(status, body)``
+    pair to raise as an HTTP error. Wayback is keyed first because its URL embeds
+    the origin's.
     """
     async def _fake_get_via(kwargs, url, proxy, cookies):
         reply = next((r for needle, r in replies.items() if needle in url), None)
         if reply is None:
             raise AssertionError(f"unscripted fetch: {url}")
-        if isinstance(reply, int):
+        if isinstance(reply, tuple):
+            status, body = reply
             request = httpx.Request("GET", url)
             raise httpx.HTTPStatusError(
-                str(reply), request=request,
-                response=httpx.Response(reply, request=request),
+                str(status), request=request,
+                response=httpx.Response(status, text=body, request=request),
             )
         return reply
 
@@ -140,6 +143,47 @@ def _ladder(monkeypatch, replies):
     monkeypatch.setattr(extractor, "BRIGHTDATA_PROXY", None)
     monkeypatch.setattr(extractor, "BRIGHTDATA_UNLOCKER_PROXY", None)
     return _run(extractor._fetch_html(_URL))
+
+
+def test_a_challenge_under_a_403_earns_a_browser(monkeypatch):
+    """Cloudflare's managed challenge serves its markers under a 403."""
+    _, _, blocked = _ladder(
+        monkeypatch, {"web.archive.org": (500, ""), "example.com": (403, _CHALLENGE)},
+    )
+    assert blocked is True
+
+
+def test_a_bare_403_is_not_evidence_of_a_challenge(monkeypatch):
+    """A hard "Access Denied" is a wall a browser cannot talk its way past.
+
+    Escalating on the status alone bought a Chromium launch per entry for every
+    site that simply refuses us.
+    """
+    _, _, blocked = _ladder(
+        monkeypatch, {"web.archive.org": (500, ""), "example.com": (403, _DENIED)},
+    )
+    assert blocked is False
+
+
+def test_an_origin_outage_does_not_escalate(monkeypatch):
+    """503 is far more often "the site is down" than "the site wants JavaScript".
+
+    Every entry on the feed would otherwise pay launch + goto + a 20s prose wait
+    that cannot succeed on an error page + settle + throttle, serially.
+    """
+    _, _, blocked = _ladder(
+        monkeypatch,
+        {"web.archive.org": (500, ""), "example.com": (503, "<h1>Service Unavailable</h1>")},
+    )
+    assert blocked is False
+
+
+def test_rate_limiting_does_not_escalate(monkeypatch):
+    """429 is "slow down"; answering it with a full Chromium load is not that."""
+    _, _, blocked = _ladder(
+        monkeypatch, {"web.archive.org": (500, ""), "example.com": (429, "")},
+    )
+    assert blocked is False
 
 
 def test_wayback_snapshot_of_a_challenge_is_not_content(monkeypatch):
@@ -150,67 +194,46 @@ def test_wayback_snapshot_of_a_challenge_is_not_content(monkeypatch):
     browser render followed — and the challenge stub was stored as the article.
     """
     html, source, blocked = _ladder(
-        monkeypatch, {"web.archive.org": _CHALLENGE, "example.com": 403},
+        monkeypatch, {"web.archive.org": _CHALLENGE, "example.com": (403, _CHALLENGE)},
     )
     assert (html, source) == (None, None)
+    assert blocked is True
+
+
+def test_an_archived_challenge_page_implicates_the_origin(monkeypatch):
+    """The one thing Wayback *can* tell us: it archived the origin's challenge."""
+    _, _, blocked = _ladder(
+        monkeypatch, {"web.archive.org": _CHALLENGE, "example.com": (404, "")},
+    )
     assert blocked is True
 
 
 def test_blocked_survives_a_successful_wayback(monkeypatch):
     """A real archived article is still content — but the wall is still reported."""
     html, source, blocked = _ladder(
-        monkeypatch, {"web.archive.org": _ARTICLE, "example.com": 403},
+        monkeypatch, {"web.archive.org": _ARTICLE, "example.com": (403, _CHALLENGE)},
     )
     assert (html, source, blocked) == (_ARTICLE, "wayback", True)
 
 
-def test_rate_limiting_does_not_escalate_to_a_browser(monkeypatch):
-    """429 is "slow down"; answering it with a full Chromium load is not that."""
-    _, _, blocked = _ladder(
-        monkeypatch, {"web.archive.org": 500, "example.com": 429},
-    )
-    assert blocked is False
-
-
-def test_unauthorized_does_not_escalate_to_a_browser(monkeypatch):
-    """401 is a credential problem a cookieless render cannot fix."""
-    _, _, blocked = _ladder(
-        monkeypatch, {"web.archive.org": 500, "example.com": 401},
-    )
-    assert blocked is False
-
-
-def test_forbidden_is_a_wall_worth_a_browser(monkeypatch):
-    _, _, blocked = _ladder(
-        monkeypatch, {"web.archive.org": 500, "example.com": 403},
-    )
-    assert blocked is True
-
-
-def test_waybacks_own_outage_is_not_the_origins_wall(monkeypatch):
+def test_waybacks_own_failure_is_not_the_origins_wall(monkeypatch):
     """web.archive.org answers 503 under load and 403 for rights-holder exclusions.
 
-    Neither says anything about the origin. Counting them would turn an ordinary
-    dead link into a headless Chromium launch per entry, for any domain at all.
+    Neither says anything about the origin — not even when archive.org's own error
+    page happens to carry challenge markers, since that is Cloudflare in front of
+    *the archive*.
     """
     for status in (403, 503):
         _, _, blocked = _ladder(
-            monkeypatch, {"web.archive.org": status, "example.com": 404},
+            monkeypatch,
+            {"web.archive.org": (status, _CHALLENGE), "example.com": (404, "")},
         )
         assert blocked is False, f"wayback {status} must not implicate the origin"
 
 
-def test_an_archived_challenge_page_does_implicate_the_origin(monkeypatch):
-    """The one thing Wayback *can* tell us: it archived the origin's challenge."""
-    _, _, blocked = _ladder(
-        monkeypatch, {"web.archive.org": _CHALLENGE, "example.com": 404},
-    )
-    assert blocked is True
-
-
 # --- accepting a browser render ---------------------------------------------
 
-def test_render_must_clear_the_same_bar_that_triggered_it():
+def test_escalated_render_must_read_as_prose():
     """A hard 403 body is not an article.
 
     "Access Denied" carries no challenge markers, so is_interstitial misses it and
@@ -218,17 +241,30 @@ def test_render_must_clear_the_same_bar_that_triggered_it():
     stored as the snapshot and would clear the retriable extract_attempts row.
     """
     denied = {"content_text": "Access Denied"}
-    assert extractor._render_is_better(denied, None) is False
+    assert extractor._render_is_better(denied, None, require_prose=True) is False
 
 
-def test_render_replaces_nothing_when_it_is_real_prose():
-    assert extractor._render_is_better({"content_text": "x" * 500}, None) is True
+def test_a_short_article_still_wins_on_a_curated_domain():
+    """The floor belongs to the escalated path only.
+
+    On a known paywall domain the HTTP tier gets an empty SPA shell and the render
+    gets the real article — which may legitimately be a 150-character news brief.
+    """
+    brief = {"content_text": "x" * 150}
+    assert extractor._render_is_better(brief, None, require_prose=False) is True
+    assert extractor._render_is_better(brief, None, require_prose=True) is False
+
+
+def test_render_replacing_nothing_is_accepted_when_it_is_real_prose():
+    assert extractor._render_is_better(
+        {"content_text": "x" * 500}, None, require_prose=True) is True
 
 
 def test_render_must_still_beat_what_the_http_tier_got():
     long_enough = "x" * 300
     assert extractor._render_is_better(
         {"content_text": long_enough}, {"content_text": long_enough + "more"},
+        require_prose=True,
     ) is False
 
 

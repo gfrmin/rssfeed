@@ -19,7 +19,6 @@ allowlist. Credentials are never typed into an arbitrary third-party iframe. On
 failure we save a screenshot to ``/tmp/rssfeed-login-debug`` so a recipe can be
 tuned live.
 """
-import asyncio
 import glob
 import json
 import logging
@@ -58,39 +57,100 @@ def _ua_for(browser) -> str:
     return _UA_TEMPLATE.format(major=major if major.isdigit() else "126")
 
 
-def _pinned_chromium_revision() -> str | None:
-    """The chromium build number *this* playwright launches, per its own registry."""
-    import playwright
+def _playwright_package_root() -> str | None:
+    """The driver ``package`` directory inside the installed playwright wheel.
 
-    registry = os.path.join(
-        os.path.dirname(playwright.__file__), "driver", "package", "browsers.json"
-    )
+    Imported defensively: this runs at module import time via
+    ``_CHROMIUM_AVAILABLE``, and the browser tier is optional. Every other
+    playwright import in this module is guarded for the same reason — a missing
+    or broken wheel must degrade the tier, not raise through ``app.extractor``
+    and take the whole reader down on import.
+    """
     try:
-        with open(registry) as fh:
-            browsers = json.load(fh)["browsers"]
-    except (OSError, ValueError, KeyError):
+        import playwright
+    except Exception:
         return None
-    return next(
-        (str(b["revision"]) for b in browsers if b.get("name") == "chromium"), None
-    )
+    return os.path.join(os.path.dirname(playwright.__file__), "driver", "package")
+
+
+def _playwright_registry() -> list[dict] | None:
+    """Playwright's own ``browsers.json`` — the registry it launches from."""
+    root = _playwright_package_root()
+    if root is None:
+        return None
+    try:
+        with open(os.path.join(root, "browsers.json")) as fh:
+            return json.load(fh)["browsers"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _browsers_base() -> str | None:
+    """Where playwright keeps provisioned browsers, mirroring its own resolution.
+
+    ``PLAYWRIGHT_BROWSERS_PATH=0`` is a documented *mode* — "install beside the
+    package" — not a path. Taking it as one points the check at a relative
+    directory named ``0``, matches nothing, and silently disables the browser
+    tier on a machine where the browsers are installed correctly.
+    """
+    env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if env == "0":
+        root = _playwright_package_root()
+        return os.path.join(root, ".local-browsers") if root else None
+    if env:
+        return os.path.abspath(env)
+    cache = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return os.path.join(cache, "ms-playwright")
+
+
+# Both ``launch()`` calls in this module pass ``headless=True``, and playwright
+# >=1.49 runs a *separate* ``chrome-headless-shell`` binary for that — the full
+# chromium build is what a headed launch uses, which we never do. Ordered by what
+# we would actually launch: the first entry the *registry* pins is the one that
+# has to be on disk, so the full build serves only pre-1.49 playwrights that ship
+# no shell at all. It must not stand in for a shell that is pinned but missing —
+# that is precisely the cache that passes the check and then dies in ``launch()``.
+# Inner globs cover the current ``chrome-headless-shell-linux64`` layout and the
+# older ``chrome-linux/headless_shell`` one.
+_LAUNCH_BINARIES = (
+    ("chromium-headless-shell", "chromium_headless_shell-{rev}",
+     ("chrome-headless-shell-*linux*/chrome-headless-shell", "chrome-*linux*/headless_shell")),
+    ("chromium", "chromium-{rev}", ("chrome-*linux*/chrome",)),
+)
+
+
+def _pinned_revisions() -> dict[str, str]:
+    """``{registry name: revision}`` for the browser builds this playwright pins."""
+    return {
+        b["name"]: str(b["revision"])
+        for b in _playwright_registry() or []
+        if b.get("name") and b.get("revision") is not None
+    }
 
 
 def _local_chromium_present() -> bool:
-    """True if the chromium build this playwright pins has been provisioned.
+    """True if the exact browser build this playwright launches is provisioned.
 
-    Checking for *any* ``chromium-*`` directory is not enough: playwright launches
-    one exact revision, so a cache holding only some other build passes the check
-    and then dies inside ``launch()`` with "Executable doesn't exist". Globbing the
-    binary inside the pinned directory keeps both layouts working — ``chrome-linux``
-    on official builds, ``chrome-linux64`` on the OS-fallback build.
+    Two ways to get this wrong, and the previous versions managed one each.
+    Globbing any ``chromium-*`` directory accepts a cache holding some *other*
+    revision, which then dies inside ``launch()`` with "Executable doesn't
+    exist". Pinning the revision but globbing ``chromium-<rev>/.../chrome``
+    checks a binary we never run, so a headless-shell-only cache — a documented
+    and much smaller install — reports the tier as missing when it works fine.
     """
-    revision = _pinned_chromium_revision()
-    if revision is None:
+    base = _browsers_base()
+    if base is None:
         return False
-    base = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or os.path.expanduser(
-        "~/.cache/ms-playwright"
+    revisions = _pinned_revisions()
+    launched = next(
+        ((directory.format(rev=revisions[name]), inners)
+         for name, directory, inners in _LAUNCH_BINARIES if name in revisions),
+        None,
     )
-    return bool(glob.glob(os.path.join(base, f"chromium-{revision}", "chrome-*linux*", "chrome")))
+    if launched is None:
+        return False
+    directory, inners = launched
+    return any(glob.glob(os.path.join(base, directory, inner)) for inner in inners)
 
 
 _CHROMIUM_AVAILABLE = _local_chromium_present()
@@ -539,53 +599,34 @@ _RENDER_READY_JS = (
 )
 
 
-# Fingerprints of an unsolved anti-bot interstitial. Returning one of these as
+# Fingerprints of an *unsolved* anti-bot interstitial. Returning one of these as
 # article HTML is worse than returning nothing: "Just a quick check..." then gets
 # extracted, stored as the article body and shown in the reader as the news.
+#
+# Deliberately narrow. ``cdn-cgi/challenge-platform`` looks like an obvious third
+# marker and is not one: Cloudflare's JavaScript-detections beacon is served from
+# that path into ordinary 200s on any bot-management zone, and is still on the
+# page you land on *after* solving a challenge. Matching it would discard
+# successful renders on exactly the sites this tier exists for.
 _INTERSTITIAL_MARKERS = (
     "_cf_chl_opt",
-    "cdn-cgi/challenge-platform",
     'id="challenge-form"',
 )
 
 
-def _is_interstitial(html: str) -> bool:
-    return any(m in html for m in _INTERSTITIAL_MARKERS)
+def is_interstitial(html: str) -> bool:
+    """True if ``html`` is an anti-bot challenge page rather than content.
 
-
-async def _wait_for_prose(page, budget_s: float) -> bool:
-    """Wait for article prose, surviving the navigations an interstitial performs.
-
-    An anti-bot interstitial (Cloudflare's "managed" challenge) solves itself in a
-    real browser and then *navigates* to the article. That navigation destroys the
-    JS execution context, so a single ``wait_for_function`` raises rather than
-    waiting — which is how a challenge we had already passed still came back as a
-    98-character "Just a quick check..." page. Re-arm against the new document
-    until the budget runs out.
+    Public because the HTTP tiers need it too: Wayback happily returns 200 with a
+    *snapshot of the challenge page*, which would otherwise be stored as the
+    article.
     """
-    loop = asyncio.get_event_loop()
-    deadline = loop.time() + budget_s
-    while True:
-        remaining = deadline - loop.time()
-        if remaining <= 0:
-            return False
-        try:
-            await page.wait_for_function(_RENDER_READY_JS, timeout=remaining * 1000)
-            return True
-        except Exception:
-            pass
-        remaining = deadline - loop.time()
-        if remaining <= 0:
-            return False
-        try:
-            await page.wait_for_load_state("domcontentloaded", timeout=remaining * 1000)
-        except Exception:
-            return False
+    return any(m in html for m in _INTERSTITIAL_MARKERS)
 
 
 async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
                            settle_ms: int = 4000, timeout: int = 60_000,
-                           prose_budget_s: float = 35.0) -> str | None:
+                           prose_budget_s: float = 20.0) -> str | None:
     """Render a JS/SPA page in a real browser (with session cookies) and return its
     HTML. On a paywalled SPA the article only exists after JS runs, so plain httpx
     returns an empty shell — this is the fetch tier that works.
@@ -613,10 +654,18 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
                 page = await context.new_page()
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
                 # Wait for article prose to hydrate; fall back to a fixed settle.
-                await _wait_for_prose(page, prose_budget_s)
+                # One wait is enough even when an anti-bot interstitial solves
+                # itself and navigates: wait_for_function re-evaluates against
+                # the new document (measured — it resolves ~1s after a
+                # cross-document navigation), so there is nothing to re-arm.
+                try:
+                    await page.wait_for_function(_RENDER_READY_JS,
+                                                 timeout=prose_budget_s * 1000)
+                except Exception:
+                    pass
                 await page.wait_for_timeout(settle_ms)
                 html = await page.content()
-                if _is_interstitial(html):
+                if is_interstitial(html):
                     logger.warning(
                         "Browser render for %s is still an anti-bot interstitial "
                         "after %.0fs — discarding rather than storing it as article text",

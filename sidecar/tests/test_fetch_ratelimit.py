@@ -7,7 +7,13 @@ domain worth rendering (a known SPA paywall, or one we hold a session for).
 import asyncio
 import time
 
+import httpx
+
 from app import browser_login, extractor
+
+
+def _run(coro):
+    return asyncio.run(coro)
 
 # --- _needs_browser_render (gating the expensive tier) ----------------------
 
@@ -83,19 +89,105 @@ def test_blocked_still_needs_a_browser(monkeypatch):
 
 def test_unsolved_challenge_is_recognised():
     """Storing a challenge page as article text is worse than storing nothing."""
-    for marker in ("_cf_chl_opt", "cdn-cgi/challenge-platform", 'id="challenge-form"'):
-        assert browser_login._is_interstitial(f"<html>{marker}</html>") is True
+    for marker in ("_cf_chl_opt", 'id="challenge-form"'):
+        assert browser_login.is_interstitial(f"<html>{marker}</html>") is True
 
 
 def test_real_article_is_not_an_interstitial():
-    assert browser_login._is_interstitial("<article><p>Real prose.</p></article>") is False
+    assert browser_login.is_interstitial("<article><p>Real prose.</p></article>") is False
+
+
+def test_js_detections_beacon_is_not_a_challenge():
+    """The one marker we must not match.
+
+    Cloudflare serves its JavaScript-detections beacon from the challenge-platform
+    path into ordinary 200s on any bot-management zone, and it is still on the page
+    you land on after solving a challenge. Treating it as a challenge would discard
+    successful renders on exactly the sites the browser tier exists for.
+    """
+    # A public Cloudflare asset path, not a filesystem path.
+    html = ('<html><script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js">'  # PII-OK
+            '</script><article><p>Real prose.</p></article></html>')
+    assert browser_login.is_interstitial(html) is False
+
+
+# --- the fetch ladder: what "blocked" means, and how it survives ------------
+
+_URL = "https://example.com/a"
+_CHALLENGE = "<html><head><script>window._cf_chl_opt={};</script></head></html>"
+_ARTICLE = "<html><article><p>Real prose.</p></article></html>"
+
+
+def _ladder(monkeypatch, replies):
+    """Drive ``_fetch_html`` with a scripted reply per tier.
+
+    ``replies`` maps a URL substring to either a body (str) or an HTTP status
+    (int) to raise. Wayback is keyed first because its URL embeds the origin's.
+    """
+    async def _fake_get_via(kwargs, url, proxy, cookies):
+        reply = next((r for needle, r in replies.items() if needle in url), None)
+        if reply is None:
+            raise AssertionError(f"unscripted fetch: {url}")
+        if isinstance(reply, int):
+            request = httpx.Request("GET", url)
+            raise httpx.HTTPStatusError(
+                str(reply), request=request,
+                response=httpx.Response(reply, request=request),
+            )
+        return reply
+
+    monkeypatch.setattr(extractor, "_get_via", _fake_get_via)
+    monkeypatch.setattr(extractor, "BRIGHTDATA_PROXY", None)
+    monkeypatch.setattr(extractor, "BRIGHTDATA_UNLOCKER_PROXY", None)
+    return _run(extractor._fetch_html(_URL))
+
+
+def test_wayback_snapshot_of_a_challenge_is_not_content(monkeypatch):
+    """The gap that made the whole escalation a no-op.
+
+    Wayback answers 200 with an archived copy of the origin's *challenge page*.
+    That looks like a successful tier, so ``blocked`` used to be dropped and no
+    browser render followed — and the challenge stub was stored as the article.
+    """
+    html, source, blocked = _ladder(
+        monkeypatch, {"web.archive.org": _CHALLENGE, "example.com": 403},
+    )
+    assert (html, source) == (None, None)
+    assert blocked is True
+
+
+def test_blocked_survives_a_successful_wayback(monkeypatch):
+    """A real archived article is still content — but the wall is still reported."""
+    html, source, blocked = _ladder(
+        monkeypatch, {"web.archive.org": _ARTICLE, "example.com": 403},
+    )
+    assert (html, source, blocked) == (_ARTICLE, "wayback", True)
+
+
+def test_rate_limiting_does_not_escalate_to_a_browser(monkeypatch):
+    """429 is "slow down"; answering it with a full Chromium load is not that."""
+    _, _, blocked = _ladder(
+        monkeypatch, {"web.archive.org": 500, "example.com": 429},
+    )
+    assert blocked is False
+
+
+def test_unauthorized_does_not_escalate_to_a_browser(monkeypatch):
+    """401 is a credential problem a cookieless render cannot fix."""
+    _, _, blocked = _ladder(
+        monkeypatch, {"web.archive.org": 500, "example.com": 401},
+    )
+    assert blocked is False
+
+
+def test_forbidden_is_a_wall_worth_a_browser(monkeypatch):
+    _, _, blocked = _ladder(
+        monkeypatch, {"web.archive.org": 500, "example.com": 403},
+    )
+    assert blocked is True
 
 
 # --- _throttle (per-domain spacing) -----------------------------------------
-
-def _run(coro):
-    return asyncio.run(coro)
-
 
 def test_throttle_spaces_consecutive_same_domain():
     extractor._domain_last.clear(); extractor._domain_locks.clear()

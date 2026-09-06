@@ -50,9 +50,15 @@ async def _throttle(domain: str | None, min_interval: float) -> None:
         _domain_last[domain] = time.monotonic()
 
 
-# Statuses an anti-bot wall answers with. A challenge is not a dead link: the
-# page is there, it just wants a browser, which is precisely the next tier.
-_BLOCKED_STATUSES = frozenset({401, 403, 429, 503})
+# Statuses that mean "a browser would get in where we did not". A challenge is
+# not a dead link: the page is there, it just wants JavaScript, which is exactly
+# what the next tier has.
+#
+# 429 and 401 are deliberately excluded. Escalating a 429 answers "please slow
+# down" with a *heavier* request to the same origin moments later, once per entry
+# across a whole worker batch. A 401 is a credential problem, and a render we
+# have no cookies for cannot fix it — it would just buy a browser launch to fail.
+_BLOCKED_STATUSES = frozenset({403, 503})
 
 
 def _needs_browser_render(domain: str | None, result: dict[str, Any] | None,
@@ -85,8 +91,7 @@ async def fetch_and_extract(
     domain = _domain_of(url)
 
     await _throttle(domain, FETCH_MIN_INTERVAL_S)
-    html, source = await _fetch_html(url, cookies=cookies)
-    blocked = html is None and source == "blocked"
+    html, source, blocked = await _fetch_html(url, cookies=cookies)
     result = _extract(html, url, rules, proxy_images=proxy_images) if html else None
     if result and source:
         result["metadata"]["source"] = source
@@ -146,59 +151,57 @@ async def _get_via(
     return r.text
 
 
+def _fetch_tiers(url: str, cookies: dict[str, str] | None):
+    """The fetch ladder, cheapest first: (name, client kwargs, proxy, url, cookies)."""
+    # 1. Direct (free)
+    yield "direct", _HTTP_KWARGS, None, url, cookies
+    # 2. Static datacenter proxy (cheap — bandwidth only, different IP)
+    if BRIGHTDATA_PROXY:
+        yield "static_proxy", _HTTP_KWARGS, BRIGHTDATA_PROXY, url, cookies
+    # 3. Web Unlocker (expensive — per-request anti-bot bypass)
+    if BRIGHTDATA_UNLOCKER_PROXY:
+        yield "web_unlocker", _UNLOCKER_KWARGS, BRIGHTDATA_UNLOCKER_PROXY, url, cookies
+    # 4. Wayback Machine (free last resort — no cookies, site-specific creds irrelevant)
+    yield ("wayback", _HTTP_KWARGS, None,
+           f"https://web.archive.org/web/{quote(url, safe='')}", None)
+
+
 async def _fetch_html(
     url: str, cookies: dict[str, str] | None = None,
-) -> tuple[str | None, str | None]:
-    """Return (html, source_tier) trying progressively heavier fetch methods.
+) -> tuple[str | None, str | None, bool]:
+    """Return (html, source_tier, blocked), trying progressively heavier methods.
 
-    On total failure the source slot carries the *reason*: ``"blocked"`` when the
-    origin answered with an anti-bot status, so the caller can escalate to a real
-    browser rather than treating the URL as dead.
+    ``blocked`` records that some tier met an anti-bot wall, and is reported
+    independently of success because the two are not mutually exclusive. Wayback
+    cheerfully returns 200 with a *snapshot of the origin's challenge page*: that
+    looks like a win, extracts to a stub, and would be stored as the article. So
+    a challenge page is treated as a failed tier wherever it appears, not only in
+    the browser render, and the caller still learns it should escalate.
     """
-    blocked = False
-
-    def _note(exc: BaseException) -> str:
-        nonlocal blocked
-        if isinstance(exc, httpx.HTTPStatusError):
-            blocked = blocked or exc.response.status_code in _BLOCKED_STATUSES
-        return _why(exc)
-
     try:
         egress.check_scheme_host(url)
     except egress.EgressBlockedError as exc:
         logger.warning("egress blocked %s: %s", url, exc)
-        return None, None
+        return None, None, False
 
-    # 1. Direct (free)
-    try:
-        return await _get_via(_HTTP_KWARGS, url, proxy=None, cookies=cookies), "direct"
-    except Exception as exc:
-        logger.info("Direct fetch failed for %s (%s), trying static proxy", url, _note(exc))
-
-    # 2. Static datacenter proxy (cheap — bandwidth only, different IP)
-    if BRIGHTDATA_PROXY:
+    blocked = False
+    for name, kwargs, proxy, target, tier_cookies in _fetch_tiers(url, cookies):
         try:
-            return await _get_via(_HTTP_KWARGS, url, proxy=BRIGHTDATA_PROXY, cookies=cookies), "static_proxy"
+            html = await _get_via(kwargs, target, proxy=proxy, cookies=tier_cookies)
         except Exception as exc:
-            logger.info("Static proxy failed for %s (%s), trying web_unlocker", url, _note(exc))
+            if isinstance(exc, httpx.HTTPStatusError):
+                blocked = blocked or exc.response.status_code in _BLOCKED_STATUSES
+            logger.info("Fetch tier %s failed for %s (%s)", name, url, _why(exc))
+            continue
+        if browser_login.is_interstitial(html):
+            blocked = True
+            logger.info("Fetch tier %s returned an anti-bot challenge for %s", name, url)
+            continue
+        return html, name, blocked
 
-    # 3. Web Unlocker (expensive — per-request anti-bot bypass)
-    if BRIGHTDATA_UNLOCKER_PROXY:
-        try:
-            return await _get_via(
-                _UNLOCKER_KWARGS, url, proxy=BRIGHTDATA_UNLOCKER_PROXY, cookies=cookies,
-            ), "web_unlocker"
-        except Exception as exc:
-            logger.info("Web Unlocker failed for %s (%s), trying Wayback Machine", url, _note(exc))
-
-    # 4. Wayback Machine (free last resort — no cookies, site-specific creds irrelevant)
-    try:
-        wayback_url = f"https://web.archive.org/web/{quote(url, safe='')}"
-        return await _get_via(_HTTP_KWARGS, wayback_url, proxy=None, cookies=None), "wayback"
-    except Exception as exc:
-        logger.warning("All fetch methods failed for %s (wayback: %s)%s", url, _why(exc),
-                       " — origin is behind an anti-bot wall" if blocked else "")
-        return None, "blocked" if blocked else None
+    logger.warning("All fetch methods failed for %s%s", url,
+                   " — origin is behind an anti-bot wall" if blocked else "")
+    return None, None, blocked
 
 
 async def fetch_proxied_image(url: str) -> tuple[bytes, str] | None:

@@ -187,6 +187,51 @@ def test_forbidden_is_a_wall_worth_a_browser(monkeypatch):
     assert blocked is True
 
 
+def test_waybacks_own_outage_is_not_the_origins_wall(monkeypatch):
+    """web.archive.org answers 503 under load and 403 for rights-holder exclusions.
+
+    Neither says anything about the origin. Counting them would turn an ordinary
+    dead link into a headless Chromium launch per entry, for any domain at all.
+    """
+    for status in (403, 503):
+        _, _, blocked = _ladder(
+            monkeypatch, {"web.archive.org": status, "example.com": 404},
+        )
+        assert blocked is False, f"wayback {status} must not implicate the origin"
+
+
+def test_an_archived_challenge_page_does_implicate_the_origin(monkeypatch):
+    """The one thing Wayback *can* tell us: it archived the origin's challenge."""
+    _, _, blocked = _ladder(
+        monkeypatch, {"web.archive.org": _CHALLENGE, "example.com": 404},
+    )
+    assert blocked is True
+
+
+# --- accepting a browser render ---------------------------------------------
+
+def test_render_must_clear_the_same_bar_that_triggered_it():
+    """A hard 403 body is not an article.
+
+    "Access Denied" carries no challenge markers, so is_interstitial misses it and
+    page.goto loads it happily. Beating result=None on length alone, it would be
+    stored as the snapshot and would clear the retriable extract_attempts row.
+    """
+    denied = {"content_text": "Access Denied"}
+    assert extractor._render_is_better(denied, None) is False
+
+
+def test_render_replaces_nothing_when_it_is_real_prose():
+    assert extractor._render_is_better({"content_text": "x" * 500}, None) is True
+
+
+def test_render_must_still_beat_what_the_http_tier_got():
+    long_enough = "x" * 300
+    assert extractor._render_is_better(
+        {"content_text": long_enough}, {"content_text": long_enough + "more"},
+    ) is False
+
+
 # --- _throttle (per-domain spacing) -----------------------------------------
 
 def test_throttle_spaces_consecutive_same_domain():

@@ -8,7 +8,7 @@ submits to it. These tests pin down that only trusted frames are ever offered.
 """
 import asyncio
 
-from app import browser_login
+from app import browser_login, egress
 
 
 def run(coro):
@@ -342,3 +342,77 @@ def test_two_step_plain_continue_cross_origin_form_is_rejected(monkeypatch):
     ok = run(browser_login._fill_and_submit(page, _recipe(), "victim@example.com", "SECRET"))
     assert ok is False
     assert ("clicked", "submit") not in main.typed
+
+
+# --- the render tier is subject to the egress guard --------------------------
+
+class _FakeRoute:
+    """Records what the navigation guard decided about one request."""
+
+    def __init__(self, url, navigation=True):
+        self.request = self
+        self.url = url
+        self._navigation = navigation
+        self.verdict = None
+
+    def is_navigation_request(self):
+        return self._navigation
+
+    async def abort(self):
+        self.verdict = "abort"
+
+    async def continue_(self):
+        self.verdict = "continue"
+
+
+class _FakePage:
+    async def route(self, _pattern, handler):
+        self.handler = handler
+
+    async def send(self, route):
+        await self.handler(route, route.request)
+        return route.verdict
+
+
+def test_render_refuses_a_non_public_target(monkeypatch):
+    """The browser tier has to honour the same egress policy as the HTTP tiers.
+
+    Those go through ``egress.guarded_get``, which walks redirects itself so a
+    public URL cannot bounce into a private range. This tier used to be reachable
+    only for operator-curated paywall domains; an anti-bot wall now escalates
+    arbitrary feed entry URLs into it, so the guard has to apply here too — and
+    the target should be rejected before paying for a browser launch.
+    """
+    monkeypatch.setattr(browser_login, "_CHROMIUM_AVAILABLE", True)
+
+    async def _never(*a, **kw):
+        raise AssertionError("must not launch a browser for a blocked target")
+
+    monkeypatch.setattr(browser_login, "_guard_navigations", _never)
+    assert run(browser_login.render_page_html("http://127.0.0.1:9/x")) is None
+
+
+def test_navigation_guard_aborts_a_redirect_into_a_private_range():
+    """Chromium follows redirects internally, so the check runs per navigation."""
+    page = _FakePage()
+    run(browser_login._guard_navigations(page))
+    for url in ("http://169.254.169.254/latest/meta-data/", "http://127.0.0.1/x"):
+        assert run(page.send(_FakeRoute(url))) == "abort", url
+
+
+def test_navigation_guard_allows_a_public_navigation(monkeypatch):
+    async def _resolves_public(host, port):
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(egress, "_resolve", _resolves_public)   # keep the test hermetic
+    page = _FakePage()
+    run(browser_login._guard_navigations(page))
+    assert run(page.send(_FakeRoute("https://example.com/article"))) == "continue"
+
+
+def test_navigation_guard_does_not_re_check_subresources():
+    """Only a navigation can carry the page somewhere else; images cannot."""
+    page = _FakePage()
+    run(browser_login._guard_navigations(page))
+    route = _FakeRoute("http://127.0.0.1/style.css", navigation=False)
+    assert run(page.send(route)) == "continue"

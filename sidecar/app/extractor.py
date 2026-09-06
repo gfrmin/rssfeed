@@ -3,8 +3,9 @@ import fnmatch
 import hashlib
 import logging
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import quote, urljoin, urlparse
 
 import httpx
@@ -79,6 +80,23 @@ def _needs_browser_render(domain: str | None, result: dict[str, Any] | None,
     return blocked or browser_login.has_login_recipe(domain) or bool(cookies)
 
 
+def _render_is_better(rendered: dict[str, Any], http_result: dict[str, Any] | None) -> bool:
+    """Accept a browser render only if it beat the HTTP tier *and* reads as prose.
+
+    "Longer than what we had" was safe while this tier only ran for curated
+    paywall domains. Now that an anti-bot wall escalates arbitrary domains, what
+    gets rendered is often a plain hard 403 — an "Access Denied" body with no
+    challenge markers for ``is_interstitial`` to catch, which ``page.goto`` loads
+    happily because it does not raise on non-2xx. A few words of error text beat
+    ``result=None``, and would be stored as the snapshot *and* clear the retriable
+    ``extract_attempts`` row. Hold the render to the same bar the gate used to
+    call the HTTP result too short.
+    """
+    text = rendered["content_text"]
+    return (len(text) >= _RENDER_TEXT_THRESHOLD
+            and len(text) > len((http_result or {}).get("content_text", "")))
+
+
 async def fetch_and_extract(
     url: str,
     extract_rules: dict[str, Any] | None = None,
@@ -99,12 +117,14 @@ async def fetch_and_extract(
     # SPA fallback: render in a real browser when httpx only got an empty shell,
     # or when every HTTP tier hit an anti-bot challenge only a browser can pass.
     if _needs_browser_render(domain, result, cookies, blocked=blocked):
-        logger.info("Browser-render fallback for %s (httpx text too short)", url)
+        logger.info("Browser-render fallback for %s (%s)", url,
+                    "anti-bot wall on every HTTP tier" if blocked
+                    else "httpx text too short")
         await _throttle(domain, RENDER_MIN_INTERVAL_S)
         rendered = await browser_login.render_page_html(url, cookies)
         if rendered:
             r2 = _extract(rendered, url, rules, proxy_images=proxy_images)
-            if r2 and len(r2["content_text"]) > len((result or {}).get("content_text", "")):
+            if r2 and _render_is_better(r2, result):
                 r2["metadata"]["source"] = "browser"
                 return r2
 
@@ -151,19 +171,37 @@ async def _get_via(
     return r.text
 
 
-def _fetch_tiers(url: str, cookies: dict[str, str] | None):
-    """The fetch ladder, cheapest first: (name, client kwargs, proxy, url, cookies)."""
+class _Tier(NamedTuple):
+    """One rung of the fetch ladder."""
+    name: str
+    kwargs: dict
+    proxy: str | None
+    url: str
+    cookies: dict[str, str] | None
+    origin: bool
+    """Whether a status from this tier describes the *site*.
+
+    False for Wayback: we are talking to ``web.archive.org``, which answers 503
+    under load and 403 for rights-holder exclusions. Reading those as "the origin
+    walled us" would escalate an ordinary dead link — a 404, a connect error —
+    into a headless Chromium launch per entry, for any domain.
+    """
+
+
+def _fetch_tiers(url: str, cookies: dict[str, str] | None) -> Iterator[_Tier]:
+    """The fetch ladder, cheapest first."""
     # 1. Direct (free)
-    yield "direct", _HTTP_KWARGS, None, url, cookies
+    yield _Tier("direct", _HTTP_KWARGS, None, url, cookies, origin=True)
     # 2. Static datacenter proxy (cheap — bandwidth only, different IP)
     if BRIGHTDATA_PROXY:
-        yield "static_proxy", _HTTP_KWARGS, BRIGHTDATA_PROXY, url, cookies
+        yield _Tier("static_proxy", _HTTP_KWARGS, BRIGHTDATA_PROXY, url, cookies, origin=True)
     # 3. Web Unlocker (expensive — per-request anti-bot bypass)
     if BRIGHTDATA_UNLOCKER_PROXY:
-        yield "web_unlocker", _UNLOCKER_KWARGS, BRIGHTDATA_UNLOCKER_PROXY, url, cookies
+        yield _Tier("web_unlocker", _UNLOCKER_KWARGS, BRIGHTDATA_UNLOCKER_PROXY, url,
+                    cookies, origin=True)
     # 4. Wayback Machine (free last resort — no cookies, site-specific creds irrelevant)
-    yield ("wayback", _HTTP_KWARGS, None,
-           f"https://web.archive.org/web/{quote(url, safe='')}", None)
+    yield _Tier("wayback", _HTTP_KWARGS, None,
+                f"https://web.archive.org/web/{quote(url, safe='')}", None, origin=False)
 
 
 async def _fetch_html(
@@ -185,19 +223,22 @@ async def _fetch_html(
         return None, None, False
 
     blocked = False
-    for name, kwargs, proxy, target, tier_cookies in _fetch_tiers(url, cookies):
+    for tier in _fetch_tiers(url, cookies):
         try:
-            html = await _get_via(kwargs, target, proxy=proxy, cookies=tier_cookies)
+            html = await _get_via(tier.kwargs, tier.url, proxy=tier.proxy, cookies=tier.cookies)
         except Exception as exc:
-            if isinstance(exc, httpx.HTTPStatusError):
-                blocked = blocked or exc.response.status_code in _BLOCKED_STATUSES
-            logger.info("Fetch tier %s failed for %s (%s)", name, url, _why(exc))
+            if (tier.origin and isinstance(exc, httpx.HTTPStatusError)
+                    and exc.response.status_code in _BLOCKED_STATUSES):
+                blocked = True
+            logger.info("Fetch tier %s failed for %s (%s)", tier.name, url, _why(exc))
             continue
+        # An interstitial counts from *any* tier, Wayback included: an archived
+        # copy of the challenge page is still evidence about the origin.
         if browser_login.is_interstitial(html):
             blocked = True
-            logger.info("Fetch tier %s returned an anti-bot challenge for %s", name, url)
+            logger.info("Fetch tier %s returned an anti-bot challenge for %s", tier.name, url)
             continue
-        return html, name, blocked
+        return html, tier.name, blocked
 
     logger.warning("All fetch methods failed for %s%s", url,
                    " — origin is behind an anti-bot wall" if blocked else "")

@@ -95,10 +95,26 @@ def test_headed_build_is_the_fallback_for_pre_shell_playwrights(tmp_path, monkey
 
 # --- locating the cache ------------------------------------------------------
 
-def test_browsers_path_env_is_honoured(tmp_path, monkeypatch, revisions):
+def test_browsers_path_env_wins_over_the_default_location(tmp_path, monkeypatch, revisions):
+    """Contrasted against a populated default, or it asserts nothing.
+
+    Every other case here sets the env var too, so a test that merely points it at
+    a good cache would pass identically with the env ignored. Here the default
+    location holds the *wrong* revision and only the env-pointed one is correct.
+    """
+    rev = int(revisions["chromium-headless-shell"])
+    _cache(tmp_path / "default" / "ms-playwright", _SHELL.format(rev=rev + 11))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "default"))
+    assert _present_with(monkeypatch, _cache(tmp_path / "env", _SHELL.format(rev=rev))) is True
+
+
+def test_browsers_path_env_also_wins_when_it_is_empty(tmp_path, monkeypatch, revisions):
+    """The other direction: pointing it somewhere bare must not fall back."""
     rev = revisions["chromium-headless-shell"]
-    path = _cache(tmp_path, _SHELL.format(rev=rev))
-    assert _present_with(monkeypatch, path) is True
+    _cache(tmp_path / "default" / "ms-playwright", _SHELL.format(rev=rev))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "default"))
+    (tmp_path / "env").mkdir()
+    assert _present_with(monkeypatch, str(tmp_path / "env")) is False
 
 
 def test_xdg_cache_home_is_honoured(tmp_path, monkeypatch, revisions):

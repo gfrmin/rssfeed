@@ -26,6 +26,7 @@ import os
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
+from app import egress
 from app.config import LOGIN_BROWSER_PROXY, LOGIN_RECIPES_FILE
 
 logger = logging.getLogger(__name__)
@@ -624,6 +625,32 @@ def is_interstitial(html: str) -> bool:
     return any(m in html for m in _INTERSTITIAL_MARKERS)
 
 
+async def _guard_navigations(page) -> None:
+    """Refuse to let the browser follow a redirect into a private address.
+
+    Every HTTP tier goes through ``egress.guarded_get``, which walks redirects
+    itself with ``follow_redirects=False`` precisely so a public URL cannot bounce
+    the fetch into a private range via a 30x ``Location``. Chromium follows
+    redirects internally, so that check has to be re-applied here — and it matters
+    more now than it did: this tier used to be reachable only for operator-curated
+    paywall domains, and an anti-bot wall now escalates arbitrary feed entry URLs
+    into it. Without this, a hostile feed entry pointing at a host that 403s and
+    then redirects to ``169.254.169.254`` would be rendered and stored as article
+    text.
+    """
+    async def _route(route, request):
+        if request.is_navigation_request():
+            try:
+                await egress.check_public(request.url)
+            except egress.EgressBlockedError as exc:
+                logger.warning("Refusing browser navigation to %s: %s", request.url, exc)
+                await route.abort()
+                return
+        await route.continue_()
+
+    await page.route("**/*", _route)
+
+
 async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
                            settle_ms: int = 4000, timeout: int = 60_000,
                            prose_budget_s: float = 20.0) -> str | None:
@@ -636,6 +663,14 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
     from urllib.parse import urlparse
 
     from playwright.async_api import async_playwright
+
+    # Reject an unroutable target before paying for a browser launch; redirects
+    # away from a public URL are caught in-flight by _guard_navigations.
+    try:
+        await egress.check_public(url)
+    except egress.EgressBlockedError as exc:
+        logger.warning("Refusing to render %s: %s", url, exc)
+        return None
 
     proxy = {"server": LOGIN_BROWSER_PROXY} if LOGIN_BROWSER_PROXY else None
     bare = (urlparse(url).hostname or "").removeprefix("www.")
@@ -652,6 +687,7 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
                         for k, v in cookies.items()
                     ])
                 page = await context.new_page()
+                await _guard_navigations(page)
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
                 # Wait for article prose to hydrate; fall back to a fixed settle.
                 # One wait is enough even when an anti-bot interstitial solves

@@ -562,7 +562,7 @@ async def login_and_get_cookies(domain: str, username: str, password: str) -> di
     from playwright.async_api import async_playwright
 
     try:
-        async with async_playwright() as p:
+        async with _RENDER_SLOT, async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             try:
                 context = await browser.new_context(
@@ -643,14 +643,16 @@ def is_interstitial(html: str) -> bool:
     return any(m in html for m in _INTERSTITIAL_MARKERS)
 
 
-# One Chromium at a time. render_page_html is reachable for any domain now, and
-# _throttle only serialises per *domain* — so a worker render and a user-triggered
+# One Chromium at a time, across *both* browser entry points — a login and a
+# render each launch one, and the worker can do both in a single feed pass.
+# render_page_html is reachable for any domain now, and _throttle only serialises
+# per *domain*, so without this a worker render and a user-triggered
 # POST /entries/{id}/fetch-full could each hold an instance (~300 MB) at once, on
 # a box that also runs Postgres, Miniflux and the ranker.
 _RENDER_SLOT = asyncio.Semaphore(1)
 
 
-async def _guard_navigations(page) -> None:
+async def _guard_egress(context) -> None:
     """Keep the browser inside public address space, for every request it makes.
 
     Every HTTP tier goes through ``egress.guarded_get``, which walks redirects
@@ -666,31 +668,45 @@ async def _guard_navigations(page) -> None:
     loopback or RFC1918 hosts is a blind probe of the tailnet even when the
     responses are unreadable cross-origin.
 
-    Verdicts are memoised per origin — a render issues hundreds of requests across
-    a handful of hosts — and anything unexpected fails closed: an exception
-    escaping a route handler leaves the request unresolved, which stalls it until
-    the navigation timeout instead of failing fast.
+    Registered on the *context*, not on one page. A popup opened with
+    ``window.open`` is a separate Page carrying its own empty route table, so a
+    page-level handler would pass ``window.open("http://169.254.169.254/")``
+    straight through to the context, which has nothing registered and continues it.
+    WebSockets are routed separately because HTTP routes never see them, and
+    service workers are blocked outright at ``new_context`` since their fetches do
+    not pass through either.
+
+    Anything unexpected fails closed: an exception escaping a route handler leaves
+    the request unresolved, which stalls it until the navigation timeout instead
+    of failing fast.
     """
-    verdicts: dict[str, bool] = {}
+    verdicts: dict[str, asyncio.Future] = {}
+
+    async def _check(url: str, origin: str) -> bool:
+        try:
+            await egress.check_public(url)
+            return True
+        except egress.EgressBlockedError as exc:
+            logger.warning("Blocking browser request to %s: %s", origin, exc)
+            return False
+        except Exception:
+            # check_public wraps OSError, but a malformed port (ValueError) or a
+            # bad IDN label (UnicodeError) still escape it.
+            logger.exception("Egress check failed for %s; blocking", origin)
+            return False
 
     async def _allowed(url: str) -> bool:
         parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https"):
+        if parsed.scheme not in ("http", "https", "ws", "wss"):
             return True    # data:/blob:/about: never reach the network
         origin = f"{parsed.scheme}://{parsed.netloc}"
+        # Cache the pending *task*, not its result. A page fans out dozens of
+        # parallel requests to one origin, and recording the verdict only after
+        # the await would let every one of them run its own getaddrinfo into the
+        # loop's shared thread executor.
         if origin not in verdicts:
-            try:
-                await egress.check_public(url)
-                verdicts[origin] = True
-            except egress.EgressBlockedError as exc:
-                logger.warning("Blocking browser request to %s: %s", origin, exc)
-                verdicts[origin] = False
-            except Exception:
-                # check_public wraps OSError, but a malformed port (ValueError) or
-                # a bad IDN label (UnicodeError) still escape it.
-                logger.exception("Egress check failed for %s; blocking", origin)
-                verdicts[origin] = False
-        return verdicts[origin]
+            verdicts[origin] = asyncio.ensure_future(_check(url, origin))
+        return await verdicts[origin]
 
     async def _route(route, request):
         try:
@@ -703,7 +719,17 @@ async def _guard_navigations(page) -> None:
             # exception must not escape into an unhandled task.
             logger.debug("Route handling failed for %s", request.url, exc_info=True)
 
-    await page.route("**/*", _route)
+    async def _route_ws(ws):
+        try:
+            if await _allowed(ws.url):
+                await ws.connect_to_server()
+            else:
+                await ws.close()
+        except Exception:
+            logger.debug("WebSocket route handling failed for %s", ws.url, exc_info=True)
+
+    await context.route("**/*", _route)
+    await context.route_web_socket("**/*", _route_ws)
 
 
 async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
@@ -720,7 +746,7 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
     from playwright.async_api import async_playwright
 
     # Reject an unroutable target before paying for a browser launch; redirects
-    # away from a public URL are caught in-flight by _guard_navigations.
+    # away from a public URL are caught in-flight by _guard_egress.
     try:
         await egress.check_public(url)
     except egress.EgressBlockedError as exc:
@@ -734,15 +760,18 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
             browser = await p.chromium.launch(headless=True)
             try:
                 context = await browser.new_context(
-                    user_agent=_ua_for(browser), viewport={"width": 1280, "height": 1600}, proxy=proxy,
+                    user_agent=_ua_for(browser), viewport={"width": 1280, "height": 1600},
+                    proxy=proxy,
+                    # A service worker's fetches bypass page and context routes.
+                    service_workers="block",
                 )
+                await _guard_egress(context)
                 if cookies and bare:
                     await context.add_cookies([
                         {"name": k, "value": v, "domain": "." + bare, "path": "/"}
                         for k, v in cookies.items()
                     ])
                 page = await context.new_page()
-                await _guard_navigations(page)
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
                 # Wait for article prose to hydrate; fall back to a fixed settle.
                 # One wait is enough even when an anti-bot interstitial solves

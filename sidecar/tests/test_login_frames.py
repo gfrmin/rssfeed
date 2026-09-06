@@ -365,13 +365,34 @@ class _FakeRoute:
         self.verdict = "continue"
 
 
-class _FakePage:
+class _FakeSocket:
+    """A routed WebSocket. HTTP routes never see these, so they route separately."""
+
+    def __init__(self, url):
+        self.url = url
+        self.verdict = None
+
+    async def connect_to_server(self):
+        self.verdict = "continue"
+
+    async def close(self):
+        self.verdict = "abort"
+
+
+class _FakeContext:
     async def route(self, _pattern, handler):
         self.handler = handler
+
+    async def route_web_socket(self, _pattern, handler):
+        self.ws_handler = handler
 
     async def send(self, route):
         await self.handler(route, route.request)
         return route.verdict
+
+    async def send_ws(self, socket):
+        await self.ws_handler(socket)
+        return socket.verdict
 
 
 def test_render_refuses_a_non_public_target(monkeypatch):
@@ -388,14 +409,14 @@ def test_render_refuses_a_non_public_target(monkeypatch):
     async def _never(*a, **kw):
         raise AssertionError("must not launch a browser for a blocked target")
 
-    monkeypatch.setattr(browser_login, "_guard_navigations", _never)
+    monkeypatch.setattr(browser_login, "_guard_egress", _never)
     assert run(browser_login.render_page_html("http://127.0.0.1:9/x")) is None
 
 
 def test_navigation_guard_aborts_a_redirect_into_a_private_range():
     """Chromium follows redirects internally, so the check runs per navigation."""
-    page = _FakePage()
-    run(browser_login._guard_navigations(page))
+    page = _FakeContext()
+    run(browser_login._guard_egress(page))
     for url in ("http://169.254.169.254/latest/meta-data/", "http://127.0.0.1/x"):
         assert run(page.send(_FakeRoute(url))) == "abort", url
 
@@ -405,8 +426,8 @@ def test_navigation_guard_allows_a_public_navigation(monkeypatch):
         return ["93.184.216.34"]
 
     monkeypatch.setattr(egress, "_resolve", _resolves_public)   # keep the test hermetic
-    page = _FakePage()
-    run(browser_login._guard_navigations(page))
+    page = _FakeContext()
+    run(browser_login._guard_egress(page))
     assert run(page.send(_FakeRoute("https://example.com/article"))) == "continue"
 
 
@@ -417,16 +438,16 @@ def test_subresources_are_guarded_too():
     link-local, loopback and RFC1918 hosts. The responses are largely unreadable
     cross-origin, but the requests alone map the tailnet from inside it.
     """
-    page = _FakePage()
-    run(browser_login._guard_navigations(page))
+    page = _FakeContext()
+    run(browser_login._guard_egress(page))
     route = _FakeRoute("http://169.254.169.254/latest/meta-data/", navigation=False)
     assert run(page.send(route)) == "abort"
 
 
 def test_non_network_schemes_are_left_alone():
     """data:/blob:/about: never reach the network — blocking them breaks rendering."""
-    page = _FakePage()
-    run(browser_login._guard_navigations(page))
+    page = _FakeContext()
+    run(browser_login._guard_egress(page))
     for url in ("data:image/png;base64,iVBORw0KGgo=", "about:blank"):
         assert run(page.send(_FakeRoute(url, navigation=False))) == "continue", url
 
@@ -440,11 +461,29 @@ def test_one_lookup_per_origin(monkeypatch):
         return ["93.184.216.34"]
 
     monkeypatch.setattr(egress, "_resolve", _counting_resolve)
-    page = _FakePage()
-    run(browser_login._guard_navigations(page))
+    page = _FakeContext()
+    run(browser_login._guard_egress(page))
     for path in ("/a", "/b", "/c"):
         assert run(page.send(_FakeRoute(f"https://example.com{path}"))) == "continue"
     assert calls == ["example.com"]
+
+
+def test_websockets_are_routed_too():
+    """HTTP routes do not intercept ws://; an unrouted socket reaches the host."""
+    context = _FakeContext()
+    run(browser_login._guard_egress(context))
+    assert run(context.send_ws(_FakeSocket("ws://192.168.1.1/"))) == "abort"
+
+
+def test_a_popup_is_covered_because_the_guard_is_on_the_context():
+    """window.open makes a new Page with an empty route table.
+
+    A page-level handler would let the popup's request fall through to the
+    context, which would have nothing registered and would continue it.
+    """
+    context = _FakeContext()
+    run(browser_login._guard_egress(context))   # takes a context, not a page
+    assert run(context.send(_FakeRoute("http://169.254.169.254/"))) == "abort"
 
 
 def test_an_unexpected_egress_failure_fails_closed(monkeypatch):
@@ -457,6 +496,6 @@ def test_an_unexpected_egress_failure_fails_closed(monkeypatch):
         raise UnicodeError("invalid IDN label")
 
     monkeypatch.setattr(egress, "_resolve", _explodes)
-    page = _FakePage()
-    run(browser_login._guard_navigations(page))
+    page = _FakeContext()
+    run(browser_login._guard_egress(page))
     assert run(page.send(_FakeRoute("https://example.com/a"))) == "abort"

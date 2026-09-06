@@ -100,8 +100,9 @@ def _render_is_better(rendered: dict[str, Any], http_result: dict[str, Any] | No
     this tier has always served: an empty SPA shell scores 0, and a genuinely
     short article — a news brief, a photo caption post — should still win.
 
-    It is the wrong rule for a domain we reached only because every HTTP tier hit
-    a wall. What gets rendered there is often a plain hard 403: an "Access Denied"
+    It is the wrong rule for a domain we reached *only* because every HTTP tier hit
+    a wall — and only that case: a curated domain that is also walled is still
+    being rendered for the SPA reason, so it keeps the old rule. What gets rendered there is often a plain hard 403: an "Access Denied"
     body with no challenge markers for ``is_interstitial`` to catch, which
     ``page.goto`` loads happily because it does not raise on non-2xx. A few words
     of error text beat ``result=None``, and would be stored as the snapshot *and*
@@ -133,15 +134,22 @@ async def fetch_and_extract(
 
     # SPA fallback: render in a real browser when httpx only got an empty shell,
     # or when every HTTP tier hit an anti-bot challenge only a browser can pass.
+    # The prose floor belongs to the domains we reached *only* because of a wall.
+    # A curated paywall domain can be walled too, and there the render is happening
+    # for the ordinary SPA reason — an empty shell — where a short article is a
+    # perfectly good result. Escalation is what widened the risk, so escalation is
+    # what carries the floor.
+    curated = browser_login.has_login_recipe(domain) or bool(cookies)
+    escalated = blocked and not curated
     if _needs_browser_render(domain, result, cookies, blocked=blocked):
         logger.info("Browser-render fallback for %s (%s)", url,
-                    "anti-bot wall on every HTTP tier" if blocked
+                    "anti-bot wall on every HTTP tier" if escalated
                     else "httpx text too short")
         await _throttle(domain, RENDER_MIN_INTERVAL_S)
         rendered = await browser_login.render_page_html(url, cookies)
         if rendered:
             r2 = _extract(rendered, url, rules, proxy_images=proxy_images)
-            if r2 and _render_is_better(r2, result, require_prose=blocked):
+            if r2 and _render_is_better(r2, result, require_prose=escalated):
                 r2["metadata"]["source"] = "browser"
                 return r2
 

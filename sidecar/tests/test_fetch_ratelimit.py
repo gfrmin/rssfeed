@@ -260,6 +260,52 @@ def test_render_replacing_nothing_is_accepted_when_it_is_real_prose():
         {"content_text": "x" * 500}, None, require_prose=True) is True
 
 
+def test_a_walled_curated_domain_keeps_the_old_rule(monkeypatch):
+    """The floor keys on *why* we rendered, not on whether a wall was seen.
+
+    A curated paywall domain can sit behind Cloudflare too, and `blocked` is then
+    True while the render is happening for the ordinary SPA reason — httpx got an
+    empty shell. Gating on `blocked` alone discarded the 150-character news brief
+    that the render had correctly retrieved, and recorded an extraction failure.
+    """
+    _force_browser(monkeypatch)
+    monkeypatch.setattr(extractor, "_throttle", _no_throttle)
+    monkeypatch.setattr(extractor, "_fetch_html", _walled)
+    monkeypatch.setattr(extractor.browser_login, "render_page_html", _renders_a_brief)
+    monkeypatch.setattr(extractor, "_extract", _extracts_a_brief)
+
+    got = _run(extractor.fetch_and_extract(f"https://{_PAYWALL}/a"))
+    assert got is not None
+    assert got["metadata"]["source"] == "browser"
+
+
+def test_a_walled_unknown_domain_still_gets_the_floor(monkeypatch):
+    """Same render, same length — but here the wall is the only reason we looked."""
+    _force_browser(monkeypatch)
+    monkeypatch.setattr(extractor, "_throttle", _no_throttle)
+    monkeypatch.setattr(extractor, "_fetch_html", _walled)
+    monkeypatch.setattr(extractor.browser_login, "render_page_html", _renders_a_brief)
+    monkeypatch.setattr(extractor, "_extract", _extracts_a_brief)
+
+    assert _run(extractor.fetch_and_extract(f"https://{_UNKNOWN}/a")) is None
+
+
+async def _no_throttle(domain, min_interval):
+    return None
+
+
+async def _walled(url, cookies=None):
+    return None, None, True          # every tier hit a wall
+
+
+async def _renders_a_brief(url, cookies):
+    return "<article><p>brief</p></article>"
+
+
+def _extracts_a_brief(*a, **kw):
+    return {"content_text": "x" * 150, "metadata": {}}
+
+
 def test_render_must_still_beat_what_the_http_tier_got():
     long_enough = "x" * 300
     assert extractor._render_is_better(

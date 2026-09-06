@@ -1067,7 +1067,7 @@ requires-dist = [
     { name = "humanize", specifier = ">=4.0" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "nh3", specifier = ">=0.2.17" },
-    { name = "playwright", specifier = ">=1.40" },
+    { name = "playwright", specifier = ">=1.49" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "python-multipart", specifier = ">=0.0.18" },
     { name = "readability-lxml", specifier = ">=0.8" },

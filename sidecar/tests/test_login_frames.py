@@ -395,6 +395,18 @@ class _FakeContext:
         return socket.verdict
 
 
+def test_render_fails_open_on_a_malformed_url(monkeypatch):
+    """The tier promises to degrade, not to raise.
+
+    The pre-launch check runs outside render_page_html's own try, and
+    POST /entries/{id}/fetch-full has no handler of its own — so an out-of-range
+    port (ValueError) or a bad IDN label (UnicodeError) escaping here is a 500 to
+    the reader rather than "extraction failed".
+    """
+    monkeypatch.setattr(browser_login, "_CHROMIUM_AVAILABLE", True)
+    assert run(browser_login.render_page_html("https://example.com:99999/x")) is None
+
+
 def test_render_refuses_a_non_public_target(monkeypatch):
     """The browser tier has to honour the same egress policy as the HTTP tiers.
 
@@ -473,6 +485,23 @@ def test_websockets_are_routed_too():
     context = _FakeContext()
     run(browser_login._guard_egress(context))
     assert run(context.send_ws(_FakeSocket("ws://192.168.1.1/"))) == "abort"
+
+
+def test_a_public_websocket_is_not_severed(monkeypatch):
+    """The other half, and the one a "block private ranges" test cannot see.
+
+    ``check_scheme_host`` only speaks http/https, so handing it the socket URL
+    rejects the *scheme* and aborts every socket — including a page hydrating its
+    article body over WSS against its own public origin, which then renders
+    without the content this tier exists to fetch.
+    """
+    async def _resolves_public(host, port):
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(egress, "_resolve", _resolves_public)
+    context = _FakeContext()
+    run(browser_login._guard_egress(context))
+    assert run(context.send_ws(_FakeSocket("wss://example.com/live"))) == "continue"
 
 
 def test_a_popup_is_covered_because_the_guard_is_on_the_context():

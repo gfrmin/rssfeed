@@ -697,15 +697,21 @@ async def _guard_egress(context) -> None:
 
     async def _allowed(url: str) -> bool:
         parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https", "ws", "wss"):
+        # A socket reaches the network exactly like the http(s) origin it is
+        # opened against, but check_scheme_host only speaks http/https — handing
+        # it a ws:// URL raises "scheme not allowed", which severs *every*
+        # socket, public ones included, and leaves a page that hydrates its
+        # article body over WSS rendering without the content we came for.
+        scheme = {"ws": "http", "wss": "https"}.get(parsed.scheme, parsed.scheme)
+        if scheme not in ("http", "https"):
             return True    # data:/blob:/about: never reach the network
-        origin = f"{parsed.scheme}://{parsed.netloc}"
+        origin = f"{scheme}://{parsed.netloc}"
         # Cache the pending *task*, not its result. A page fans out dozens of
         # parallel requests to one origin, and recording the verdict only after
         # the await would let every one of them run its own getaddrinfo into the
         # loop's shared thread executor.
         if origin not in verdicts:
-            verdicts[origin] = asyncio.ensure_future(_check(url, origin))
+            verdicts[origin] = asyncio.ensure_future(_check(origin, origin))
         return await verdicts[origin]
 
     async def _route(route, request):
@@ -749,7 +755,12 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
     # away from a public URL are caught in-flight by _guard_egress.
     try:
         await egress.check_public(url)
-    except egress.EgressBlockedError as exc:
+    except Exception as exc:
+        # Not only EgressBlockedError: an out-of-range port is a ValueError and a
+        # bad IDN label a UnicodeError — the same two escapes _check documents.
+        # This runs *outside* the render's own try, and POST /entries/{id}/fetch-full
+        # has no handler of its own, so an escape is a 500 to the reader instead of
+        # the fail-open "extraction failed" this tier promises.
         logger.warning("Refusing to render %s: %s", url, exc)
         return None
 

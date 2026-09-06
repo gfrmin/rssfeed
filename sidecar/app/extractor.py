@@ -3,8 +3,9 @@ import fnmatch
 import hashlib
 import logging
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import quote, urljoin, urlparse
 
 import httpx
@@ -50,16 +51,68 @@ async def _throttle(domain: str | None, min_interval: float) -> None:
         _domain_last[domain] = time.monotonic()
 
 
+def _is_challenge_response(exc: BaseException) -> bool:
+    """Did this failed tier come back with an anti-bot challenge page?
+
+    Escalation is evidence-based, not status-based, because a status lies in both
+    directions. A plain 503 origin outage would buy a headless Chromium launch for
+    every entry on the feed — launch, goto, a 20s prose wait that cannot succeed
+    on an error page, settle and throttle, serially — turning a seconds-long pass
+    into a half-hour one. And a Brightdata zone that is suspended or over budget
+    answers 403 from the *proxy* for every URL, saying nothing about the target.
+
+    A challenge *body* is the thing that actually means "a browser would get in
+    where we did not", and Cloudflare's managed challenge serves exactly that,
+    markers and all, under its 403.
+    """
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return False
+    try:
+        return browser_login.is_interstitial(exc.response.text)
+    except Exception:
+        return False
+
+
 def _needs_browser_render(domain: str | None, result: dict[str, Any] | None,
-                          cookies: dict[str, str] | None) -> bool:
+                          cookies: dict[str, str] | None, blocked: bool = False) -> bool:
     """True when the cheap fetch came back empty/short on a domain worth rendering
-    in a real browser — i.e. a known SPA paywall or one we hold a session for."""
+    in a real browser — a known SPA paywall, one we hold a session for, or one that
+    answered every HTTP tier with an anti-bot challenge.
+
+    ``blocked`` is the case worth spelling out: Cloudflare's "managed" challenge
+    demands JavaScript, so no header, proxy or exit IP gets past it — but a real
+    browser solves it for free. Without this the walled sites fell straight through
+    to Wayback and never extracted at all."""
     text_len = len(result["content_text"]) if result else 0
     if text_len >= _RENDER_TEXT_THRESHOLD:
         return False
     if not browser_login.login_available():
         return False
-    return browser_login.has_login_recipe(domain) or bool(cookies)
+    return blocked or browser_login.has_login_recipe(domain) or bool(cookies)
+
+
+def _render_is_better(rendered: dict[str, Any], http_result: dict[str, Any] | None,
+                      *, require_prose: bool) -> bool:
+    """Accept a browser render if it beat the HTTP tier — and, on the escalated
+    path, only if it also reads as prose.
+
+    "Longer than what we had" is the right rule for the curated paywall domains
+    this tier has always served: an empty SPA shell scores 0, and a genuinely
+    short article — a news brief, a photo caption post — should still win.
+
+    It is the wrong rule for a domain we reached *only* because every HTTP tier hit
+    a wall — and only that case: a curated domain that is also walled is still
+    being rendered for the SPA reason, so it keeps the old rule. What gets rendered there is often a plain hard 403: an "Access Denied"
+    body with no challenge markers for ``is_interstitial`` to catch, which
+    ``page.goto`` loads happily because it does not raise on non-2xx. A few words
+    of error text beat ``result=None``, and would be stored as the snapshot *and*
+    clear the retriable ``extract_attempts`` row. So the floor applies to the
+    escalated path, where the risk was introduced, and nowhere else.
+    """
+    text = rendered["content_text"]
+    if require_prose and len(text) < _RENDER_TEXT_THRESHOLD:
+        return False
+    return len(text) > len((http_result or {}).get("content_text", ""))
 
 
 async def fetch_and_extract(
@@ -74,19 +127,29 @@ async def fetch_and_extract(
     domain = _domain_of(url)
 
     await _throttle(domain, FETCH_MIN_INTERVAL_S)
-    html, source = await _fetch_html(url, cookies=cookies)
+    html, source, blocked = await _fetch_html(url, cookies=cookies)
     result = _extract(html, url, rules, proxy_images=proxy_images) if html else None
     if result and source:
         result["metadata"]["source"] = source
 
-    # SPA fallback: render in a real browser when httpx only got an empty shell.
-    if _needs_browser_render(domain, result, cookies):
-        logger.info("Browser-render fallback for %s (httpx text too short)", url)
+    # SPA fallback: render in a real browser when httpx only got an empty shell,
+    # or when every HTTP tier hit an anti-bot challenge only a browser can pass.
+    # The prose floor belongs to the domains we reached *only* because of a wall.
+    # A curated paywall domain can be walled too, and there the render is happening
+    # for the ordinary SPA reason — an empty shell — where a short article is a
+    # perfectly good result. Escalation is what widened the risk, so escalation is
+    # what carries the floor.
+    curated = browser_login.has_login_recipe(domain) or bool(cookies)
+    escalated = blocked and not curated
+    if _needs_browser_render(domain, result, cookies, blocked=blocked):
+        logger.info("Browser-render fallback for %s (%s)", url,
+                    "anti-bot wall on every HTTP tier" if escalated
+                    else "httpx text too short")
         await _throttle(domain, RENDER_MIN_INTERVAL_S)
         rendered = await browser_login.render_page_html(url, cookies)
         if rendered:
             r2 = _extract(rendered, url, rules, proxy_images=proxy_images)
-            if r2 and len(r2["content_text"]) > len((result or {}).get("content_text", "")):
+            if r2 and _render_is_better(r2, result, require_prose=escalated):
                 r2["metadata"]["source"] = "browser"
                 return r2
 
@@ -104,6 +167,14 @@ _HTTP_KWARGS = dict(
 # web_unlocker MITMs TLS to inject its own cert, so skip verification when
 # routing through it. The static zone is a plain CONNECT tunnel — verify as normal.
 _UNLOCKER_KWARGS = {**_HTTP_KWARGS, "verify": False}
+
+
+def _why(exc: BaseException) -> str:
+    """A one-line reason for a failed fetch tier — a bare exception type hides
+    whether we were blocked (403), rate-limited (429) or simply couldn't connect."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    return f"{type(exc).__name__}: {exc}"[:120]
 
 
 async def _get_via(
@@ -125,45 +196,77 @@ async def _get_via(
     return r.text
 
 
+class _Tier(NamedTuple):
+    """One rung of the fetch ladder."""
+    name: str
+    kwargs: dict
+    proxy: str | None
+    url: str
+    cookies: dict[str, str] | None
+    origin: bool
+    """Whether a status from this tier describes the *site*.
+
+    False for Wayback: we are talking to ``web.archive.org``, which answers 503
+    under load and 403 for rights-holder exclusions. Reading those as "the origin
+    walled us" would escalate an ordinary dead link — a 404, a connect error —
+    into a headless Chromium launch per entry, for any domain.
+    """
+
+
+def _fetch_tiers(url: str, cookies: dict[str, str] | None) -> Iterator[_Tier]:
+    """The fetch ladder, cheapest first."""
+    # 1. Direct (free)
+    yield _Tier("direct", _HTTP_KWARGS, None, url, cookies, origin=True)
+    # 2. Static datacenter proxy (cheap — bandwidth only, different IP)
+    if BRIGHTDATA_PROXY:
+        yield _Tier("static_proxy", _HTTP_KWARGS, BRIGHTDATA_PROXY, url, cookies, origin=True)
+    # 3. Web Unlocker (expensive — per-request anti-bot bypass)
+    if BRIGHTDATA_UNLOCKER_PROXY:
+        yield _Tier("web_unlocker", _UNLOCKER_KWARGS, BRIGHTDATA_UNLOCKER_PROXY, url,
+                    cookies, origin=True)
+    # 4. Wayback Machine (free last resort — no cookies, site-specific creds irrelevant)
+    yield _Tier("wayback", _HTTP_KWARGS, None,
+                f"https://web.archive.org/web/{quote(url, safe='')}", None, origin=False)
+
+
 async def _fetch_html(
     url: str, cookies: dict[str, str] | None = None,
-) -> tuple[str | None, str | None]:
-    """Return (html, source_tier) trying progressively heavier fetch methods."""
+) -> tuple[str | None, str | None, bool]:
+    """Return (html, source_tier, blocked), trying progressively heavier methods.
+
+    ``blocked`` records that some tier met an anti-bot wall, and is reported
+    independently of success because the two are not mutually exclusive. Wayback
+    cheerfully returns 200 with a *snapshot of the origin's challenge page*: that
+    looks like a win, extracts to a stub, and would be stored as the article. So
+    a challenge page is treated as a failed tier wherever it appears, not only in
+    the browser render, and the caller still learns it should escalate.
+    """
     try:
         egress.check_scheme_host(url)
     except egress.EgressBlockedError as exc:
         logger.warning("egress blocked %s: %s", url, exc)
-        return None, None
+        return None, None, False
 
-    # 1. Direct (free)
-    try:
-        return await _get_via(_HTTP_KWARGS, url, proxy=None, cookies=cookies), "direct"
-    except Exception:
-        logger.info("Direct fetch failed for %s, trying static proxy", url)
-
-    # 2. Static datacenter proxy (cheap — bandwidth only, different IP)
-    if BRIGHTDATA_PROXY:
+    blocked = False
+    for tier in _fetch_tiers(url, cookies):
         try:
-            return await _get_via(_HTTP_KWARGS, url, proxy=BRIGHTDATA_PROXY, cookies=cookies), "static_proxy"
-        except Exception:
-            logger.info("Static proxy failed for %s, trying web_unlocker", url)
+            html = await _get_via(tier.kwargs, tier.url, proxy=tier.proxy, cookies=tier.cookies)
+        except Exception as exc:
+            if tier.origin and _is_challenge_response(exc):
+                blocked = True
+            logger.info("Fetch tier %s failed for %s (%s)", tier.name, url, _why(exc))
+            continue
+        # An interstitial counts from *any* tier, Wayback included: an archived
+        # copy of the challenge page is still evidence about the origin.
+        if browser_login.is_interstitial(html):
+            blocked = True
+            logger.info("Fetch tier %s returned an anti-bot challenge for %s", tier.name, url)
+            continue
+        return html, tier.name, blocked
 
-    # 3. Web Unlocker (expensive — per-request anti-bot bypass)
-    if BRIGHTDATA_UNLOCKER_PROXY:
-        try:
-            return await _get_via(
-                _UNLOCKER_KWARGS, url, proxy=BRIGHTDATA_UNLOCKER_PROXY, cookies=cookies,
-            ), "web_unlocker"
-        except Exception:
-            logger.info("Web Unlocker failed for %s, trying Wayback Machine", url)
-
-    # 4. Wayback Machine (free last resort — no cookies, site-specific creds irrelevant)
-    try:
-        wayback_url = f"https://web.archive.org/web/{quote(url, safe='')}"
-        return await _get_via(_HTTP_KWARGS, wayback_url, proxy=None, cookies=None), "wayback"
-    except Exception:
-        logger.warning("All fetch methods failed for %s", url)
-        return None, None
+    logger.warning("All fetch methods failed for %s%s", url,
+                   " — origin is behind an anti-bot wall" if blocked else "")
+    return None, None, blocked
 
 
 async def fetch_proxied_image(url: str) -> tuple[bytes, str] | None:

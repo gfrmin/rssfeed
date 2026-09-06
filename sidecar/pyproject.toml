@@ -24,7 +24,11 @@ dependencies = [
     # Kept as a base dependency even though logins are optional: it installs
     # cleanly from PyPI for anyone. The extra below exists to unblock INSTALLATION,
     # not to minimise footprint, and a large wheel is not a blocker.
-    "playwright>=1.40",
+    # >=1.49: context.route_web_socket (1.48) and the separate chrome-headless-shell
+    # binary that _local_chromium_present pins to. At the old 1.40 floor _guard_egress
+    # raises AttributeError inside render_page_html's try, so every render returns
+    # None and the whole browser tier dies silently.
+    "playwright>=1.49",
 ]
 
 [project.optional-dependencies]

@@ -19,6 +19,7 @@ allowlist. Credentials are never typed into an arbitrary third-party iframe. On
 failure we save a screenshot to ``/tmp/rssfeed-login-debug`` so a recipe can be
 tuned live.
 """
+import asyncio
 import glob
 import json
 import logging
@@ -42,18 +43,54 @@ _AUTH_FRAME_HOSTS = (
 )
 
 # Realistic context so the headless browser isn't trivially fingerprinted.
-_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+_UA_TEMPLATE = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36")
+
+
+def _ua_for(browser) -> str:
+    """Claim the Chrome version we are actually running.
+
+    A hardcoded version drifts from the binary on every playwright upgrade, and
+    an anti-bot check that fingerprints the JS engine against the claimed UA
+    reads that gap as a lie: this said Chrome 126 while the pinned build was 148.
+    """
+    major = (getattr(browser, "version", "") or "").split(".")[0]
+    return _UA_TEMPLATE.format(major=major if major.isdigit() else "126")
+
+
+def _pinned_chromium_revision() -> str | None:
+    """The chromium build number *this* playwright launches, per its own registry."""
+    import playwright
+
+    registry = os.path.join(
+        os.path.dirname(playwright.__file__), "driver", "package", "browsers.json"
+    )
+    try:
+        with open(registry) as fh:
+            browsers = json.load(fh)["browsers"]
+    except (OSError, ValueError, KeyError):
+        return None
+    return next(
+        (str(b["revision"]) for b in browsers if b.get("name") == "chromium"), None
+    )
 
 
 def _local_chromium_present() -> bool:
-    """True if `playwright install chromium` has provisioned a browser binary."""
-    # chrome-linux on official builds, chrome-linux64 on the OS-fallback build.
-    base = os.path.expanduser("~/.cache/ms-playwright")
-    return bool(
-        glob.glob(os.path.join(base, "chromium-*/chrome-linux*/chrome"))
-        or glob.glob(os.path.join(base, "chromium_headless_shell-*/chrome-linux*/headless_shell"))
+    """True if the chromium build this playwright pins has been provisioned.
+
+    Checking for *any* ``chromium-*`` directory is not enough: playwright launches
+    one exact revision, so a cache holding only some other build passes the check
+    and then dies inside ``launch()`` with "Executable doesn't exist". Globbing the
+    binary inside the pinned directory keeps both layouts working — ``chrome-linux``
+    on official builds, ``chrome-linux64`` on the OS-fallback build.
+    """
+    revision = _pinned_chromium_revision()
+    if revision is None:
+        return False
+    base = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or os.path.expanduser(
+        "~/.cache/ms-playwright"
     )
+    return bool(glob.glob(os.path.join(base, f"chromium-{revision}", "chrome-*linux*", "chrome")))
 
 
 _CHROMIUM_AVAILABLE = _local_chromium_present()
@@ -450,7 +487,7 @@ async def login_and_get_cookies(domain: str, username: str, password: str) -> di
             browser = await p.chromium.launch(headless=True)
             try:
                 context = await browser.new_context(
-                    user_agent=_UA, viewport={"width": 1280, "height": 900}, proxy=proxy,
+                    user_agent=_ua_for(browser), viewport={"width": 1280, "height": 900}, proxy=proxy,
                 )
                 page = await context.new_page()
                 await page.goto(recipe.login_url, wait_until="domcontentloaded", timeout=90_000)
@@ -502,8 +539,53 @@ _RENDER_READY_JS = (
 )
 
 
+# Fingerprints of an unsolved anti-bot interstitial. Returning one of these as
+# article HTML is worse than returning nothing: "Just a quick check..." then gets
+# extracted, stored as the article body and shown in the reader as the news.
+_INTERSTITIAL_MARKERS = (
+    "_cf_chl_opt",
+    "cdn-cgi/challenge-platform",
+    'id="challenge-form"',
+)
+
+
+def _is_interstitial(html: str) -> bool:
+    return any(m in html for m in _INTERSTITIAL_MARKERS)
+
+
+async def _wait_for_prose(page, budget_s: float) -> bool:
+    """Wait for article prose, surviving the navigations an interstitial performs.
+
+    An anti-bot interstitial (Cloudflare's "managed" challenge) solves itself in a
+    real browser and then *navigates* to the article. That navigation destroys the
+    JS execution context, so a single ``wait_for_function`` raises rather than
+    waiting — which is how a challenge we had already passed still came back as a
+    98-character "Just a quick check..." page. Re-arm against the new document
+    until the budget runs out.
+    """
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + budget_s
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return False
+        try:
+            await page.wait_for_function(_RENDER_READY_JS, timeout=remaining * 1000)
+            return True
+        except Exception:
+            pass
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return False
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=remaining * 1000)
+        except Exception:
+            return False
+
+
 async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
-                           settle_ms: int = 4000, timeout: int = 60_000) -> str | None:
+                           settle_ms: int = 4000, timeout: int = 60_000,
+                           prose_budget_s: float = 35.0) -> str | None:
     """Render a JS/SPA page in a real browser (with session cookies) and return its
     HTML. On a paywalled SPA the article only exists after JS runs, so plain httpx
     returns an empty shell — this is the fetch tier that works.
@@ -521,7 +603,7 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
             browser = await p.chromium.launch(headless=True)
             try:
                 context = await browser.new_context(
-                    user_agent=_UA, viewport={"width": 1280, "height": 1600}, proxy=proxy,
+                    user_agent=_ua_for(browser), viewport={"width": 1280, "height": 1600}, proxy=proxy,
                 )
                 if cookies and bare:
                     await context.add_cookies([
@@ -531,12 +613,16 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
                 page = await context.new_page()
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
                 # Wait for article prose to hydrate; fall back to a fixed settle.
-                try:
-                    await page.wait_for_function(_RENDER_READY_JS, timeout=20_000)
-                except Exception:
-                    pass
+                await _wait_for_prose(page, prose_budget_s)
                 await page.wait_for_timeout(settle_ms)
-                return await page.content()
+                html = await page.content()
+                if _is_interstitial(html):
+                    logger.warning(
+                        "Browser render for %s is still an anti-bot interstitial "
+                        "after %.0fs — discarding rather than storing it as article text",
+                        url, prose_budget_s)
+                    return None
+                return html
             finally:
                 await browser.close()
     except Exception:

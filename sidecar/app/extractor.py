@@ -50,16 +50,27 @@ async def _throttle(domain: str | None, min_interval: float) -> None:
         _domain_last[domain] = time.monotonic()
 
 
+# Statuses an anti-bot wall answers with. A challenge is not a dead link: the
+# page is there, it just wants a browser, which is precisely the next tier.
+_BLOCKED_STATUSES = frozenset({401, 403, 429, 503})
+
+
 def _needs_browser_render(domain: str | None, result: dict[str, Any] | None,
-                          cookies: dict[str, str] | None) -> bool:
+                          cookies: dict[str, str] | None, blocked: bool = False) -> bool:
     """True when the cheap fetch came back empty/short on a domain worth rendering
-    in a real browser — i.e. a known SPA paywall or one we hold a session for."""
+    in a real browser — a known SPA paywall, one we hold a session for, or one that
+    answered every HTTP tier with an anti-bot challenge.
+
+    ``blocked`` is the case worth spelling out: Cloudflare's "managed" challenge
+    demands JavaScript, so no header, proxy or exit IP gets past it — but a real
+    browser solves it for free. Without this the walled sites fell straight through
+    to Wayback and never extracted at all."""
     text_len = len(result["content_text"]) if result else 0
     if text_len >= _RENDER_TEXT_THRESHOLD:
         return False
     if not browser_login.login_available():
         return False
-    return browser_login.has_login_recipe(domain) or bool(cookies)
+    return blocked or browser_login.has_login_recipe(domain) or bool(cookies)
 
 
 async def fetch_and_extract(
@@ -75,12 +86,14 @@ async def fetch_and_extract(
 
     await _throttle(domain, FETCH_MIN_INTERVAL_S)
     html, source = await _fetch_html(url, cookies=cookies)
+    blocked = html is None and source == "blocked"
     result = _extract(html, url, rules, proxy_images=proxy_images) if html else None
     if result and source:
         result["metadata"]["source"] = source
 
-    # SPA fallback: render in a real browser when httpx only got an empty shell.
-    if _needs_browser_render(domain, result, cookies):
+    # SPA fallback: render in a real browser when httpx only got an empty shell,
+    # or when every HTTP tier hit an anti-bot challenge only a browser can pass.
+    if _needs_browser_render(domain, result, cookies, blocked=blocked):
         logger.info("Browser-render fallback for %s (httpx text too short)", url)
         await _throttle(domain, RENDER_MIN_INTERVAL_S)
         rendered = await browser_login.render_page_html(url, cookies)
@@ -106,6 +119,14 @@ _HTTP_KWARGS = dict(
 _UNLOCKER_KWARGS = {**_HTTP_KWARGS, "verify": False}
 
 
+def _why(exc: BaseException) -> str:
+    """A one-line reason for a failed fetch tier — a bare exception type hides
+    whether we were blocked (403), rate-limited (429) or simply couldn't connect."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    return f"{type(exc).__name__}: {exc}"[:120]
+
+
 async def _get_via(
     client_kwargs: dict, url: str, proxy: str | None, cookies: dict[str, str] | None,
 ) -> str:
@@ -128,7 +149,20 @@ async def _get_via(
 async def _fetch_html(
     url: str, cookies: dict[str, str] | None = None,
 ) -> tuple[str | None, str | None]:
-    """Return (html, source_tier) trying progressively heavier fetch methods."""
+    """Return (html, source_tier) trying progressively heavier fetch methods.
+
+    On total failure the source slot carries the *reason*: ``"blocked"`` when the
+    origin answered with an anti-bot status, so the caller can escalate to a real
+    browser rather than treating the URL as dead.
+    """
+    blocked = False
+
+    def _note(exc: BaseException) -> str:
+        nonlocal blocked
+        if isinstance(exc, httpx.HTTPStatusError):
+            blocked = blocked or exc.response.status_code in _BLOCKED_STATUSES
+        return _why(exc)
+
     try:
         egress.check_scheme_host(url)
     except egress.EgressBlockedError as exc:
@@ -138,15 +172,15 @@ async def _fetch_html(
     # 1. Direct (free)
     try:
         return await _get_via(_HTTP_KWARGS, url, proxy=None, cookies=cookies), "direct"
-    except Exception:
-        logger.info("Direct fetch failed for %s, trying static proxy", url)
+    except Exception as exc:
+        logger.info("Direct fetch failed for %s (%s), trying static proxy", url, _note(exc))
 
     # 2. Static datacenter proxy (cheap — bandwidth only, different IP)
     if BRIGHTDATA_PROXY:
         try:
             return await _get_via(_HTTP_KWARGS, url, proxy=BRIGHTDATA_PROXY, cookies=cookies), "static_proxy"
-        except Exception:
-            logger.info("Static proxy failed for %s, trying web_unlocker", url)
+        except Exception as exc:
+            logger.info("Static proxy failed for %s (%s), trying web_unlocker", url, _note(exc))
 
     # 3. Web Unlocker (expensive — per-request anti-bot bypass)
     if BRIGHTDATA_UNLOCKER_PROXY:
@@ -154,16 +188,17 @@ async def _fetch_html(
             return await _get_via(
                 _UNLOCKER_KWARGS, url, proxy=BRIGHTDATA_UNLOCKER_PROXY, cookies=cookies,
             ), "web_unlocker"
-        except Exception:
-            logger.info("Web Unlocker failed for %s, trying Wayback Machine", url)
+        except Exception as exc:
+            logger.info("Web Unlocker failed for %s (%s), trying Wayback Machine", url, _note(exc))
 
     # 4. Wayback Machine (free last resort — no cookies, site-specific creds irrelevant)
     try:
         wayback_url = f"https://web.archive.org/web/{quote(url, safe='')}"
         return await _get_via(_HTTP_KWARGS, wayback_url, proxy=None, cookies=None), "wayback"
-    except Exception:
-        logger.warning("All fetch methods failed for %s", url)
-        return None, None
+    except Exception as exc:
+        logger.warning("All fetch methods failed for %s (wayback: %s)%s", url, _why(exc),
+                       " — origin is behind an anti-bot wall" if blocked else "")
+        return None, "blocked" if blocked else None
 
 
 async def fetch_proxied_image(url: str) -> tuple[bytes, str] | None:

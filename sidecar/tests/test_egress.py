@@ -140,7 +140,7 @@ def test_kill_switch_disables_checks(monkeypatch):
 # --- integration: the extractor entry points ----------------------------------
 
 def test_fetch_html_blocks_bad_scheme():
-    assert _run(_fetch_html("file:///etc/passwd")) == (None, None)
+    assert _run(_fetch_html("file:///etc/passwd")) == (None, None, False)
 
 
 def test_fetch_proxied_image_raises_for_loopback():

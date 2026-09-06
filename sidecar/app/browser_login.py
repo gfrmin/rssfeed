@@ -19,6 +19,7 @@ allowlist. Credentials are never typed into an arbitrary third-party iframe. On
 failure we save a screenshot to ``/tmp/rssfeed-login-debug`` so a recipe can be
 tuned live.
 """
+import asyncio
 import glob
 import json
 import logging
@@ -26,6 +27,7 @@ import os
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
+from app import egress
 from app.config import LOGIN_BROWSER_PROXY, LOGIN_RECIPES_FILE
 
 logger = logging.getLogger(__name__)
@@ -42,17 +44,131 @@ _AUTH_FRAME_HOSTS = (
 )
 
 # Realistic context so the headless browser isn't trivially fingerprinted.
-_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+_UA_TEMPLATE = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36")
+
+
+def _ua_for(browser) -> str:
+    """Claim the Chrome version we are actually running.
+
+    A hardcoded version drifts from the binary on every playwright upgrade, and
+    an anti-bot check that fingerprints the JS engine against the claimed UA
+    reads that gap as a lie: this said Chrome 126 while the pinned build was 148.
+    """
+    major = (getattr(browser, "version", "") or "").split(".")[0]
+    return _UA_TEMPLATE.format(major=major if major.isdigit() else "126")
+
+
+def _playwright_package_root() -> str | None:
+    """The driver ``package`` directory inside the installed playwright wheel.
+
+    Imported defensively: this runs at module import time via
+    ``_CHROMIUM_AVAILABLE``, and the browser tier is optional. Every other
+    playwright import in this module is guarded for the same reason — a missing
+    or broken wheel must degrade the tier, not raise through ``app.extractor``
+    and take the whole reader down on import.
+    """
+    try:
+        import playwright
+
+        return os.path.join(os.path.dirname(playwright.__file__), "driver", "package")
+    except Exception:
+        # Not only ImportError: ``__file__`` is None for a namespace package or a
+        # half-removed wheel, and ``dirname(None)`` is a TypeError. This runs at
+        # import time, so anything escaping here is an app-wide startup failure.
+        return None
+
+
+def _playwright_registry() -> list[dict] | None:
+    """Playwright's own ``browsers.json`` — the registry it launches from."""
+    root = _playwright_package_root()
+    if root is None:
+        return None
+    try:
+        with open(os.path.join(root, "browsers.json")) as fh:
+            return json.load(fh)["browsers"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _browsers_base() -> str | None:
+    """Where playwright keeps provisioned browsers, mirroring its own resolution.
+
+    ``PLAYWRIGHT_BROWSERS_PATH=0`` is a documented *mode* — "install beside the
+    package" — not a path. Taking it as one points the check at a relative
+    directory named ``0``, matches nothing, and silently disables the browser
+    tier on a machine where the browsers are installed correctly.
+    """
+    env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if env == "0":
+        root = _playwright_package_root()
+        return os.path.join(root, ".local-browsers") if root else None
+    if env:
+        return os.path.abspath(env)
+    cache = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return os.path.join(cache, "ms-playwright")
+
+
+# Both ``launch()`` calls in this module pass ``headless=True``, and playwright
+# >=1.49 runs a *separate* ``chrome-headless-shell`` binary for that — the full
+# chromium build is what a headed launch uses, which we never do. Ordered by what
+# we would actually launch: the first entry the *registry* pins is the one that
+# has to be on disk, so the full build serves only pre-1.49 playwrights that ship
+# no shell at all. It must not stand in for a shell that is pinned but missing —
+# that is precisely the cache that passes the check and then dies in ``launch()``.
+# Inner globs cover the current ``chrome-headless-shell-linux64`` layout and the
+# older ``chrome-linux/headless_shell`` one.
+_LAUNCH_BINARIES = (
+    ("chromium-headless-shell", "chromium_headless_shell-{rev}",
+     ("chrome-headless-shell-*linux*/chrome-headless-shell", "chrome-*linux*/headless_shell")),
+    ("chromium", "chromium-{rev}", ("chrome-*linux*/chrome",)),
+)
+
+
+def _pinned_revisions() -> dict[str, list[str]]:
+    """``{registry name: candidate revisions}`` for the builds this playwright pins.
+
+    Base revision first, then any ``revisionOverrides``. Playwright applies
+    ``revisionOverrides[hostPlatform]`` when computing both the download and the
+    *install directory name*, and several registry entries carry them. Rather than
+    reproduce its host-platform string (``ubuntu22.04-x64``, ``mac14-arm64``, …)
+    and risk globbing a directory that does not exist, accept any revision it
+    could have chosen: the question here is "is a launchable build present", and a
+    directory playwright itself created is exactly that.
+    """
+    return {
+        b["name"]: [str(b["revision"]), *(str(v) for v in (b.get("revisionOverrides") or {}).values())]
+        for b in _playwright_registry() or []
+        if b.get("name") and b.get("revision") is not None
+    }
 
 
 def _local_chromium_present() -> bool:
-    """True if `playwright install chromium` has provisioned a browser binary."""
-    # chrome-linux on official builds, chrome-linux64 on the OS-fallback build.
-    base = os.path.expanduser("~/.cache/ms-playwright")
-    return bool(
-        glob.glob(os.path.join(base, "chromium-*/chrome-linux*/chrome"))
-        or glob.glob(os.path.join(base, "chromium_headless_shell-*/chrome-linux*/headless_shell"))
+    """True if the exact browser build this playwright launches is provisioned.
+
+    Two ways to get this wrong, and the previous versions managed one each.
+    Globbing any ``chromium-*`` directory accepts a cache holding some *other*
+    revision, which then dies inside ``launch()`` with "Executable doesn't
+    exist". Pinning the revision but globbing ``chromium-<rev>/.../chrome``
+    checks a binary we never run, so a headless-shell-only cache — a documented
+    and much smaller install — reports the tier as missing when it works fine.
+    """
+    base = _browsers_base()
+    if base is None:
+        return False
+    revisions = _pinned_revisions()
+    launched = next(
+        ((directory, inners, revisions[name])
+         for name, directory, inners in _LAUNCH_BINARIES if name in revisions),
+        None,
+    )
+    if launched is None:
+        return False
+    directory, inners, candidates = launched
+    return any(
+        glob.glob(os.path.join(base, directory.format(rev=rev), inner))
+        for rev in candidates
+        for inner in inners
     )
 
 
@@ -446,11 +562,11 @@ async def login_and_get_cookies(domain: str, username: str, password: str) -> di
     from playwright.async_api import async_playwright
 
     try:
-        async with async_playwright() as p:
+        async with _RENDER_SLOT, async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             try:
                 context = await browser.new_context(
-                    user_agent=_UA, viewport={"width": 1280, "height": 900}, proxy=proxy,
+                    user_agent=_ua_for(browser), viewport={"width": 1280, "height": 900}, proxy=proxy,
                 )
                 page = await context.new_page()
                 await page.goto(recipe.login_url, wait_until="domcontentloaded", timeout=90_000)
@@ -502,8 +618,129 @@ _RENDER_READY_JS = (
 )
 
 
+# Fingerprints of an *unsolved* anti-bot interstitial. Returning one of these as
+# article HTML is worse than returning nothing: "Just a quick check..." then gets
+# extracted, stored as the article body and shown in the reader as the news.
+#
+# Deliberately narrow. ``cdn-cgi/challenge-platform`` looks like an obvious third
+# marker and is not one: Cloudflare's JavaScript-detections beacon is served from
+# that path into ordinary 200s on any bot-management zone, and is still on the
+# page you land on *after* solving a challenge. Matching it would discard
+# successful renders on exactly the sites this tier exists for.
+_INTERSTITIAL_MARKERS = (
+    "_cf_chl_opt",
+    'id="challenge-form"',
+)
+
+
+def is_interstitial(html: str) -> bool:
+    """True if ``html`` is an anti-bot challenge page rather than content.
+
+    Public because the HTTP tiers need it too: Wayback happily returns 200 with a
+    *snapshot of the challenge page*, which would otherwise be stored as the
+    article.
+    """
+    return any(m in html for m in _INTERSTITIAL_MARKERS)
+
+
+# One Chromium at a time, across *both* browser entry points — a login and a
+# render each launch one, and the worker can do both in a single feed pass.
+# render_page_html is reachable for any domain now, and _throttle only serialises
+# per *domain*, so without this a worker render and a user-triggered
+# POST /entries/{id}/fetch-full could each hold an instance (~300 MB) at once, on
+# a box that also runs Postgres, Miniflux and the ranker.
+_RENDER_SLOT = asyncio.Semaphore(1)
+
+
+async def _guard_egress(context) -> None:
+    """Keep the browser inside public address space, for every request it makes.
+
+    Every HTTP tier goes through ``egress.guarded_get``, which walks redirects
+    with ``follow_redirects=False`` precisely so a public URL cannot bounce the
+    fetch into a private range via a 30x ``Location``. Chromium follows redirects
+    internally *and* runs the page's JavaScript, so the check has to be re-applied
+    per request here.
+
+    It matters more than it used to. This tier was reachable only for
+    operator-curated paywall domains; an anti-bot wall now escalates arbitrary
+    feed entry URLs into it, so a hostile page gets its JS executed in our browser.
+    Subresources count: ``fetch``/``img``/``script`` to ``169.254.169.254``,
+    loopback or RFC1918 hosts is a blind probe of the tailnet even when the
+    responses are unreadable cross-origin.
+
+    Registered on the *context*, not on one page. A popup opened with
+    ``window.open`` is a separate Page carrying its own empty route table, so a
+    page-level handler would pass ``window.open("http://169.254.169.254/")``
+    straight through to the context, which has nothing registered and continues it.
+    WebSockets are routed separately because HTTP routes never see them, and
+    service workers are blocked outright at ``new_context`` since their fetches do
+    not pass through either.
+
+    Anything unexpected fails closed: an exception escaping a route handler leaves
+    the request unresolved, which stalls it until the navigation timeout instead
+    of failing fast.
+    """
+    verdicts: dict[str, asyncio.Future] = {}
+
+    async def _check(url: str, origin: str) -> bool:
+        try:
+            await egress.check_public(url)
+            return True
+        except egress.EgressBlockedError as exc:
+            logger.warning("Blocking browser request to %s: %s", origin, exc)
+            return False
+        except Exception:
+            # check_public wraps OSError, but a malformed port (ValueError) or a
+            # bad IDN label (UnicodeError) still escape it.
+            logger.exception("Egress check failed for %s; blocking", origin)
+            return False
+
+    async def _allowed(url: str) -> bool:
+        parsed = urlparse(url)
+        # A socket reaches the network exactly like the http(s) origin it is
+        # opened against, but check_scheme_host only speaks http/https — handing
+        # it a ws:// URL raises "scheme not allowed", which severs *every*
+        # socket, public ones included, and leaves a page that hydrates its
+        # article body over WSS rendering without the content we came for.
+        scheme = {"ws": "http", "wss": "https"}.get(parsed.scheme, parsed.scheme)
+        if scheme not in ("http", "https"):
+            return True    # data:/blob:/about: never reach the network
+        origin = f"{scheme}://{parsed.netloc}"
+        # Cache the pending *task*, not its result. A page fans out dozens of
+        # parallel requests to one origin, and recording the verdict only after
+        # the await would let every one of them run its own getaddrinfo into the
+        # loop's shared thread executor.
+        if origin not in verdicts:
+            verdicts[origin] = asyncio.ensure_future(_check(origin, origin))
+        return await verdicts[origin]
+
+    async def _route(route, request):
+        try:
+            if await _allowed(request.url):
+                await route.continue_()
+            else:
+                await route.abort()
+        except Exception:
+            # The page can close mid-flight; nothing useful is left to do, but the
+            # exception must not escape into an unhandled task.
+            logger.debug("Route handling failed for %s", request.url, exc_info=True)
+
+    async def _route_ws(ws):
+        try:
+            if await _allowed(ws.url):
+                await ws.connect_to_server()
+            else:
+                await ws.close()
+        except Exception:
+            logger.debug("WebSocket route handling failed for %s", ws.url, exc_info=True)
+
+    await context.route("**/*", _route)
+    await context.route_web_socket("**/*", _route_ws)
+
+
 async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
-                           settle_ms: int = 4000, timeout: int = 60_000) -> str | None:
+                           settle_ms: int = 4000, timeout: int = 60_000,
+                           prose_budget_s: float = 20.0) -> str | None:
     """Render a JS/SPA page in a real browser (with session cookies) and return its
     HTML. On a paywalled SPA the article only exists after JS runs, so plain httpx
     returns an empty shell — this is the fetch tier that works.
@@ -514,15 +751,32 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
 
     from playwright.async_api import async_playwright
 
+    # Reject an unroutable target before paying for a browser launch; redirects
+    # away from a public URL are caught in-flight by _guard_egress.
+    try:
+        await egress.check_public(url)
+    except Exception as exc:
+        # Not only EgressBlockedError: an out-of-range port is a ValueError and a
+        # bad IDN label a UnicodeError — the same two escapes _check documents.
+        # This runs *outside* the render's own try, and POST /entries/{id}/fetch-full
+        # has no handler of its own, so an escape is a 500 to the reader instead of
+        # the fail-open "extraction failed" this tier promises.
+        logger.warning("Refusing to render %s: %s", url, exc)
+        return None
+
     proxy = {"server": LOGIN_BROWSER_PROXY} if LOGIN_BROWSER_PROXY else None
     bare = (urlparse(url).hostname or "").removeprefix("www.")
     try:
-        async with async_playwright() as p:
+        async with _RENDER_SLOT, async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             try:
                 context = await browser.new_context(
-                    user_agent=_UA, viewport={"width": 1280, "height": 1600}, proxy=proxy,
+                    user_agent=_ua_for(browser), viewport={"width": 1280, "height": 1600},
+                    proxy=proxy,
+                    # A service worker's fetches bypass page and context routes.
+                    service_workers="block",
                 )
+                await _guard_egress(context)
                 if cookies and bare:
                     await context.add_cookies([
                         {"name": k, "value": v, "domain": "." + bare, "path": "/"}
@@ -531,12 +785,24 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
                 page = await context.new_page()
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
                 # Wait for article prose to hydrate; fall back to a fixed settle.
+                # One wait is enough even when an anti-bot interstitial solves
+                # itself and navigates: wait_for_function re-evaluates against
+                # the new document (measured — it resolves ~1s after a
+                # cross-document navigation), so there is nothing to re-arm.
                 try:
-                    await page.wait_for_function(_RENDER_READY_JS, timeout=20_000)
+                    await page.wait_for_function(_RENDER_READY_JS,
+                                                 timeout=prose_budget_s * 1000)
                 except Exception:
                     pass
                 await page.wait_for_timeout(settle_ms)
-                return await page.content()
+                html = await page.content()
+                if is_interstitial(html):
+                    logger.warning(
+                        "Browser render for %s is still an anti-bot interstitial "
+                        "after %.0fs — discarding rather than storing it as article text",
+                        url, prose_budget_s)
+                    return None
+                return html
             finally:
                 await browser.close()
     except Exception:

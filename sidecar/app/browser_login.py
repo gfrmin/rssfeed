@@ -43,8 +43,19 @@ _AUTH_FRAME_HOSTS = (
 )
 
 # Realistic context so the headless browser isn't trivially fingerprinted.
-_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+_UA_TEMPLATE = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36")
+
+
+def _ua_for(browser) -> str:
+    """Claim the Chrome version we are actually running.
+
+    A hardcoded version drifts from the binary on every playwright upgrade, and
+    an anti-bot check that fingerprints the JS engine against the claimed UA
+    reads that gap as a lie: this said Chrome 126 while the pinned build was 148.
+    """
+    major = (getattr(browser, "version", "") or "").split(".")[0]
+    return _UA_TEMPLATE.format(major=major if major.isdigit() else "126")
 
 
 def _pinned_chromium_revision() -> str | None:
@@ -476,7 +487,7 @@ async def login_and_get_cookies(domain: str, username: str, password: str) -> di
             browser = await p.chromium.launch(headless=True)
             try:
                 context = await browser.new_context(
-                    user_agent=_UA, viewport={"width": 1280, "height": 900}, proxy=proxy,
+                    user_agent=_ua_for(browser), viewport={"width": 1280, "height": 900}, proxy=proxy,
                 )
                 page = await context.new_page()
                 await page.goto(recipe.login_url, wait_until="domcontentloaded", timeout=90_000)
@@ -592,7 +603,7 @@ async def render_page_html(url: str, cookies: dict[str, str] | None = None, *,
             browser = await p.chromium.launch(headless=True)
             try:
                 context = await browser.new_context(
-                    user_agent=_UA, viewport={"width": 1280, "height": 1600}, proxy=proxy,
+                    user_agent=_ua_for(browser), viewport={"width": 1280, "height": 1600}, proxy=proxy,
                 )
                 if cookies and bare:
                     await context.add_cookies([

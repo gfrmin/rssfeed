@@ -72,3 +72,17 @@ def test_the_shell_stylesheet_does_not_redefine_a_tailwind_display_utility():
     defined = set(re.findall(r"^\.([a-z][a-z0-9-]*)\s*\{", style, re.M))
     clashes = defined & _TAILWIND_DISPLAY_UTILITIES
     assert not clashes, sorted(clashes)
+
+
+def test_link_defaults_sit_below_tailwind_utilities():
+    """Tailwind v4 emits its utilities inside `@layer utilities`; style.css is
+    unlayered, and an unlayered rule beats every layered one whatever its
+    specificity. `.legacy-main a { color: var(--link) }` therefore repainted
+    every link on a base.html page link-blue -- the 404 page's "Back to reading"
+    button on accent orange, the feeds page's muted cause chips and gear icons.
+    Element-level link colours belong in the base layer, where a utility or a
+    component class can still say otherwise."""
+    style = (STATIC / "style.css").read_text()
+    unlayered = re.sub(r"@layer[^{]*\{(?:[^{}]|\{[^{}]*\})*\}", "", style)
+    for sel in (r"a", r"\.legacy-main a"):
+        assert not re.search(rf"^{sel}\s*\{{", unlayered, re.M), sel

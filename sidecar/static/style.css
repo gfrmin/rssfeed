@@ -43,7 +43,10 @@ body {
   text-rendering:optimizeLegibility;
 }
 ::selection { background:var(--accent); color:#0c0c0e; }
-a { color:inherit; }
+/* Element defaults sit in Tailwind's base layer: unlayered rules beat every
+   layered one regardless of specificity, so an unlayered `a` rule overrode
+   every text-* utility on every link. */
+@layer base { a { color:inherit; } }
 button { font-family:inherit; color:inherit; cursor:pointer; }
 .mono { font-family:"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
 .dim { color:var(--muted); }
@@ -772,7 +775,7 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .legacy-topbar a:hover { color:var(--text); }
 .legacy-topbar .brand-name { color:var(--accent); }
 .legacy-main { flex:1; max-width:900px; width:100%; margin:0 auto; padding:28px 20px 60px; }
-.legacy-main a { color:var(--link); }
+@layer base { .legacy-main a { color:var(--link); } }
 
 /* legacy article content (entry.html until reader is restyled) */
 .entry-content { font-size:15.5px; line-height:1.72; color:var(--text); }

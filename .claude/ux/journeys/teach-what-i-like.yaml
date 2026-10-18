@@ -1,0 +1,47 @@
+persona: owner-phone-reader
+jtbd: "When I finish a post I liked or didn't, I want to tell the reader in one tap, so its ordering learns my taste."
+provenance: evidence
+source: >-
+  Owner's Claude prompt history (private, see README): 2026-04-06 ("time to start learning what posts
+  i most want to read ... in a Bayesian way"), 2026-06-20 ("what's the difference between star and
+  thumbs up?"; "as for signal, only ignore reads from swipes, or from click 'mark all read'"; "What
+  matters is how you learn my preferences, not necessarily which features to use"), 2026-06-21 ("i
+  clicked thumbs down on this post ... because it's just a link to a story i don't care about ...
+  so what's the practical consequence?"), 2026-07-17 (recorded in project memory: reads carry signal;
+  capture should get more granular, not less). Behaviour, prod DB 2026-10-18: 15 thumb_up, 18
+  thumb_down, 2 star, all between 2026-06-20 and 2026-08-18; none in the last 60 days, while dwell
+  events continued (633 in the same 60 days). The owner tried explicit rating and stopped.
+steps:
+  - id: rate-a-post
+    goal: Mark a post as more or less wanted
+    surface: sidecar
+    route: /entries/{entry_id}
+    success: One tap; the control says what it will change ("more like this from <feed>") and confirms
+    failure_modes:
+      - Star and thumbs look like the same thing → one control per meaning, named by consequence
+      - A thumb has no visible consequence → the next ranked list shows the effect, or the "why" chip cites it
+  - id: see-it-learn
+    goal: Check that the ordering responded
+    surface: sidecar
+    route: /entries/{entry_id}/why
+    success: The "why" chip names the signals behind a post's rank, including passive ones (time spent, opened original)
+    failure_modes:
+      - The ranker engine is down → says ratings are kept and will count later
+signals:
+  - name: explicit-ratings
+    kind: sql
+    query: "SELECT count(*) FROM engagement_events WHERE signal IN ('thumb_up','thumb_down','star') AND created_at > now() - interval '{window_days} days'"
+    window_days: 60
+    threshold: 3
+    becomes_evidence: The owner still rates posts; ratings are a live input worth designing around.
+  - name: reads-without-ratings
+    kind: sql
+    query: "SELECT CASE WHEN (SELECT count(*) FROM entries WHERE status = 'read' AND changed_at > now() - interval '{window_days} days') >= 100 AND (SELECT count(*) FROM engagement_events WHERE signal IN ('thumb_up','thumb_down','star') AND created_at > now() - interval '{window_days} days') = 0 THEN 1 ELSE 0 END"
+    window_days: 60
+    threshold: 1
+    refutes: true
+    becomes_evidence: >-
+      100+ reads and not one rating in 60 days refutes "the owner will rate posts to teach the ranker".
+      The floor of 100 reads keeps a quiet period from counting as refusal. Met on 2026-10-18.
+      It refutes the rating step, not the wish for a learning order: learning has to come from
+      passive signals (dwell, open original, read vs skip).

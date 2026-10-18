@@ -1,0 +1,69 @@
+persona: owner-phone-reader
+jtbd: "When a feed I follow closely has new posts, I want to read them newest first, swiping from one to the next on my phone, so I keep up with it without managing anything."
+provenance: evidence
+source: >-
+  Owner's Claude prompt history (private, see README): 2026-03-31 ("in newsblur I'd always read the
+  Must Read folder first, and within it ... unread articles in descending chronological order";
+  "mark articles after we, you know, read them"), 2026-04-05 (articles set read when clicked "so
+  clicking back would show the correct status"; easier show-all/unread toggle), 2026-04-07 ("allow
+  swiping on mobile to move through article list"), 2026-04-10 (unread only by default on a feed
+  page), 2026-06-02 ("back button behaviour, sidebar behaviour, swiping between articles"),
+  2026-06-18 (a post revisited later renders without CSS; refresh redirects to the main feed;
+  "hard to impossible to show already-read articles"; "a slight delay in showing posts"),
+  2026-06-20 ("if i choose a feed, i want to see the posts in reverse chronological order, with a
+  toggle to show read and unread"; "i tend to read all posts on a feed as i read it by swiping";
+  the mobile view still showing three panes after refreshing an article URL).
+  Behaviour, prod DB 2026-10-18: 271 of 305 reads in the last 30 days came from one feed, 305 across
+  only 10 feeds; reads fell from ~150-240/week (June-July) to ~30-90/week (Sept-Oct).
+steps:
+  - id: pick-the-feed
+    goal: Get from opening the app to that one feed's unread list
+    surface: sidecar
+    route: /entries?feed_id={feed_id}
+    success: The feed's unread posts, newest first, with an unread count; one tap from the app's first screen
+    first_screen: The feed's name and its newest unread post title, without opening a drawer
+    failure_modes:
+      - The app opens on the feeds management table at `/` instead of reading → the feed is still one obvious tap away
+      - The feed has nothing unread → say "all read", with one tap to show read posts (not a blank pane)
+      - Feed list is slow to load (prod saw seconds on `/` with 500+ feeds, 2026-04-21) → the list paints before counts finish
+    scent: The feed's own name as the heading, not a view name like "Unread"
+  - id: read-and-swipe
+    goal: Read a post in full, then move to the next without going back to the list
+    surface: sidecar
+    route: /entries/{entry_id}
+    success: Swipe left/right moves to the older/newer post within the same feed; the post is marked read on open
+    first_screen: The post title and the first paragraph of its text on a 360px screen
+    failure_modes:
+      - Swipe crosses into a different feed or view than the one being read → next/previous stay within the list it came from
+      - Opening an article URL directly (refresh, shared link, back from another app) → single-pane mobile layout with CSS, not three panes, not unstyled, not redirected to the main list
+      - A post is still loading → the previous one is not left on screen as though it were the new one
+    scent: Swipe hints say "Newer"/"Older", matching the list order
+  - id: back-to-list
+    goal: Return to the list and see where I got to
+    surface: sidecar
+    route: /entries?feed_id={feed_id}
+    success: Android back returns to the same list at the same scroll position, with the posts just read shown as read
+    failure_modes:
+      - Back leaves the app or jumps to the all-feeds view → back retraces reader → list → feeds
+      - Read state lags (still bold after reading) → status updated before the list re-renders
+  - id: revisit-read-posts
+    goal: Find a post I already read in this feed
+    surface: sidecar
+    route: /entries?feed_id={feed_id}
+    success: A visible "show read" toggle on the feed page that stays set for that feed
+    failure_modes:
+      - The toggle is hidden in a menu or resets on reload → persisted per feed, visible in the list header
+signals:
+  - name: reads-per-week
+    kind: sql
+    query: "SELECT count(*) FROM entries WHERE status = 'read' AND changed_at > now() - interval '{window_days} days'"
+    window_days: 7
+    threshold: 50
+    becomes_evidence: The owner still reads through feeds weekly at the June-July rate's lower end; it does not show which view they read in.
+  - name: reading-stopped
+    kind: sql
+    query: "SELECT CASE WHEN count(*) < 5 THEN 1 ELSE 0 END FROM entries WHERE status = 'read' AND changed_at > now() - interval '{window_days} days'"
+    window_days: 28
+    threshold: 1
+    refutes: true
+    becomes_evidence: Fewer than 5 reads in four weeks means the owner has stopped using rssfeed to read; the journey describes a habit that no longer exists here.

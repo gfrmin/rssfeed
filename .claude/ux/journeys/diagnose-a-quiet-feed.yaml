@@ -1,0 +1,64 @@
+persona: owner-maintainer
+jtbd: "When a feed I care about goes quiet, I want to know whether the publisher stopped or my reader can't reach it, and fix it from where I noticed, so I don't miss posts for days."
+provenance: evidence
+source: >-
+  Owner's Claude prompt history (private, see README): 2026-04-19 (a feed "stopped updating, is it
+  their fault?"; "maybe some notice in the UI would have helped transparency"; "show something on
+  feed page too"), 2026-04-20 ("investigate failing feeds, 236 of them"; "how to use brightdata with
+  it (via the UI)?"; pausing: "make it clear everywhere which/when a feed is paused"; "is there any
+  point to show errors in column when already bucketed?"), 2026-04-21 ("i turned on going through
+  proxy but still doesn't work (and btw clicking 'refresh now' does nothing in the UI and requires
+  refreshing the page)"; "alert is ugly"), 2026-09-01 ("surprised feed 2 hasn't had new articles in
+  19 hours"; "easier to reach functionality i need and to fix/triage feed errors"; "consider paths
+  through the app, e.g. how to get to a feed's config page"), 2026-10-17/18 (a blog "stopped
+  updating"; the owner could load the site through a VPN exit and asked "so just the rss feed?";
+  "i thought there's a way to deal with rss feeds that block, using brightdata, but not clear in the
+  UI"). Design notes: docs/design/reachability-triage/README.md (settings unreachable from the
+  sidebar feed row; "stale" measures last poll, not last post). Prod DB 2026-10-18: 204 of 534 feeds
+  have a non-zero error count, 213 are disabled.
+steps:
+  - id: notice
+    goal: See that a feed I read has gone quiet, before I wonder why
+    surface: sidecar
+    route: /entries?feed_id={feed_id}
+    success: The feed's own page and its sidebar row say "no new posts for N days" and whether polling is failing
+    first_screen: The feed's health line (last post, last successful poll) next to its name
+    failure_modes:
+      - Polls succeed but the publisher has posted nothing → "quiet since <date>", distinct from an error
+      - Polls fail with a timeout for days → shown as broken, not as quiet; the count of days is visible
+      - The feed is paused → says paused, since when, everywhere the feed appears
+    scent: '"Last post" and "last checked" as separate facts, never one "stale" label'
+  - id: diagnose
+    goal: Learn the cause in plain words, from the feed I'm looking at
+    surface: sidecar
+    route: /triage/{bucket}
+    success: One tap from the feed reaches its cause, an explanation that matches what I see in a browser, and the feeds sharing it
+    failure_modes:
+      - The site loads fine in a browser but not here (IP block, VPN exit) → the explanation says this machine's address is blocked, not "the site is down"
+      - Raw error text is the only explanation → bucket explanation first, raw error one disclosure away
+      - The feed's settings are reachable only by opening one of its (old) articles → reachable from the feed row and the feed page
+  - id: apply-a-remedy
+    goal: Fix it (proxy, user agent, new URL, pause) and see whether it worked
+    surface: sidecar
+    route: /feeds/{feed_id}
+    success: The remedy names what it changes and what it costs; after applying, a re-check runs and its result appears on the page
+    failure_modes:
+      - Remedy applied but the next poll still fails → the page says it still fails, with the new error
+      - '"Refresh now" returns without visible change → shows checking, then the result, without a page reload'
+      - The remedy needs a browser confirm popup → inline confirmation instead
+      - Switching a remedy off leaves it half on (proxy URL kept after "Proxy off", PR #58) → the switch's label matches what Miniflux will do
+    scent: The remedy says what it does ("Route via proxy"), not the vendor's product name
+signals:
+  - name: broken-feeds-with-recent-reads
+    kind: sql
+    query: "SELECT count(DISTINCT f.id) FROM feeds f JOIN entries e ON e.feed_id = f.id WHERE f.parsing_error_count > 0 AND NOT f.disabled AND e.status = 'read' AND e.changed_at > now() - interval '{window_days} days'"
+    window_days: 90
+    threshold: 1
+    becomes_evidence: A feed the owner reads from is failing now; each one is this journey happening, whether or not the owner has noticed.
+  - name: triage-visits
+    kind: log
+    query: "journalctl --user -u rssfeed-sidecar --since '-{window_days} days' -o cat | grep -c '\"GET /triage'"
+    window_days: 30
+    threshold: 1
+    becomes_evidence: Someone opened triage; the log does not separate the owner from an agent's test traffic, so read it next to the session history.
+    note: Run on the instance's host. The journal kept only ~2 days on 2026-10-18; raise its retention or log page views to the DB to make this useful.

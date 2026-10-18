@@ -98,9 +98,10 @@ PROXY_ON = Remedy(
     name="Poll through the BrightData proxy",
     desc="Miniflux fetches these feeds from a different IP, so a site that drops "
          "or refuses this machine's address — a blocked VPN exit, an IP-reputation "
-         "rule — answers again. Metered per request, and it cannot solve a "
-         "JavaScript challenge. Article text needs no switch: extraction already "
-         "falls back to the proxy on its own.",
+         "rule — answers again. Metered by bandwidth. It does not solve a "
+         "JavaScript challenge, but a challenge served only because of this IP's "
+         "reputation can go away. Article text needs no switch: extraction "
+         "already falls back to the proxy on its own.",
 )
 
 ALLOW_SELF_SIGNED = Remedy(

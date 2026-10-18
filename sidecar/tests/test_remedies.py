@@ -135,6 +135,31 @@ def test_a_forbidden_feed_is_not_told_to_solve_a_javascript_challenge():
     assert "unblocker" not in {r.id for r in remedies_for("forbidden")}
 
 
+def test_the_proxy_remedy_says_it_routes_the_poll():
+    """`/feeds/set-proxy` sets Miniflux's per-feed `fetch_via_proxy`, which is the
+    poll. The remedy used to claim the opposite -- "does not touch the poll" --
+    so a feed whose XML was blocked by IP was told the one working fix would not
+    help. Article text needs no switch: the extractor falls back to the proxy on
+    its own."""
+    proxy = next(r for _, r in _every_remedy() if r.id == "proxy-on")
+    assert proxy.endpoint == "/feeds/set-proxy"
+    assert "poll" in proxy.name.lower()
+    assert "not touch the poll" not in proxy.desc
+
+
+@pytest.mark.parametrize("bucket", ["connect_fail", "forbidden"])
+def test_ip_level_blocks_are_offered_the_proxy(bucket):
+    """A site that drops this machine's IP (a timeout from a blocked VPN exit)
+    or refuses it outright (an IP-reputation 403) is reachable from a different
+    IP. The proxy is that different IP."""
+    assert "proxy-on" in {r.id for r in remedies_for(bucket)}
+
+
+def test_could_not_connect_does_not_call_a_chronic_failure_intermittent():
+    """A feed 200 polls into a timeout is not intermittent."""
+    assert "intermittent rather than broken" not in CAUSES["connect_fail"].explain.lower()
+
+
 def test_paused_feeds_are_offered_resumption():
     assert "resume" in {r.id for r in remedies_for("paused")}
 

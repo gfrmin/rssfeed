@@ -94,11 +94,14 @@ RESUME = Remedy(
 )
 
 PROXY_ON = Remedy(
-    id="proxy-on", cta="Enable", endpoint="/feeds/set-proxy",
-    name="Fetch article text through the proxy",
-    desc="Routes full-text extraction through the egress proxy. Note this does "
-         "not touch the poll itself — if the XML is blocked, entries still stop "
-         "arriving; it only rescues the article bodies of entries you already have.",
+    id="proxy-on", cta="Route via proxy", endpoint="/feeds/set-proxy",
+    name="Poll through the BrightData proxy",
+    desc="Miniflux fetches these feeds from a different IP, so a site that drops "
+         "or refuses this machine's address — a blocked VPN exit, an IP-reputation "
+         "rule — answers again. Metered by bandwidth. It does not solve a "
+         "JavaScript challenge, but a challenge served only because of this IP's "
+         "reputation can go away. Article text needs no switch: extraction "
+         "already falls back to the proxy on its own.",
 )
 
 ALLOW_SELF_SIGNED = Remedy(
@@ -195,7 +198,7 @@ CAUSES: dict[str, Cause] = {
                 "a user-agent block or an IP reputation rule. That is a "
                 "different fix from a Cloudflare interstitial, which is why the "
                 "two no longer share a bucket.",
-        remedies=(USER_AGENT, PROBE_URL, IMPORT_COOKIES, PAUSE),
+        remedies=(USER_AGENT, PROXY_ON, PROBE_URL, IMPORT_COOKIES, PAUSE),
     ),
     "bot_blocked": Cause(
         label="Blocked as a bot",
@@ -252,9 +255,10 @@ CAUSES: dict[str, Cause] = {
     "connect_fail": Cause(
         label="Could not connect",
         why="no response before the deadline",
-        explain="Intermittent rather than broken. A single slow poll should not "
-                "have promoted these to the same shelf as a hard refusal.",
-        remedies=(REFRESH, FLAKY_GRACE, PAUSE),
+        explain="A poll or two is a blip — re-check. Days of timeouts usually mean "
+                "the site is silently dropping this machine's IP, often a VPN exit "
+                "it has blocked, while it still loads from anywhere else.",
+        remedies=(REFRESH, PROXY_ON, FLAKY_GRACE, PAUSE),
     ),
     "unsupported_scheme": Cause(
         label="Unsupported URL",

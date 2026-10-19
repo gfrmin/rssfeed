@@ -49,7 +49,7 @@ when loaded directly. Journey `surface` value: `sidecar`.
 
 ## UX paths
 
-- **DESIGN.md**: none yet (loop stage 4). Earlier design work: `docs/design/reachability-triage/`,
+- **DESIGN.md**: `DESIGN.md` (tokens by reference, banned patterns, state matrix). Earlier design work: `docs/design/reachability-triage/`,
   `docs/superpowers/specs/2026-04-02-warm-editorial-redesign.md`, `docs/mobile-ux-audit.md`.
 - **Ledger**: none yet; will be `docs/ux/findings.yaml`
 - **Journeys**: `.claude/ux/journeys/` (nine, all evidence-backed; one kill signal met:

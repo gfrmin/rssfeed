@@ -568,12 +568,17 @@ async def set_proxy(feed_ids: list[int] = Form(...)):
     )
 
 
+# Miniflux polls through a feed's own proxy_url whenever it is non-empty;
+# fetch_via_proxy only selects the app-wide proxy. Off means clearing the URL.
+PROXY_OFF = {"fetch_via_proxy": False, "proxy_url": ""}
+
+
 @router.post("/feeds/unset-proxy")
 async def unset_proxy(feed_ids: list[int] = Form(...)):
-    """Non-destructive: turns fetch_via_proxy off on selected feeds."""
+    """Non-destructive: stops routing selected feeds through the proxy."""
     async def _one(fid: int) -> bool:
         try:
-            await miniflux_client.update_feed(fid, fetch_via_proxy=False)
+            await miniflux_client.update_feed(fid, **PROXY_OFF)
             return True
         except Exception as e:
             logger.warning("unset-proxy failed for feed %s: %s", fid, e)
@@ -1126,12 +1131,11 @@ async def set_extract_rules(feed_id: int, extract_rules: str = Form("")):
 
 @router.post("/feeds/{feed_id}/toggle-proxy")
 async def toggle_proxy(feed_id: int):
-    """Flip fetch_via_proxy for a single feed; refreshes on turn-on."""
+    """Route a single feed through the proxy, or stop; refreshes on turn-on."""
     feed = await miniflux_client.get_feed(feed_id)
     currently_on = bool(feed.get("fetch_via_proxy"))
     if currently_on:
-        # Miniflux 400s on empty proxy_url; leaving it stored is harmless when fetch_via_proxy=false.
-        await miniflux_client.update_feed(feed_id, fetch_via_proxy=False)
+        await miniflux_client.update_feed(feed_id, **PROXY_OFF)
         new_val = False
     else:
         if not BRIGHTDATA_PROXY:

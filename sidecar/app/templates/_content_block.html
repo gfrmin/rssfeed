@@ -12,9 +12,9 @@
 <div class="extract-bar full{{ ' empty' if cb.full_empty else '' }}">
   <div class="eb-left">
     {% if cb.full_empty %}
-    <span class="eb-badge warn">Full fetch · empty</span>
+    <span class="eb-badge warn" data-content-source="empty">Full fetch · empty</span>
     {% else %}
-    <span class="eb-badge full">Full article &middot; v{{ cb.version }}</span>
+    <span class="eb-badge full" data-content-source="full">Full article &middot; v{{ cb.version }}</span>
     {% endif %}
     <span class="eb-meta">fetched {{ cb.fetched }}</span>
     {% if cb.source %}<span class="dot-sep">&middot;</span><span class="eb-src src-{{ cb.source }}" title="extraction source">{{ icon("globe", 11) }} {{ SOURCE_LABELS.get(cb.source, cb.source) }}</span>{% endif %}
@@ -27,7 +27,7 @@
 {% else %}
 <div class="extract-bar rss">
   <div class="eb-left">
-    <span class="eb-badge rss">RSS content only</span>
+    <span class="eb-badge rss" data-content-source="rss">RSS content only</span>
     <span class="eb-note">Body truncated by the publisher’s feed.</span>
     {% if cb.show_login and cb.feed_id %}<a class="eb-login" href="/feeds/{{ cb.feed_id }}" hx-get="/feeds/{{ cb.feed_id }}" hx-target="#overlay-slot" title="Open feed settings to sign in with your subscription">{{ icon("key", 12) }} Subscription login</a>{% endif %}
   </div>
@@ -45,15 +45,15 @@
       <span class="show-full">{{ icon("globe", 12) }} Show full article</span>
     </label>
   </div>
-  <div class="art-body art-view-full">
+  <div class="art-body art-view-full" data-article-body>
     {% if cb.full_empty %}
     <p class="art-empty-note">The full-text fetch returned no content for this article. Switch to <strong>Show original RSS</strong> above to read the feed’s version, or try <strong>Refetch</strong>.</p>
     {% else %}
     {{ cb.body_html | clean_body }}
     {% endif %}
   </div>
-  <div class="art-body art-view-rss">{{ cb.rss_html | clean_body }}</div>
+  <div class="art-body art-view-rss" data-article-body="rss">{{ cb.rss_html | clean_body }}</div>
 </div>
 {% else %}
-<div class="art-body">{{ cb.body_html | clean_body }}</div>
+<div class="art-body" data-article-body>{{ cb.body_html | clean_body }}</div>
 {% endif %}

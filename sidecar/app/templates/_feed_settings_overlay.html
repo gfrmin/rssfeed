@@ -34,7 +34,7 @@
 
         <div class="fset-label">Priority</div>
         <div class="fset-ctrl">
-          <select class="ti" name="priority" hx-post="/feeds/{{ feed.id }}/set-priority" hx-swap="outerHTML" style="width:auto;">
+          <select class="ti" name="priority" data-feed-setting="priority" hx-post="/feeds/{{ feed.id }}/set-priority" hx-swap="outerHTML" style="width:auto;">
             <option value="1" {{ 'selected' if priority == 1 else '' }}>Must read</option>
             <option value="2" {{ 'selected' if priority == 2 else '' }}>Normal</option>
             <option value="3" {{ 'selected' if priority == 3 else '' }}>Low</option>
@@ -70,7 +70,7 @@
 
         <div class="fset-label">Fetch full content</div>
         <div class="fset-ctrl">
-          <button id="fc-toggle-{{ feed.id }}" class="fset-toggle {{ 'on' if fetch_full_content else 'off' }}" type="button" hx-post="/feeds/{{ feed.id }}/toggle-full-content" hx-swap="outerHTML">{{ 'ON' if fetch_full_content else 'OFF' }}</button>
+          <button id="fc-toggle-{{ feed.id }}" data-feed-setting="full-content" class="fset-toggle {{ 'on' if fetch_full_content else 'off' }}" type="button" hx-post="/feeds/{{ feed.id }}/toggle-full-content" hx-swap="outerHTML">{{ 'ON' if fetch_full_content else 'OFF' }}</button>
           <span class="fset-note">Fetch the full article from the source instead of the RSS summary.</span>
         </div>
 

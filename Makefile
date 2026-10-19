@@ -1,4 +1,4 @@
-.PHONY: css build up down restart logs ps test lint fmt
+.PHONY: css build up down restart logs ps test lint fmt seed-up seed-down
 
 # Run the test suite (must go through uv — system Python lacks the deps)
 test:
@@ -56,3 +56,10 @@ logs:
 # Show running services
 ps:
 	podman-compose ps
+
+# Seeded instance with invented content, for UX audits (seed/README.md)
+seed-up:
+	seed/run.sh up
+
+seed-down:
+	seed/run.sh down

@@ -52,7 +52,7 @@
     <option value="title">Title A–Z</option>
   </select>
   <form id="add-feed-form" class="flex gap-1.5 items-center">
-    <input type="url" name="feed_url" id="add-feed-url" placeholder="Feed or page URL..." class="input w-[250px] px-2.5 py-1.5 text-detail" required>
+    <input type="url" name="feed_url" id="add-feed-url" data-add-feed placeholder="Feed or page URL..." class="input w-[250px] px-2.5 py-1.5 text-detail" required>
     <select name="category_id" class="input w-auto px-2 py-1.5 text-detail">
       {% for cat in categories %}<option value="{{ cat.id }}">{{ cat.title }}</option>{% endfor %}
     </select>

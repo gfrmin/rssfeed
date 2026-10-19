@@ -19,6 +19,7 @@ steps:
     route: /entries?view=unread
     success: The first screen shows the top posts across feeds, each with its feed, age and a reason it ranked
     first_screen: At least three post titles with their feed names
+    first_screen_probe: '[data-entry-row] [data-entry-title]::'
     failure_modes:
       - The ranker engine is down → falls back to priority + recency and says the order is not personalised
       - 63k unread makes the count meaningless → show what's worth reading now, not a scary total

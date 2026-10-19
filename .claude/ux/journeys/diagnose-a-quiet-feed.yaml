@@ -23,6 +23,7 @@ steps:
     route: /entries?feed_id={feed_id}
     success: The feed's own page and its sidebar row say "no new posts for N days" and whether polling is failing
     first_screen: The feed's health line (last post, last successful poll) next to its name
+    first_screen_probe: '[data-feed-health]::'  # hook to add with the health line; the feed page has none today
     failure_modes:
       - Polls succeed but the publisher has posted nothing → "quiet since <date>", distinct from an error
       - Polls fail with a timeout for days → shown as broken, not as quiet; the count of days is visible

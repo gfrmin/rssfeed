@@ -5,18 +5,17 @@ Read by the global `ux-loop` skill and its critics. Repo rules are in `CLAUDE.md
 
 ## Run
 
-- **Working directory**: `sidecar/`
-- **Command**: `../run-sidecar.sh` from the repo root of a checkout with a `.env`; it serves `--reload` on
-  `RSSFEED_PORT` (default 9145, loopback). It needs Postgres and Miniflux running (containers `rssfeed_db_1`,
-  `rssfeed_miniflux_1`); the sidecar itself is not containerised.
-- **Port / health**: 9145; `curl -sf http://localhost:9145/ -o /dev/null` (no `/health` route; `/` is the
+- **Working directory**: repo root
+- **Command**: `make seed-up` from the repo root (seeded instance, `seed/README.md`); `make seed-down` after.
+  It runs its own Postgres :5434 and Miniflux :9146 (podman, tmpfs) and the sidecar from this checkout on :9147.
+  Restart it (`down` then `up`) after a template change: the seeded sidecar does not `--reload`.
+- **Port / health**: 9147; `curl -sf http://localhost:9147/ -o /dev/null` (no `/health` route; `/` is the
   feeds table, so it is also the slowest page)
-- **Env / fixtures**: the ranker (`CREDENCE_SKIN_SERVER`) and embeddings (Ollama) are optional and fail open:
-  with neither, cross-feed views order by priority + recency. Run critiques with both off unless the round is
-  about ranking.
-- **Local data**: **none yet** — a seeded instance with invented feeds and articles is loop stage 4. Until it
-  exists, nothing captured from a running instance may be committed (see Constraints).
-- **Prod fallback**: the owner's instance (host, address and access in the private ops repo, `rssfeed/README.md`), **GETs
+- **Env / fixtures**: the seed runs with ranker, embeddings and proxies off (`seed/run.sh`), so cross-feed views
+  order by priority + recency — that is the fail-open state, and the one to audit unless the round is about
+  ranking.
+- **Local data**: the seeded instance, ~20 s. Invented content only; crops from it may be committed.
+- **Prod fallback**: only for questions the seed cannot answer (scale: 500+ feeds, 70k entries). The owner's instance (host, address and access in the private ops repo, `rssfeed/README.md`), **GETs
   only**, a few pages.
   It holds the owner's real subscriptions and articles: crops stay in the scratchpad and are described, never
   committed. Say in the report that prod was used.
@@ -31,9 +30,10 @@ Read by the global `ux-loop` skill and its critics. Repo rules are in `CLAUDE.md
 
 ## Routes to sample
 
-- **How to get real ids**: `podman exec -i rssfeed_db_1 psql -U miniflux -d miniflux -At` on the host running the
-  instance, with `SELECT id FROM feeds WHERE NOT disabled ORDER BY checked_at DESC LIMIT 3` on stdin; entry ids
-  the same way from `entries`. Triage buckets come from `/triage`'s own links.
+- **How to get real ids**: on a fresh seed, feed ids follow `seed/content.py`'s `FEEDS` order (1 Tidewater
+  Ledger, 2 Kettle & Code, 6 the Hebrew feed, 9 the 60-entry digest, 10 the quiet one); `seed-up` prints the
+  changing entry's id (the one with a diff). Other entry ids: `podman exec -i rssfeed-seed_db_1 psql -U miniflux
+  -d miniflux -At <<< 'SELECT id FROM entries WHERE feed_id = 1 ORDER BY published_at DESC LIMIT 3'`. Triage buckets come from `/triage`'s own links.
 - **Routes**: `/` (feeds table), `/entries?view=unread`, `/entries?view=all`, `/entries?feed_id={id}`,
   `/entries/{id}` (direct load, not only via htmx: a direct load is a journey failure mode),
   `/entries/{id}/diff` for an entry with versions (`/entries?view=changed` lists them), `/triage`,
@@ -55,7 +55,7 @@ when loaded directly. Journey `surface` value: `sidecar`.
 - **Journeys**: `.claude/ux/journeys/` (nine, all evidence-backed; one kill signal met:
   `teach-what-i-like`). Surface `sidecar`.
 - **Gate test**: none yet — the `ux-loop` skill describes the ledger gate; write it with the ledger
-- **Committed crops**: none until the seeded instance exists; then `docs/ux/crops/`, sev≥3 only, ≤150 KB
+- **Committed crops**: `docs/ux/crops/`, from the seeded instance only, sev≥3 only, ≤150 KB
 - **Signals reader**: none; run each `sql` signal through `podman exec -i rssfeed_db_1 psql -U miniflux -d miniflux -At`
   on the instance's host with the query on stdin (over ssh, `-c` quoting breaks), and `log` signals there as
   written.

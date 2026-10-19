@@ -26,6 +26,7 @@ steps:
     route: /entries/{entry_id}/diff
     success: Additions and removals marked by more than colour (strike/underline or +/−), readable on a phone
     first_screen: The first changed passage, not the unchanged opening
+    first_screen_probe: '[data-diff-change]::'
     failure_modes:
       - The label says changed but the diff shows nothing → the two never disagree
   - id: browse-changed

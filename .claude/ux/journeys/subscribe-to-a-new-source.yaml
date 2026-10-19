@@ -16,6 +16,7 @@ steps:
     route: /
     success: A feed URL subscribes at once; a site URL shows the feeds it advertises to pick from; the new feed opens with its first posts
     first_screen: The add-feed field, above the feeds table, not below OPML controls
+    first_screen_probe: '[data-add-feed]::'
     failure_modes:
       - The URL is already subscribed → says which feed, links to it, does not create a duplicate
       - The site has no feed at all → says so plainly and names the option (page-to-feed) if one exists, instead of a bare "no feeds found"

@@ -1,0 +1,49 @@
+persona: owner-phone-reader
+jtbd: "When I have time to read but no particular feed in mind, I want the unread posts across all my feeds ordered by what I'd most want now, so the best few are at the top and the rest can wait."
+provenance: evidence
+source: >-
+  Owner's Claude prompt history (private, see README): 2026-03-30 ("much more intelligent curation of
+  which articles I want to read than the so-called 'intelligence trainer' of newsblur"), 2026-03-31
+  ("showing all unread posts in order of what I'd want to read"; "some combination of recency and
+  blog"), 2026-06-20 ("make it easier to see only the posts i want to see"; "the non-feed pages, i.e.
+  those that cut across feeds, can and should have more sophisticated ordering across all articles
+  that learns over time"), 2026-07-17 ("improve article discovery, exploration and navigation"),
+  2026-07-18 ("finding interesting articles to read, where 'interesting' could be different at
+  different times"). Behaviour, prod DB 2026-10-18: 63,436 unread entries; reads in the last 30 days
+  came from 10 feeds and 89% from one, which says reading now starts from a feed, not from this view.
+  The wish is evidenced; current use of this view is not.
+steps:
+  - id: open-the-ranked-view
+    goal: Land on a short list of the best unread posts
+    surface: sidecar
+    route: /entries?view=unread
+    success: The first screen shows the top posts across feeds, each with its feed, age and a reason it ranked
+    first_screen: At least three post titles with their feed names
+    failure_modes:
+      - The ranker engine is down → falls back to priority + recency and says the order is not personalised
+      - 63k unread makes the count meaningless → show what's worth reading now, not a scary total
+      - The top is dominated by one prolific feed → mix or cap per feed
+    scent: '"Smart" vs "Newest" toggle labels say what the order is'
+  - id: judge-quickly
+    goal: Decide from the list whether a post is worth opening
+    surface: sidecar
+    route: /entries?view=unread
+    success: Title, feed, author, age and the first line of text are on the row; the "why" chip explains rank in words
+    failure_modes:
+      - HTML entities in previews (&#39;) → decoded text
+      - Tags crowd out the title (more than 5) → hidden by default
+  - id: read-and-return
+    goal: Read one, come back to the same ranked list
+    surface: sidecar
+    route: /entries/{entry_id}
+    success: Back returns to the ranked list with the same order; swiping goes to the next ranked post, not the next in that feed
+    failure_modes:
+      - The list reorders after each read so the next item jumps → order frozen for the session
+signals:
+  - name: ranked-view-loads
+    kind: log
+    query: "journalctl --user -u rssfeed-sidecar --since '-{window_days} days' -o cat | grep -cE '\"GET /entries\\?(view=unread|view=all)'"
+    window_days: 30
+    threshold: 5
+    becomes_evidence: The cross-feed view was opened several times; does not separate owner from agent traffic, or a glance from a read.
+    note: Journal retention was ~2 days on 2026-10-18. Recording the view a read came from (list/nav/direct, planned in the ranker work) would measure this properly.

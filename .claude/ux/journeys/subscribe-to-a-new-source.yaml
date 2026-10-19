@@ -1,0 +1,35 @@
+persona: owner-maintainer
+jtbd: "When I come across a site worth following, I want to add it from its feed URL or just its address, even if it has no feed, so it shows up with my other reading."
+provenance: evidence
+source: >-
+  Owner's Claude prompt history (private, see README): 2026-04-11 ("how to delete feeds in the UI? or
+  indeed add one? (conversely, make OPML buttons less conspicuous, they won't be used again for a long
+  time)"; "make it easy to find the url of the actual xml file"), 2026-04-21 ("how about discovering
+  feeds from URLs (if they themselves don't return the necessary xml) first?"; "how about creating
+  feeds from HTML pages where there's no RSS? ... [a parliament] seems to have genuinely got rid of
+  their RSS feed for their news"; "i thought miniflux has something for discovering feeds too").
+  No behaviour count: nothing records when a feed was added.
+steps:
+  - id: paste-an-address
+    goal: Add a feed from a feed URL or a site URL
+    surface: sidecar
+    route: /
+    success: A feed URL subscribes at once; a site URL shows the feeds it advertises to pick from; the new feed opens with its first posts
+    first_screen: The add-feed field, above the feeds table, not below OPML controls
+    failure_modes:
+      - The URL is already subscribed → says which feed, links to it, does not create a duplicate
+      - The site has no feed at all → says so plainly and names the option (page-to-feed) if one exists, instead of a bare "no feeds found"
+      - The site blocks this machine → the subscribe error points at the proxy remedy rather than failing as "not a feed"
+    scent: '"Add feed", not "Subscribe" next to "Import OPML" with equal weight'
+  - id: place-it
+    goal: Give it a category and priority
+    surface: sidecar
+    route: /feeds/{feed_id}
+    success: The new feed's settings are one tap from the success message
+    failure_modes:
+      - New feed lands in a default category with no hint → category picker in the add flow or the success message
+signals:
+  - name: feeds-added
+    kind: none
+    note: Miniflux's feeds table has no creation time here. Record subscribe events (or compare feed id ranges between DB snapshots) to measure this.
+    becomes_evidence: How often the owner adds feeds now that the migration is done.

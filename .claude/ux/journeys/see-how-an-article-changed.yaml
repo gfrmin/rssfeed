@@ -1,0 +1,43 @@
+persona: owner-phone-reader
+jtbd: "When a post looks edited or says 'updated', I want to see what changed since it was first published, so I know what the publisher altered."
+provenance: evidence
+source: >-
+  Owner's Claude prompt history (private, see README): 2026-03-30 (founding request: "storing the feed
+  indefinitely ... showing changes in feed/article content over time"), 2026-03-31 ("refetch full
+  article on demand, storing diffs"), 2026-04-02 ("the rss content of this entry changed over time,
+  was it captured?"), 2026-04-03 ("so why no text differences?" on a diff page), 2026-04-04 ("if rss
+  content changes, and feed is set to always fetch full content, then feed should fetch full content
+  again"), 2026-04-05 ("there is a change in v2 but it says otherwise"), 2026-04-07 ("this story
+  definitely changed on the site (see 'updated' notice), so why didn't we fetch both before and after
+  automatically?"). No prompts about it after 2026-04-07; no GET of a /diff route in the 2026-10-17/18
+  access log.
+steps:
+  - id: notice-a-change
+    goal: Know a post has more than one version
+    surface: sidecar
+    route: /entries/{entry_id}
+    success: The article header says "2 versions" with dates, only when the text really differs
+    failure_modes:
+      - Versions differ only in whitespace or markup → not called a change
+      - The site changed but no second version was fetched → the header says when it was last fetched
+  - id: read-the-diff
+    goal: See exactly what changed
+    surface: sidecar
+    route: /entries/{entry_id}/diff
+    success: Additions and removals marked by more than colour (strike/underline or +/−), readable on a phone
+    first_screen: The first changed passage, not the unchanged opening
+    failure_modes:
+      - The label says changed but the diff shows nothing → the two never disagree
+  - id: browse-changed
+    goal: See which recent posts were edited
+    surface: sidecar
+    route: /entries?view=changed
+    success: A list of posts with more than one differing version, newest change first
+signals:
+  - name: diff-views
+    kind: log
+    query: "journalctl --user -u rssfeed-sidecar --since '-{window_days} days' -o cat | grep -cE '\"GET /entries/[0-9]+/diff|view=changed'"
+    window_days: 30
+    threshold: 1
+    becomes_evidence: The owner looked at a change at least once this month.
+    note: Same journal-retention caveat as the other log signals.

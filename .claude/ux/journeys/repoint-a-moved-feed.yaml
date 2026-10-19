@@ -1,0 +1,39 @@
+persona: owner-maintainer
+jtbd: "When a site has moved its feed, I want to give the existing feed its new URL (or pick from discovered ones) and keep its history, so its old and new posts stay together."
+provenance: evidence
+source: >-
+  Owner's Claude prompt history (private, see README): 2026-04-20 ("how to change the url of a feed?
+  or 'supersede' a feed with a new URL? Need to design the right UI"; "re [the historical] import,
+  that's why we need to keep past URLs of feeds"; "i don't want to delete feeds"), 2026-04-21
+  ("we just need 'update url', which first tries the url as is, and if that fails then it can
+  discover"; "why would i want discovery if i give the xml url? i'm a power user"; the candidates
+  table overflowing so the "choose" button couldn't be reached on two feeds; "when i click 'confirm'
+  after 'choose', nothing happens"; changing URL "should optionally change the title and/or site
+  url"; "so why don't url and title change immediately"; an alert on submit, "annoying").
+  Prod DB 2026-10-18: 13 rows in feed_url_history. Repo CLAUDE.md: feeds are not disposable.
+steps:
+  - id: enter-new-url
+    goal: Paste the new feed or site URL into the existing feed
+    surface: sidecar
+    route: /feeds/{feed_id}
+    success: A feed XML URL is used as is, at once; a page URL leads to discovery only if it isn't a feed
+    failure_modes:
+      - The URL is a working feed → applied without a discovery step
+      - The URL is an HTML page → candidates listed, each with its title and a choose button reachable at 360px (long URLs wrap or truncate)
+      - The URL is unreachable from this machine → says so, and that the proxy remedy exists
+  - id: confirm-and-see-it
+    goal: Accept the new URL and optionally its title/site URL
+    surface: sidecar
+    route: /feeds/{feed_id}
+    success: After confirm, the page shows the new URL, title and site, keeps the old URL in history, and polls once
+    failure_modes:
+      - Confirm returns with nothing changed on screen → the settings re-render with the new values
+      - A popup alert announces success → inline status instead
+      - The old entries vanish or detach → same feed id, history kept
+signals:
+  - name: url-changes
+    kind: sql
+    query: "SELECT count(*) FROM feed_url_history WHERE changed_at > now() - interval '{window_days} days'"
+    window_days: 180
+    threshold: 1
+    becomes_evidence: The owner repointed at least one feed in six months, so the flow is still needed.

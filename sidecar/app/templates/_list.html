@@ -10,7 +10,7 @@
     <div class="list-head-top">
       <div class="list-title-wrap">
         {% if feed %}{{ tile(feed, 18) }}{% endif %}
-        <h1 class="list-title">{{ title }}</h1>
+        <h1 class="list-title" data-list-title>{{ title }}</h1>
         <span class="list-count">{{ entries | length }}</span>
       </div>
       <button class="mark-all" type="button" {{ 'disabled' if not entries else '' }} title="Mark all visible read (r)">
@@ -84,7 +84,7 @@
   <div class="list-empty">{{ icon("check", 28) }}<p>Nothing here. You're all caught up.</p></div>
   {% else %}
   {% for e in entries %}
-  <div class="erow {{ 'read' if e.status == 'read' else 'unread' }}"
+  <div class="erow {{ 'read' if e.status == 'read' else 'unread' }}" data-entry-row
        data-entry-id="{{ e.id }}" data-url="{{ e.url }}" data-href="/entries/{{ e.id }}"
        data-feed-id="{{ e.feed.id if e.feed else '' }}"
        hx-get="/entries/{{ e.id }}" hx-target="#reader-col" hx-trigger="reader:open" hx-push-url="/entries/{{ e.id }}">
@@ -93,7 +93,7 @@
       {% if e.status != 'read' %}<span class="erow-unread-dot"></span>{% endif %}
     </div>
     <div class="erow-body">
-      <div class="erow-title">{% if e._has_changes %}<span class="erow-changed" title="Content changed">&pm;</span>{% endif %}{{ e.title | inline_html }}</div>
+      <div class="erow-title" data-entry-title>{% if e._has_changes %}<span class="erow-changed" title="Content changed">&pm;</span>{% endif %}{{ e.title | inline_html }}</div>
       <div class="erow-excerpt">{{ e.content | excerpt }}</div>
       <div class="erow-meta">
         {% if feed_id %}{# feed page: author is more useful than the (redundant) feed name, and is a hide affordance #}

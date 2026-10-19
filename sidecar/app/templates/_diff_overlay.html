@@ -31,7 +31,7 @@
         {% if not ds.lines %}
         <p class="ov-lede" style="margin:0;">No text differences between these versions.</p>
         {% else %}
-        <pre class="diff-block">{% for l in ds.lines %}<div class="diff-line {{ 'add' if l.t == '+' else 'del' if l.t == '-' else 'ctx' }}"><span class="diff-gutter">{{ l.t if l.t != ' ' else '' }}</span><span class="diff-text">{% if l.s %}{{ l.s }}{% else %}&#160;{% endif %}</span></div>{% endfor %}</pre>
+        <pre class="diff-block">{% for l in ds.lines %}<div class="diff-line {{ 'add' if l.t == '+' else 'del' if l.t == '-' else 'ctx' }}"{% if l.t == '+' or l.t == '-' %} data-diff-change{% endif %}><span class="diff-gutter">{{ l.t if l.t != ' ' else '' }}</span><span class="diff-text">{% if l.s %}{{ l.s }}{% else %}&#160;{% endif %}</span></div>{% endfor %}</pre>
         <div class="diff-split">{% for r in ds.split_rows %}<div class="dsplit-row"><div class="dsplit-cell {{ 'ctx' if r.ctx else 'del' if r.left is not none else 'nil' }}"><span class="dsplit-gutter">{{ '' if r.ctx else ('&#8722;' | safe) if r.left is not none else '' }}</span><span class="dsplit-text">{% if r.left is not none %}{% if r.left %}{{ r.left }}{% else %}&#160;{% endif %}{% endif %}</span></div><div class="dsplit-cell {{ 'ctx' if r.ctx else 'add' if r.right is not none else 'nil' }}"><span class="dsplit-gutter">{{ '' if r.ctx else '+' if r.right is not none else '' }}</span><span class="dsplit-text">{% if r.right is not none %}{% if r.right %}{{ r.right }}{% else %}&#160;{% endif %}{% endif %}</span></div></div>{% endfor %}</div>
         {% endif %}
       </section>

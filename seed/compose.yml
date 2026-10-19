@@ -1,0 +1,41 @@
+# Throwaway Postgres + Miniflux for the seeded instance (see seed/README.md).
+# Separate project, ports and volume from the real stack: nothing here can
+# touch docker-compose.yml's database. Miniflux uses the host network so it
+# reaches the seed server on 127.0.0.1, at the same URLs the sidecar sees.
+name: rssfeed-seed
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: miniflux
+      POSTGRES_PASSWORD: seed
+      POSTGRES_DB: miniflux
+    ports:
+      - "127.0.0.1:${SEED_DB_PORT:-5434}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "miniflux"]
+      interval: 2s
+      retries: 30
+
+  miniflux:
+    image: miniflux/miniflux:latest
+    network_mode: host
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://miniflux:seed@127.0.0.1:${SEED_DB_PORT:-5434}/miniflux?sslmode=disable
+      LISTEN_ADDR: 127.0.0.1:${SEED_MINIFLUX_PORT:-9146}
+      RUN_MIGRATIONS: "1"
+      CREATE_ADMIN: "1"
+      ADMIN_USERNAME: seed
+      ADMIN_PASSWORD: seed-only-password
+      CLEANUP_ARCHIVE_READ_DAYS: "-1"
+      CLEANUP_ARCHIVE_UNREAD_DAYS: "-1"
+      POLLING_FREQUENCY: "1440"
+      POLLING_PARSING_ERROR_LIMIT: "0"
+      HTTP_CLIENT_TIMEOUT: "5"
+      # The seed server is on loopback, which Miniflux refuses by default.
+      FETCHER_ALLOW_PRIVATE_NETWORKS: "1"

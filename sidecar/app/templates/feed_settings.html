@@ -64,7 +64,7 @@
 
 <div class="my-6 flex items-center gap-4 flex-wrap">
   <label class="text-text-muted min-w-[180px]">Priority</label>
-  <select name="priority" hx-post="/feeds/{{ feed.id }}/set-priority" hx-swap="outerHTML" class="input w-auto px-2.5 py-1.5">
+  <select name="priority" data-feed-setting="priority" hx-post="/feeds/{{ feed.id }}/set-priority" hx-swap="outerHTML" class="input w-auto px-2.5 py-1.5">
     <option value="1" {{ 'selected' if priority == 1 else '' }}>Must Read</option>
     <option value="2" {{ 'selected' if priority == 2 else '' }}>Normal</option>
     <option value="3" {{ 'selected' if priority == 3 else '' }}>Low</option>
@@ -77,6 +77,7 @@
   <label class="text-text-muted min-w-[180px]">Fetch full article content</label>
   <button
     id="fc-toggle-{{ feed.id }}"
+    data-feed-setting="full-content"
     hx-post="/feeds/{{ feed.id }}/toggle-full-content"
     hx-swap="outerHTML"
     class="toggle border-none px-3 py-1.5 rounded-lg cursor-pointer font-semibold text-caption hover:opacity-85 {{ 'on' if fetch_full_content else 'off' }}"

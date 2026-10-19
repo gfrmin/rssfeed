@@ -1098,7 +1098,7 @@ async def set_priority(feed_id: int, priority: int = Form(2)):
         for v, label in labels.items()
     )
     return HTMLResponse(
-        f'<select class="ti" name="priority" hx-post="/feeds/{feed_id}/set-priority" hx-swap="outerHTML" style="width:auto;">{options}</select>'
+        f'<select class="ti" name="priority" data-feed-setting="priority" hx-post="/feeds/{feed_id}/set-priority" hx-swap="outerHTML" style="width:auto;">{options}</select>'
     )
 
 
@@ -1199,7 +1199,7 @@ async def toggle_full_content(feed_id: int):
     label = "ON" if new_val else "OFF"
     cls = "on" if new_val else "off"
     return HTMLResponse(
-        f'<button id="fc-toggle-{feed_id}" hx-post="/feeds/{feed_id}/toggle-full-content" hx-swap="outerHTML" class="fset-toggle {cls}">{label}</button>'
+        f'<button id="fc-toggle-{feed_id}" data-feed-setting="full-content" hx-post="/feeds/{feed_id}/toggle-full-content" hx-swap="outerHTML" class="fset-toggle {cls}">{label}</button>'
     )
 
 

@@ -22,6 +22,7 @@ steps:
     route: /entries?feed_id={feed_id}
     success: The feed's unread posts, newest first, with an unread count; one tap from the app's first screen
     first_screen: The feed's name and its newest unread post title, without opening a drawer
+    first_screen_probe: '[data-entry-row] [data-entry-title]::'
     failure_modes:
       - The app opens on the feeds management table at `/` instead of reading → the feed is still one obvious tap away
       - The feed has nothing unread → say "all read", with one tap to show read posts (not a blank pane)
@@ -33,6 +34,7 @@ steps:
     route: /entries/{entry_id}
     success: Swipe left/right moves to the older/newer post within the same feed; the post is marked read on open
     first_screen: The post title and the first paragraph of its text on a 360px screen
+    first_screen_probe: '[data-article-body] p::'
     failure_modes:
       - Swipe crosses into a different feed or view than the one being read → next/previous stay within the list it came from
       - Opening an article URL directly (refresh, shared link, back from another app) → single-pane mobile layout with CSS, not three panes, not unstyled, not redirected to the main list

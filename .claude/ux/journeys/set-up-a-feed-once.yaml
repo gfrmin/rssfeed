@@ -26,6 +26,7 @@ steps:
     route: /feeds/{feed_id}
     success: Each control shows its current state in words, changes in place, and says what it will do to future posts
     first_screen: The feed's name and its current full-text, priority and paused states
+    first_screen_probe: '[data-feed-setting="full-content"]::'
     failure_modes:
       - A toggle answers with JSON or a page reload → the control re-renders with its new state
       - Full text costs money or load (proxy, rate limits) → the cost is said next to the control

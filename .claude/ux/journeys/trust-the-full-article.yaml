@@ -20,6 +20,7 @@ steps:
     route: /entries/{entry_id}
     success: A plain label above the text (feed text / full article, with version) that matches the text below it
     first_screen: The source label and the start of the article body
+    first_screen_probe: '[data-content-source]::'
     failure_modes:
       - Full text was fetched but is empty or shorter than the feed text → show what was fetched, say so, and offer the feed text
       - Fetched text drops images, links or inline colour the original has → judged against the original page, not against "has some text"
